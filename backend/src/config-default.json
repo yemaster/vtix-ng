@@ -1,0 +1,16 @@
+{
+    "db": {
+        "type": "sqlite",
+        "database": "a.db"
+    },
+    "website": {
+        "title": "VegeTable OJ"
+    },
+    "ui": {
+        "theme": "light",
+        "language": "zh-CN"
+    },
+    "server": {
+        "port": 8080
+    }
+}
