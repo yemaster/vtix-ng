@@ -12,7 +12,7 @@ function feedback() {
     <div class="v-container" :class="{ 'hidden': $route.name === 'Test' }">
         <div class="v-divider"></div>
         <div class="v-footer">
-            <n-a href="https://github.com/yemaster/vstc" target="_blank">Github</n-a>
+            <n-a href="https://github.com/yemaster/vtix-ng" target="_blank">Github</n-a>
             |
             <router-link :to="{ name: 'Update Logs' }" #="{ navigate, href }" custom>
                 <n-a :href="href" @click="navigate">
