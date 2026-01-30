@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import Button from 'primevue/button'
 import Dropdown from 'primevue/dropdown'
 import InputText from 'primevue/inputtext'
 import Tag from 'primevue/tag'
-import { useRouter } from 'vue-router'
 import { useUserStore } from '../../stores/user'
 
 type QuestionBankItem = {
@@ -22,8 +22,6 @@ const apiBase = import.meta.env.VITE_API_BASE ?? 'http://localhost:3000'
 const router = useRouter()
 const userStore = useUserStore()
 
-const MANAGE_QUESTION_BANK_ALL = 1 << 10
-
 const items = ref<QuestionBankItem[]>([])
 const isLoading = ref(false)
 const loadError = ref('')
@@ -37,15 +35,29 @@ const pageSizeOptions = [
   { label: '12', value: 12 }
 ]
 
-const canEditAll = computed(
-  () => Boolean(userStore.user?.permissions && (userStore.user.permissions & MANAGE_QUESTION_BANK_ALL))
-)
+function handleCreateClick() {
+  if (!userStore.user) {
+    router.push({ name: 'login' })
+    return
+  }
+  router.push({ name: 'admin-question-bank-create' })
+}
+
+function handleEditClick(code: string) {
+  router.push({ name: 'admin-question-bank-edit', params: { code } })
+}
 
 async function loadItems() {
+  if (!userStore.user) {
+    router.push({ name: 'login' })
+    return
+  }
   isLoading.value = true
   loadError.value = ''
   try {
-    const response = await fetch(`${apiBase}/api/problem-sets`)
+    const response = await fetch(`${apiBase}/api/my-problem-sets`, {
+      credentials: 'include'
+    })
     if (!response.ok) {
       throw new Error(`加载失败: ${response.status}`)
     }
@@ -63,14 +75,6 @@ async function loadItems() {
   } finally {
     isLoading.value = false
   }
-}
-
-function handleCreateClick() {
-  if (!userStore.user) {
-    router.push({ name: 'login' })
-    return
-  }
-  router.push({ name: 'admin-question-bank-create' })
 }
 
 const categories = computed(() => {
@@ -118,21 +122,6 @@ function setPage(page: number) {
   currentPage.value = page
 }
 
-function handleCardClick(event: MouseEvent, code: string) {
-  if (event.defaultPrevented) return
-  if (event.button !== 0) return
-  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
-  event.preventDefault()
-  const target = `/t/${code}`
-  window.setTimeout(() => {
-    router.push(target)
-  }, 120)
-}
-
-function handleEditClick(code: string) {
-  router.push({ name: 'admin-question-bank-edit', params: { code } })
-}
-
 onMounted(() => {
   void loadItems()
 })
@@ -142,13 +131,12 @@ onMounted(() => {
   <section class="page">
     <header class="page-head">
       <div>
-        <div class="eyebrow">题库管理</div>
-        <h1>题库列表</h1>
-        <p>集中管理题库内容，支持搜索、分类筛选与年份查看。</p>
+        <div class="eyebrow">我的题库</div>
+        <h1>我创建的题库</h1>
+        <p>管理并继续练习自己创建的题库。</p>
       </div>
       <div class="page-actions">
         <Button
-          v-if="userStore.user"
           label="新建题库"
           size="small"
           class="action-btn primary"
@@ -164,7 +152,6 @@ onMounted(() => {
         />
       </div>
     </header>
-
     <div class="filters">
       <div class="search">
         <InputText v-model="search" placeholder="搜索标题、编号或年份" />
@@ -204,16 +191,15 @@ onMounted(() => {
         </div>
         <div class="skeleton-count"></div>
       </article>
-      <div
+      <RouterLink
         v-else
         v-for="item in pagedItems"
         :key="item.id"
-        :class="['card', 'card-link', 'p-ripple', { recommended: item.recommendedRank !== null }]"
-        v-ripple
-        @click="handleCardClick($event, item.code)"
+        :class="['card', 'card-link', { recommended: item.recommendedRank !== null }]"
+        :to="`/t/${item.code}`"
       >
         <div class="card-top">
-          <div class="card-main">
+          <div>
             <div class="card-title">{{ item.title }}</div>
             <div class="card-meta">
               <span class="meta-date">{{ item.year }} 年</span>
@@ -224,7 +210,6 @@ onMounted(() => {
             </div>
             <div class="card-actions">
               <Button
-                v-if="canEditAll"
                 label="编辑"
                 size="small"
                 severity="secondary"
@@ -240,7 +225,7 @@ onMounted(() => {
           </div>
         </div>
         <div v-if="item.isNew" class="corner-badge" aria-hidden="true"></div>
-      </div>
+      </RouterLink>
     </div>
     <div v-if="!isLoading && pagedItems.length === 0" class="empty">暂无匹配题库</div>
 
@@ -308,6 +293,16 @@ onMounted(() => {
   gap: 12px;
 }
 
+.primary {
+  border: none;
+  border-radius: 12px;
+  background: #1f2937;
+  color: #ffffff;
+  padding: 12px 18px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 10px 24px rgba(31, 41, 55, 0.2);
+}
 
 .page-head h1 {
   margin: 8px 0 6px;
@@ -325,17 +320,6 @@ onMounted(() => {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: #9aa2b2;
-}
-
-.primary {
-  border: none;
-  border-radius: 12px;
-  background: #1f2937;
-  color: #ffffff;
-  padding: 12px 18px;
-  font-weight: 700;
-  cursor: pointer;
-  box-shadow: 0 10px 24px rgba(31, 41, 55, 0.2);
 }
 
 .status {
@@ -488,11 +472,6 @@ onMounted(() => {
   font-weight: 600;
 }
 
-.card-main {
-  flex: 1;
-  min-width: 0;
-}
-
 .card-actions {
   margin-top: 10px;
   display: flex;
@@ -573,26 +552,6 @@ onMounted(() => {
   color: #111827;
 }
 
-.ghost,
-.danger {
-  border: none;
-  background: transparent;
-  color: #6b7280;
-  padding: 0;
-  cursor: pointer;
-  font-weight: 600;
-  font-size: 13px;
-  transition: color 0.2s ease;
-}
-
-.ghost:hover {
-  color: #111827;
-}
-
-.danger:hover {
-  color: #b91c1c;
-}
-
 .empty {
   text-align: center;
   color: #9aa2b2;
@@ -650,10 +609,6 @@ onMounted(() => {
 @media (max-width: 900px) {
   .page-head {
     flex-direction: column;
-  }
-
-  .card-body {
-    grid-template-columns: 1fr;
   }
 }
 </style>

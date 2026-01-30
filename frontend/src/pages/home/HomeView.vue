@@ -1,8 +1,38 @@
 <script setup lang="ts">
+import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
+import Button from 'primevue/button'
+import Tag from 'primevue/tag'
+
+type PracticeRecord = {
+  id: string
+  testId: string
+  testTitle?: string
+  updatedAt: number
+  practiceMode: number
+  progress: {
+    timeSpentSeconds?: number
+    currentProblemId?: number
+    problemList?: unknown[]
+  }
+}
+
+const router = useRouter()
+const STORAGE_KEY = 'vtixSave'
+const records = ref<PracticeRecord[]>([])
+
 const stats = [
-    { title: '题库总量', value: '12', detail: '覆盖近三年题库' },
-    { title: '题目总数', value: '3,280', detail: '持续更新中' },
-    { title: '推荐题库', value: '3', detail: '重点优先练习' }
+    { title: '题库总量', value: '12', detail: '覆盖近三年题库', delta: '+2 本月', tone: 'indigo', progress: 72 },
+    { title: '题目总数', value: '3,280', detail: '持续更新中', delta: '+120 周', tone: 'emerald', progress: 64 },
+    { title: '推荐题库', value: '3', detail: '重点优先练习', delta: '重点', tone: 'amber', progress: 38 }
+]
+
+const modes = [
+    { label: '顺序练习', value: 0 },
+    { label: '乱序练习', value: 1 },
+    { label: '自定义练习', value: 2 },
+    { label: '错题回顾', value: 4 },
+    { label: '模拟考试', value: 5 }
 ]
 
 const timeline = [
@@ -10,6 +40,57 @@ const timeline = [
     { name: '2024 近代史纲要', date: '政治类 · 题库', status: '已整理', code: '2024jdsgy' },
     { name: '2023 校规校纪', date: '入学类 · 题库', status: '可练习', code: '2023xgxj' }
 ]
+
+const recentRecords = computed(() =>
+    records.value
+        .slice()
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .slice(0, 3)
+)
+
+function getModeLabel(value: number) {
+    return modes.find((item) => item.value === value)?.label ?? '练习'
+}
+
+function formatTimestamp(timestamp: number) {
+    const date = new Date(timestamp)
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    const hours = String(date.getHours()).padStart(2, '0')
+    const minutes = String(date.getMinutes()).padStart(2, '0')
+    return `${month}-${day} ${hours}:${minutes}`
+}
+
+function formatDuration(seconds: number) {
+    const total = Math.max(0, Math.floor(seconds))
+    const hours = Math.floor(total / 3600)
+    const minutes = Math.floor((total % 3600) / 60)
+    const secs = total % 60
+    const mm = String(minutes).padStart(2, '0')
+    const ss = String(secs).padStart(2, '0')
+    if (hours > 0) {
+        return `${hours}:${mm}:${ss}`
+    }
+    return `${mm}:${ss}`
+}
+
+function loadRecords() {
+    if (!window.localStorage) return
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return
+    try {
+        const parsed = JSON.parse(raw)
+        if (Array.isArray(parsed)) {
+            records.value = parsed.filter((item) => item && typeof item.id === 'string')
+        }
+    } catch {
+        records.value = []
+    }
+}
+
+onMounted(() => {
+    loadRecords()
+})
 </script>
 
 <template>
@@ -21,8 +102,8 @@ const timeline = [
         统一管理题库、练习与错题复盘，快速定位薄弱点，提升答题效率。
       </p>
       <div class="hero-actions">
-        <RouterLink class="primary" :to="{ name: 'question-bank' }">进入题库</RouterLink>
-        <RouterLink class="ghost" :to="{ name: 'question-bank' }">开始练习</RouterLink>
+        <Button label="进入题库" @click="router.push({ name: 'question-bank' })" />
+        <Button label="开始练习" severity="secondary" outlined @click="router.push({ name: 'question-bank' })" />
       </div>
       <div class="hero-meta">
         <div>
@@ -42,9 +123,15 @@ const timeline = [
 
     <div class="grid">
       <div v-for="stat in stats" :key="stat.title" class="stat-card">
-        <div class="stat-label">{{ stat.title }}</div>
+        <div class="stat-top">
+          <div class="stat-label">{{ stat.title }}</div>
+          <span :class="['stat-tag', `is-${stat.tone}`]">{{ stat.delta }}</span>
+        </div>
         <div class="stat-value">{{ stat.value }}</div>
         <div class="stat-detail">{{ stat.detail }}</div>
+        <div class="stat-bar">
+          <span :style="{ width: `${stat.progress}%` }" :class="`is-${stat.tone}`"></span>
+        </div>
       </div>
     </div>
 
@@ -52,25 +139,34 @@ const timeline = [
       <div class="panel">
         <div class="panel-head">
           <div>
-            <div class="panel-eyebrow">即时概览</div>
-            <h2>题型占比</h2>
+            <div class="panel-eyebrow">做题记录</div>
+            <h2>最近练习</h2>
           </div>
-          <span class="pill">实时同步</span>
+          <button type="button" class="panel-link" @click="router.push({ name: 'records' })">查看全部</button>
         </div>
-        <div class="flow">
-          <div class="flow-item">
-            <div class="flow-label">单选题</div>
-            <div class="flow-value">52%</div>
-          </div>
-          <div class="flow-item">
-            <div class="flow-label">多选题</div>
-            <div class="flow-value">26%</div>
-          </div>
-          <div class="flow-item">
-            <div class="flow-label">判断 / 填空</div>
-            <div class="flow-value">22%</div>
-          </div>
+        <div class="record-preview" v-if="recentRecords.length">
+          <button
+            v-for="record in recentRecords"
+            :key="record.id"
+            type="button"
+            class="record-row"
+            @click="router.push({ name: 'test', params: { id: record.testId }, query: { record: record.id } })"
+          >
+            <div>
+              <div class="record-title">{{ getModeLabel(record.practiceMode) }}</div>
+              <div class="record-meta">
+                {{ record.testTitle ?? `题库 ${record.testId}` }} · {{ formatTimestamp(record.updatedAt) }}
+              </div>
+            </div>
+            <div class="record-stats">
+              <span>用时 {{ formatDuration(record.progress.timeSpentSeconds ?? 0) }}</span>
+              <span>
+                进度 {{ (record.progress.currentProblemId ?? 0) + 1 }}/{{ record.progress.problemList?.length ?? 0 }}
+              </span>
+            </div>
+          </button>
         </div>
+        <div v-else class="record-empty">暂无记录</div>
       </div>
 
       <div class="panel">
@@ -79,7 +175,7 @@ const timeline = [
             <div class="panel-eyebrow">练习安排</div>
             <h2>推荐题库</h2>
           </div>
-          <span class="pill neutral">重点练习</span>
+          <Tag value="重点练习" severity="secondary" rounded />
         </div>
         <ul class="timeline">
           <li v-for="item in timeline" :key="item.name" class="timeline-item">
@@ -88,7 +184,7 @@ const timeline = [
                 <div class="timeline-name">{{ item.name }}</div>
                 <div class="timeline-date">{{ item.date }}</div>
               </div>
-              <span class="pill subtle">{{ item.status }}</span>
+              <Tag :value="item.status" severity="secondary" rounded />
             </RouterLink>
           </li>
         </ul>
@@ -139,39 +235,26 @@ p {
   margin-bottom: 18px;
 }
 
-.hero-actions a {
-  border: none;
+.hero-actions.p-button {
   border-radius: 12px;
   font-weight: 700;
   letter-spacing: 0.01em;
-  cursor: pointer;
-  transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
-  padding: 12px 18px;
-  text-decoration: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-.hero-actions .primary {
+.hero-actions.p-button:not(.p-button-outlined) {
   background: #1f2937;
-  color: #ffffff;
+  border-color: #1f2937;
   box-shadow: 0 10px 25px rgba(31, 41, 55, 0.2);
 }
 
-.hero-actions .primary:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 16px 32px rgba(31, 41, 55, 0.24);
-}
-
-.hero-actions .ghost {
-  background: #eef1f5;
+.hero-actions :deep(.p-button-outlined) {
   color: #1f2937;
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08) inset;
+  border-color: #d1d5db;
 }
 
-.hero-actions .ghost:hover {
-  background: #e2e6ec;
+.hero-actions :deep(.p-button:hover) {
+  transform: translateY(-1px);
 }
 
 .hero-meta {
@@ -210,6 +293,16 @@ p {
   border-radius: 12px;
   padding: 16px;
   box-shadow: 0 16px 30px rgba(15, 23, 42, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.stat-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .stat-label {
@@ -217,16 +310,71 @@ p {
   font-size: 13px;
 }
 
+.stat-tag {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.stat-tag.is-indigo {
+  background: #eef2ff;
+  color: #4338ca;
+  border-color: #c7d2fe;
+}
+
+.stat-tag.is-emerald {
+  background: #ecfdf3;
+  color: #047857;
+  border-color: #6ee7b7;
+}
+
+.stat-tag.is-amber {
+  background: #fff7ed;
+  color: #b45309;
+  border-color: #fed7aa;
+}
+
 .stat-value {
   font-size: 28px;
   color: #151820;
   font-weight: 800;
-  margin: 6px 0;
 }
 
 .stat-detail {
   color: #6b7280;
   font-size: 12px;
+}
+
+.stat-bar {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  overflow: hidden;
+  border: 1px solid #e5e7eb;
+}
+
+.stat-bar span {
+  display: block;
+  height: 100%;
+  background: #94a3b8;
+  border-radius: inherit;
+}
+
+.stat-bar span.is-indigo {
+  background: linear-gradient(90deg, #818cf8, #4338ca);
+}
+
+.stat-bar span.is-emerald {
+  background: linear-gradient(90deg, #34d399, #059669);
+}
+
+.stat-bar span.is-amber {
+  background: linear-gradient(90deg, #fbbf24, #d97706);
 }
 
 .panel-row {
@@ -265,51 +413,70 @@ p {
   font-size: 20px;
 }
 
-.pill {
-  background: #111827;
-  color: #ffffff;
-  border-radius: 999px;
-  padding: 6px 12px;
+.panel-head :deep(.p-tag) {
   font-size: 12px;
-  box-shadow: 0 8px 24px rgba(17, 24, 39, 0.15);
 }
 
-.pill.neutral {
-  background: #e5e7eb;
-  color: #1f2937;
-  box-shadow: none;
+.panel-link {
+  border: none;
+  background: transparent;
+  color: #2563eb;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
 }
 
-.pill.subtle {
-  background: #eef2f7;
-  color: #4b5563;
-  box-shadow: none;
-}
-
-.flow {
+.record-preview {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
-.flow-item {
+.record-row {
+  text-align: left;
+  border: none;
+  cursor: pointer;
+  width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   background: #f7f8fa;
   border: 1px dashed #e4e7ec;
   border-radius: 10px;
   padding: 12px;
 }
 
-.flow-label {
-  color: #4b5563;
-  font-weight: 600;
+.record-row:hover {
+  border-color: #cbd5f5;
+  background: #f1f5ff;
 }
 
-.flow-value {
+.record-title {
+  font-weight: 700;
   color: #111827;
-  font-weight: 800;
+}
+
+.record-meta {
+  color: #6b7280;
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.record-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: #475569;
+  font-size: 12px;
+  text-align: right;
+}
+
+.record-empty {
+  color: #9aa2b2;
+  text-align: center;
+  font-size: 13px;
+  padding: 12px 0;
 }
 
 .timeline {
@@ -354,6 +521,15 @@ p {
 
   .panel-head {
     align-items: flex-start;
+  }
+
+  .record-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .record-stats {
+    text-align: left;
   }
 }
 </style>

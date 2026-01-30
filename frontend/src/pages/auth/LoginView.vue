@@ -1,55 +1,85 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import Button from 'primevue/button'
+import InputText from 'primevue/inputtext'
+import Password from 'primevue/password'
+import { useRoute, useRouter } from 'vue-router'
+import { useUserStore } from '../../stores/user'
 
-const email = ref('')
+const account = ref('')
 const password = ref('')
+const route = useRoute()
+const router = useRouter()
+const userStore = useUserStore()
+
+const redirectTarget = computed(() => {
+  const value = route.query.redirect
+  return typeof value === 'string' ? value : ''
+})
+
+
+async function handleSubmit() {
+  const value = account.value.trim()
+  const isEmail = value.includes('@')
+  const ok = await userStore.login({
+    email: isEmail ? value : undefined,
+    name: !isEmail ? value : undefined,
+    password: password.value
+  })
+  if (ok) {
+    const target = redirectTarget.value
+    if (target && target.startsWith('/')) {
+      router.push(target)
+      return
+    }
+    router.push({ name: 'home' })
+  }
+}
 </script>
 
 <template>
   <div class="auth-page">
     <div class="auth-wrapper">
       <div class="auth-intro">
-        <p class="brand">VTIX 票务系统</p>
-        <h1>欢迎回来</h1>
-        <p class="subtitle">快速回到你的活动看板与销售数据。</p>
+        <p class="brand">VTIX 题库自测</p>
+        <h1>欢迎回到练习</h1>
+        <p class="subtitle">继续你的刷题进度，随时查看错题与正确率。</p>
       </div>
 
       <div class="auth-card">
         <div class="card-title">
           <span>账号登录</span>
-          <small>输入邮箱和密码即可继续</small>
+          <small>登录后即可继续答题与进度同步</small>
         </div>
 
-        <form class="form" autocomplete="on">
+        <form class="form" autocomplete="on" @submit.prevent="handleSubmit">
           <label class="field">
-            <span>邮箱</span>
-            <input
-              v-model="email"
-              name="email"
-              type="email"
-              placeholder="you@example.com"
+            <span>用户名 / 邮箱</span>
+            <InputText
+              v-model="account"
+              name="account"
+              type="text"
+              placeholder="用户名或邮箱"
               required
             />
           </label>
 
           <label class="field">
             <span>密码</span>
-            <input
+            <Password
               v-model="password"
+              :feedback="false"
               name="password"
-              type="password"
               placeholder="••••••••"
               required
             />
           </label>
 
-          <button type="submit" class="action primary">
-            登录
-          </button>
+          <Button type="submit" label="登录" class="action primary" :loading="userStore.loading" />
 
           <div class="hint">
             还没有账号？
-            <RouterLink to="/register">立即注册</RouterLink>
+            <RouterLink :to="{ name: 'register' }">立即注册</RouterLink>
           </div>
           <div class="hint subtle">
             <RouterLink to="/">返回首页</RouterLink>
@@ -160,7 +190,14 @@ const password = ref('')
   letter-spacing: 0.01em;
 }
 
-.field input {
+.field :deep(.p-inputtext),
+.field :deep(.p-password),
+.field :deep(.p-password-input) {
+  width: 100%;
+}
+
+.field :deep(.p-inputtext),
+.field :deep(.p-password-input) {
   border: 1px solid #d1d5db;
   border-radius: 12px;
   padding: 12px 14px;
@@ -169,7 +206,8 @@ const password = ref('')
   transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.25s ease;
 }
 
-.field input:focus {
+.field :deep(.p-inputtext:focus),
+.field :deep(.p-password-input:focus) {
   outline: none;
   border-color: #f4c76a;
   background: #ffffff;
@@ -177,7 +215,7 @@ const password = ref('')
   box-shadow: 0 0 0 3px rgba(244, 199, 106, 0.25);
 }
 
-.action {
+.form :deep(.action.p-button) {
   width: 100%;
   border: 1px solid #d1d5db;
   border-radius: 12px;
@@ -190,13 +228,13 @@ const password = ref('')
   transition: background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-.action.primary:hover {
+.form :deep(.action.primary.p-button:hover) {
   background: #dfe3e8;
   transform: translateY(-1px);
   box-shadow: 0 12px 26px rgba(15, 23, 42, 0.12);
 }
 
-.action:focus-visible {
+.form :deep(.action.p-button:focus-visible) {
   outline: none;
   background: #dfe3e8;
   color: #0f172a;

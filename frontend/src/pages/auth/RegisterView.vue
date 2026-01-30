@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import Button from 'primevue/button'
+import InputText from 'primevue/inputtext'
+import Password from 'primevue/password'
 
 const name = ref('')
 const email = ref('')
@@ -10,21 +13,21 @@ const password = ref('')
   <div class="auth-page">
     <div class="auth-wrapper">
       <div class="auth-intro">
-        <p class="brand">VTIX 票务系统</p>
-        <h1>创建账号</h1>
-        <p class="subtitle">建立你的活动空间，开始筹备下一场演出。</p>
+        <p class="brand">VTIX 题库自测</p>
+        <h1>创建练习账号</h1>
+        <p class="subtitle">建立你的练习档案，随时记录答题进度与错题。</p>
       </div>
 
       <div class="auth-card">
         <div class="card-title">
           <span>账号注册</span>
-          <small>填写信息后即可快速开启</small>
+          <small>填写信息后即可开始练习</small>
         </div>
 
         <form class="form" autocomplete="on">
           <label class="field">
             <span>姓名</span>
-            <input
+            <InputText
               v-model="name"
               name="name"
               type="text"
@@ -35,7 +38,7 @@ const password = ref('')
 
           <label class="field">
             <span>邮箱</span>
-            <input
+            <InputText
               v-model="email"
               name="email"
               type="email"
@@ -46,22 +49,20 @@ const password = ref('')
 
           <label class="field">
             <span>密码</span>
-            <input
+            <Password
               v-model="password"
+              :feedback="false"
               name="password"
-              type="password"
               placeholder="至少 8 位"
               required
             />
           </label>
 
-          <button type="submit" class="action primary">
-            注册
-          </button>
+          <Button type="submit" label="注册" class="action primary" />
 
           <div class="hint">
             已有账号？
-            <RouterLink to="/login">前去登录</RouterLink>
+            <RouterLink :to="{ name: 'login' }">前去登录</RouterLink>
           </div>
           <div class="hint subtle">
             <RouterLink to="/">返回首页</RouterLink>
@@ -172,7 +173,14 @@ const password = ref('')
   letter-spacing: 0.01em;
 }
 
-.field input {
+.field :deep(.p-inputtext),
+.field :deep(.p-password),
+.field :deep(.p-password-input) {
+  width: 100%;
+}
+
+.field :deep(.p-inputtext),
+.field :deep(.p-password-input) {
   border: 1px solid #d1d5db;
   border-radius: 12px;
   padding: 12px 14px;
@@ -181,7 +189,8 @@ const password = ref('')
   transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.25s ease;
 }
 
-.field input:focus {
+.field :deep(.p-inputtext:focus),
+.field :deep(.p-password-input:focus) {
   outline: none;
   border-color: #7eb3ff;
   background: #ffffff;
@@ -189,7 +198,7 @@ const password = ref('')
   box-shadow: 0 0 0 3px rgba(126, 179, 255, 0.25);
 }
 
-.action {
+.form :deep(.action.p-button) {
   width: 100%;
   border: 1px solid #d1d5db;
   border-radius: 12px;
@@ -202,13 +211,13 @@ const password = ref('')
   transition: background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-.action.primary:hover {
+.form :deep(.action.primary.p-button:hover) {
   background: #dfe3e8;
   transform: translateY(-1px);
   box-shadow: 0 12px 26px rgba(15, 23, 42, 0.12);
 }
 
-.action:focus-visible {
+.form :deep(.action.p-button:focus-visible) {
   outline: none;
   background: #dfe3e8;
   color: #0f172a;

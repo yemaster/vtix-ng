@@ -1,27 +1,223 @@
 <script setup lang="ts">
-import { RouterLink, RouterView } from 'vue-router'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
+import Button from 'primevue/button'
+import Menu from 'primevue/menu'
+import { useUserStore } from '../stores/user'
+import AppFooter from '../components/AppFooter.vue'
+
+const route = useRoute()
+const router = useRouter()
+const userStore = useUserStore()
+const userMenu = ref<InstanceType<typeof Menu> | null>(null)
+
+const activeName = computed(() =>
+  typeof route.name === 'string' ? route.name : String(route.name ?? '')
+)
+
+const isMobile = ref(false)
+const isMobileMenuOpen = ref(false)
+let mediaQuery: MediaQueryList | null = null
+let mediaHandler: (() => void) | null = null
+
+const hideTopbar = computed(() => isMobile.value && route.name === 'test')
+
+const MANAGE_QUESTION_BANK_OWN = 1 << 9
+const MANAGE_QUESTION_BANK_ALL = 1 << 10
+const MANAGE_USERS = 1 << 11
+
+const mainNavItems = [
+  { label: '首页', name: 'home', icon: 'pi pi-home' },
+  { label: '题库', name: 'question-bank', icon: 'pi pi-book' },
+  { label: '做题记录', name: 'records', icon: 'pi pi-clipboard' },
+  { label: '错题管理', name: 'wrong-problems', icon: 'pi pi-exclamation-triangle' },
+  { label: '帮助', name: 'help', icon: 'pi pi-question-circle' },
+]
+
+const userMenuItems = computed(() => {
+  const items = [
+    {
+      label: '个人空间',
+      icon: 'pi pi-id-card',
+      command: () =>
+        router.push({
+          name: 'user-space',
+          params: { name: userStore.user?.name || 'guest' }
+        })
+    },
+    {
+      label: '编辑资料',
+      icon: 'pi pi-user-edit',
+      command: () =>
+        router.push({
+          name: 'user-edit',
+          params: { name: userStore.user?.name || 'guest' }
+        })
+    },
+    {
+      label: '我的题库',
+      icon: 'pi pi-folder-open',
+      command: () => router.push({ name: 'admin-question-banks' })
+    }
+  ]
+
+  const permissions = userStore.user?.permissions ?? 0
+  const canManageAll = (permissions & MANAGE_QUESTION_BANK_ALL) === MANAGE_QUESTION_BANK_ALL
+  const canManageOwn = (permissions & MANAGE_QUESTION_BANK_OWN) === MANAGE_QUESTION_BANK_OWN
+  const isAdmin = (permissions & MANAGE_USERS) === MANAGE_USERS
+  if (canManageAll || canManageOwn || isAdmin) {
+    items.push({
+      label: '管理后台',
+      icon: 'pi pi-cog',
+      command: () => router.push({ name: 'admin-home' })
+    })
+  }
+
+  items.push({
+    label: '登出',
+    icon: 'pi pi-sign-out',
+    command: async () => {
+      await userStore.logout()
+      router.push({ name: 'home' })
+    }
+  })
+
+  return items
+})
+
+function toggleUserMenu(event: Event) {
+  userMenu.value?.toggle(event)
+}
+
+onMounted(() => {
+  mediaQuery = window.matchMedia('(max-width: 900px)')
+  mediaHandler = () => {
+    if (mediaQuery) {
+      isMobile.value = mediaQuery.matches
+    }
+  }
+  mediaHandler()
+  if (typeof mediaQuery.addEventListener === 'function') {
+    mediaQuery.addEventListener('change', mediaHandler)
+  } else {
+    mediaQuery.addListener(mediaHandler)
+  }
+})
+
+onBeforeUnmount(() => {
+  if (mediaQuery && mediaHandler) {
+    if (typeof mediaQuery.removeEventListener === 'function') {
+      mediaQuery.removeEventListener('change', mediaHandler)
+    } else {
+      mediaQuery.removeListener(mediaHandler)
+    }
+  }
+})
+
+watch(
+  () => route.fullPath,
+  () => {
+    isMobileMenuOpen.value = false
+  }
+)
 </script>
 
 <template>
   <div class="app-shell">
-    <header class="topbar">
+    <header v-show="!hideTopbar" class="topbar">
       <div class="topbar-inner">
         <div class="left-group">
           <div class="brand">
             <span class="brand-dot" />
             <span class="brand-word">VTIX</span>
           </div>
-        <nav class="nav">
-          <RouterLink :to="{ name: 'home' }">首页</RouterLink>
-          <RouterLink :to="{ name: 'question-bank' }">题库</RouterLink>
-        </nav>
+          <nav v-if="!isMobile" class="nav">
+            <RouterLink
+              v-for="item in mainNavItems"
+              :key="item.name"
+              :to="{ name: item.name }"
+              :class="{ active: activeName === item.name }"
+            >
+              {{ item.label }}
+            </RouterLink>
+          </nav>
         </div>
-        <div class="actions">
-          <RouterLink to="/login" class="ghost">登录</RouterLink>
-          <RouterLink to="/register" class="primary">开始使用</RouterLink>
+        <div v-if="!isMobile" class="actions">
+          <template v-if="!userStore.user">
+            <Button label="登录" severity="secondary" text size="small" class="action-btn ghost"
+              @click="router.push({ name: 'login' })" />
+            <Button label="开始使用" size="small" class="action-btn primary"
+              @click="router.push({ name: 'register' })" />
+          </template>
+          <template v-else>
+            <div class="user-area">
+              <button type="button" class="user-trigger" @click="toggleUserMenu">
+                <span class="user-name">{{ userStore.user.name || '用户' }}</span>
+                <span class="caret">▾</span>
+              </button>
+              <span class="group-badge">{{ userStore.user.groupName || '用户组' }}</span>
+              <Menu ref="userMenu" :model="userMenuItems" popup />
+            </div>
+          </template>
         </div>
+        <Button v-if="isMobile" type="button" severity="secondary" text icon="pi pi-bars" class="menu-toggle"
+          :aria-expanded="isMobileMenuOpen" aria-controls="mobile-drawer" aria-label="展开菜单"
+          @click="isMobileMenuOpen = !isMobileMenuOpen" />
       </div>
     </header>
+
+    <div v-if="isMobile && isMobileMenuOpen" class="mobile-backdrop" @click="isMobileMenuOpen = false" />
+    <aside v-if="isMobile" id="mobile-drawer" :class="['mobile-drawer', { open: isMobileMenuOpen }]">
+      <div class="drawer-head">
+        <div class="brand mini">
+          <span class="brand-dot" />
+          <span class="brand-word">VTIX</span>
+        </div>
+        <Button type="button" severity="secondary" text icon="pi pi-times" class="drawer-close" aria-label="关闭菜单"
+          @click="isMobileMenuOpen = false" />
+      </div>
+      <nav class="drawer-nav">
+        <RouterLink
+          v-for="item in mainNavItems"
+          :key="item.name"
+          :to="{ name: item.name }"
+          :class="{ active: activeName === item.name }"
+        >
+          <span class="nav-icon" :class="item.icon" aria-hidden="true" />
+          <span>{{ item.label }}</span>
+        </RouterLink>
+      </nav>
+      <div class="drawer-actions">
+        <template v-if="!userStore.user">
+          <Button label="登录" severity="secondary" text size="small" class="action-btn ghost"
+            @click="router.push({ name: 'login' })" />
+          <Button label="开始使用" size="small" class="action-btn primary"
+            @click="router.push({ name: 'register' })" />
+        </template>
+        <template v-else>
+          <div class="drawer-user">
+            <div class="drawer-user-row">
+              <div class="drawer-user-name">{{ userStore.user.name || '用户' }}</div>
+              <span class="group-badge">{{ userStore.user.groupName || '用户组' }}</span>
+            </div>
+            <div class="drawer-user-email">{{ userStore.user.email || '未填写邮箱' }}</div>
+          </div>
+          <div class="drawer-menu">
+            <button
+              v-for="item in userMenuItems"
+              :key="item.label"
+              type="button"
+              :disabled="item.disabled"
+              :class="['drawer-menu-item', { disabled: item.disabled }]"
+              @click="item.command && item.command()"
+            >
+              <span class="nav-icon" :class="item.icon" aria-hidden="true" />
+              <span>{{ item.label }}</span>
+            </button>
+          </div>
+        </template>
+      </div>
+    </aside>
 
     <main class="content">
       <RouterView v-slot="{ Component }">
@@ -30,12 +226,15 @@ import { RouterLink, RouterView } from 'vue-router'
         </transition>
       </RouterView>
     </main>
+    <AppFooter />
   </div>
 </template>
 
 <style scoped>
 .app-shell {
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
 .topbar {
@@ -65,24 +264,6 @@ import { RouterLink, RouterView } from 'vue-router'
   gap: 18px;
 }
 
-.brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 800;
-  color: #0f172a;
-  letter-spacing: 0.08em;
-}
-
-.brand-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: linear-gradient(120deg, #1f2937, #4b5563);
-  display: inline-block;
-  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.15);
-}
-
 .brand-word {
   font-size: 14px;
 }
@@ -103,13 +284,9 @@ import { RouterLink, RouterView } from 'vue-router'
 }
 
 .nav a:hover,
-.nav :global(a.router-link-exact-active) {
+.nav a.active {
   background: #f1f3f6;
   color: #0f172a;
-}
-
-.nav .muted {
-  color: #6b7280;
 }
 
 .actions {
@@ -118,67 +295,231 @@ import { RouterLink, RouterView } from 'vue-router'
   gap: 8px;
 }
 
-.actions .ghost,
-.actions .primary {
+.user-area {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.user-trigger {
   border: none;
-  border-radius: 12px;
-  padding: 10px 14px;
+  background: transparent;
+  color: #0f172a;
   font-weight: 700;
+  font-size: 14px;
+  padding: 6px 10px;
+  border-radius: 10px;
   cursor: pointer;
-  transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
-  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 0.2s ease, color 0.2s ease;
 }
 
-.actions .ghost {
-  background: #eef1f5;
-  color: #1f2937;
+.user-trigger:hover {
+  background: #f1f3f6;
+  color: #111827;
 }
 
-.actions .ghost:hover {
-  background: #e2e6ec;
+.user-name {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.actions .primary {
-  background: #1f2937;
-  color: #ffffff;
-  box-shadow: 0 8px 20px rgba(31, 41, 55, 0.22);
+.caret {
+  font-size: 12px;
+  color: #64748b;
 }
 
-.actions .primary:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 12px 28px rgba(31, 41, 55, 0.28);
+.group-badge {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+.drawer-user {
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.drawer-user-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.drawer-user-name {
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.drawer-user-email {
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.drawer-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.drawer-menu-item {
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #0f172a;
+  font-weight: 500;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.drawer-menu-item:hover {
+  background: #f1f5f9;
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.08);
+}
+
+.drawer-menu-item.disabled {
+  cursor: not-allowed;
+  color: #94a3b8;
+  background: transparent;
+  border-color: transparent;
 }
 
 .content {
   max-width: 1120px;
   margin: 0 auto;
   padding: 26px 18px 40px;
+  flex: 1 0 auto;
+  width: 100%;
 }
 
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.25s ease;
-}
-
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-}
 
 @media (max-width: 768px) {
   .topbar-inner {
-    flex-direction: column;
-    align-items: flex-start;
+    flex-direction: row;
+    align-items: center;
+    padding: 12px 14px;
+    gap: 10px;
   }
 
   .left-group {
     width: 100%;
-    justify-content: space-between;
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
   }
 
-  .actions {
-    width: 100%;
+  .brand {
     justify-content: flex-start;
   }
+
+  .nav,
+  .actions {
+    display: none;
+  }
+
+}
+
+.mobile-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.35);
+  backdrop-filter: blur(2px);
+  z-index: 20;
+}
+
+.mobile-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 100vh;
+  width: min(78vw, 320px);
+  background: #ffffff;
+  border-left: 1px solid #e5e7eb;
+  box-shadow: -12px 0 30px rgba(15, 23, 42, 0.12);
+  transform: translateX(100%);
+  transition: transform 0.25s ease;
+  z-index: 21;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 16px 18px 24px;
+}
+
+.mobile-drawer.open {
+  transform: translateX(0);
+}
+
+.drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.brand.mini .brand-word {
+  font-size: 13px;
+}
+
+.drawer-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  background: #f8fafc;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  color: #0f172a;
+}
+
+.drawer-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.drawer-nav a {
+  text-decoration: none;
+  color: #0f172a;
+  font-weight: 500;
+  font-size: 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  transition: background 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.drawer-nav a.active,
+.drawer-nav a:hover {
+  background: #f1f5f9;
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.08);
+}
+
+
+.drawer-actions {
+  margin-top: auto;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
 }
 </style>
