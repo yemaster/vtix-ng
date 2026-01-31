@@ -1,0 +1,6 @@
+{
+  "dbDialect": "sqlite",
+  "databaseUrl": "data/vtix.db",
+  "mysqlUrl": "mysql://user:password@localhost:3306/vtix",
+  "sqlitePath": "data/vtix.db"
+}
