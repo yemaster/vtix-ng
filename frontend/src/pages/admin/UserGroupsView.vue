@@ -5,6 +5,7 @@ import Checkbox from 'primevue/checkbox'
 import InputText from 'primevue/inputtext'
 import Textarea from 'primevue/textarea'
 import Tag from 'primevue/tag'
+import { useToast } from 'primevue/usetoast'
 
 type UserGroup = {
   id: string
@@ -18,8 +19,8 @@ const apiBase = import.meta.env.VITE_API_BASE ?? 'http://localhost:3000'
 const groups = ref<UserGroup[]>([])
 const loading = ref(false)
 const loadError = ref('')
-const submitError = ref('')
 const saving = ref(false)
+const toast = useToast()
 
 const form = ref({
   id: '',
@@ -36,7 +37,8 @@ const permissionOptions = [
   { label: '错题', value: 1 << 4 },
   { label: '题库（自己的）', value: 1 << 9 },
   { label: '题库（全部）', value: 1 << 10 },
-  { label: '用户管理', value: 1 << 11 }
+  { label: '用户管理', value: 1 << 11 },
+  { label: '通知公告管理', value: 1 << 12 }
 ]
 
 const isEditing = computed(() => Boolean(form.value.id))
@@ -64,7 +66,6 @@ function resetForm() {
     description: '',
     permissions: 0
   }
-  submitError.value = ''
 }
 
 function startEdit(group: UserGroup) {
@@ -74,7 +75,6 @@ function startEdit(group: UserGroup) {
     description: group.description ?? '',
     permissions: group.permissions ?? 0
   }
-  submitError.value = ''
 }
 
 function cancelEdit() {
@@ -102,7 +102,6 @@ async function loadGroups() {
 }
 
 async function saveGroup() {
-  submitError.value = ''
   saving.value = true
   try {
     const payload = {
@@ -111,7 +110,12 @@ async function saveGroup() {
       permissions: form.value.permissions
     }
     if (!payload.name) {
-      submitError.value = '请输入用户组名称'
+      toast.add({
+        severity: 'warn',
+        summary: '无法保存',
+        detail: '请输入用户组名称',
+        life: 3000
+      })
       return
     }
     const url = isEditing.value
@@ -129,8 +133,19 @@ async function saveGroup() {
     }
     await loadGroups()
     resetForm()
+    toast.add({
+      severity: 'success',
+      summary: isEditing.value ? '保存成功' : '创建成功',
+      detail: isEditing.value ? '用户组已更新' : '用户组已创建',
+      life: 3000
+    })
   } catch (error) {
-    submitError.value = error instanceof Error ? error.message : '保存失败'
+    toast.add({
+      severity: 'error',
+      summary: '保存失败',
+      detail: error instanceof Error ? error.message : '保存失败',
+      life: 3500
+    })
   } finally {
     saving.value = false
   }
@@ -226,7 +241,6 @@ onMounted(() => {
               </label>
             </div>
           </div>
-          <div v-if="submitError" class="form-error">{{ submitError }}</div>
           <div class="form-actions">
             <Button
               :label="isEditing ? '保存修改' : '新增用户组'"
@@ -360,11 +374,6 @@ onMounted(() => {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
-}
-
-.form-error {
-  color: #b91c1c;
-  font-size: 13px;
 }
 
 .status {

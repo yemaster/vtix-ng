@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import Password from 'primevue/password'
+import { useToast } from 'primevue/usetoast'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '../../stores/user'
 
@@ -11,6 +12,7 @@ const password = ref('')
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
+const toast = useToast()
 
 const redirectTarget = computed(() => {
   const value = route.query.redirect
@@ -20,20 +22,35 @@ const redirectTarget = computed(() => {
 
 async function handleSubmit() {
   const value = account.value.trim()
-  const isEmail = value.includes('@')
-  const ok = await userStore.login({
-    email: isEmail ? value : undefined,
-    name: !isEmail ? value : undefined,
-    password: password.value
-  })
-  if (ok) {
-    const target = redirectTarget.value
-    if (target && target.startsWith('/')) {
-      router.push(target)
-      return
-    }
-    router.push({ name: 'home' })
+  const passwordValue = password.value
+  if (!value || !passwordValue) {
+    toast.add({
+      severity: 'warn',
+      summary: '请输入账号信息',
+      detail: '请填写用户名与密码',
+      life: 3000
+    })
+    return
   }
+  const ok = await userStore.login({
+    name: value,
+    password: passwordValue
+  })
+  if (!ok) {
+    toast.add({
+      severity: 'error',
+      summary: '登录失败',
+      detail: userStore.error || '登录失败，请稍后再试',
+      life: 3500
+    })
+    return
+  }
+  const target = redirectTarget.value
+  if (target && target.startsWith('/')) {
+    router.push(target)
+    return
+  }
+  router.push({ name: 'home' })
 }
 </script>
 
@@ -54,12 +71,12 @@ async function handleSubmit() {
 
         <form class="form" autocomplete="on" @submit.prevent="handleSubmit">
           <label class="field">
-            <span>用户名 / 邮箱</span>
+            <span>用户名</span>
             <InputText
               v-model="account"
               name="account"
               type="text"
-              placeholder="用户名或邮箱"
+              placeholder="请输入用户名"
               required
             />
           </label>
@@ -75,7 +92,12 @@ async function handleSubmit() {
             />
           </label>
 
-          <Button type="submit" label="登录" class="action primary" :loading="userStore.loading" />
+          <Button
+            type="submit"
+            label="登录"
+            class="action primary"
+            :loading="userStore.loading"
+          />
 
           <div class="hint">
             还没有账号？

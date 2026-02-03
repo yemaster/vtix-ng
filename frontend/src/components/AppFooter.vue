@@ -7,6 +7,8 @@ import { RouterLink } from 'vue-router'
     <div class="footer-inner">
       <div class="footer-left">Made by yemaster with ❤</div>
       <div class="footer-right">
+        <a href="https://github.com/yemaster/vtix-ng" target="_blank">Github</a>
+        <span class="divider">·</span>
         <RouterLink :to="{ name: 'about' }">关于</RouterLink>
         <span class="divider">·</span>
         <RouterLink :to="{ name: 'help' }">帮助</RouterLink>

@@ -11,6 +11,7 @@ type PracticeRecord = {
   testId: string
   testTitle?: string
   updatedAt: number
+  deletedAt?: number
   practiceMode: number
   progress: {
     timeSpentSeconds?: number
@@ -126,7 +127,36 @@ function readRecords(): PracticeRecord[] {
   try {
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
-    return parsed.filter((item) => item && typeof item.id === 'string')
+      return parsed
+        .map((item) => {
+          if (!item || typeof item !== 'object') return null
+          const id = typeof item.id === 'string' ? item.id : ''
+          if (!id) return null
+          if (typeof item.deletedAt === 'number' && item.deletedAt > 0) return null
+          const progressRaw =
+            item.progress && typeof item.progress === 'object' ? item.progress : {}
+        const progress = {
+          timeSpentSeconds: Number.isFinite(progressRaw.timeSpentSeconds)
+            ? progressRaw.timeSpentSeconds
+            : 0,
+          currentProblemId: Number.isFinite(progressRaw.currentProblemId)
+            ? progressRaw.currentProblemId
+            : 0,
+          problemList: Array.isArray(progressRaw.problemList) ? progressRaw.problemList : [],
+          submittedList: Array.isArray(progressRaw.submittedList) ? progressRaw.submittedList : [],
+          answerList: Array.isArray(progressRaw.answerList) ? progressRaw.answerList : []
+        }
+        return {
+          id,
+          testId: typeof item.testId === 'string' ? item.testId : '',
+          testTitle: typeof item.testTitle === 'string' ? item.testTitle : undefined,
+          updatedAt: Number.isFinite(item.updatedAt) ? item.updatedAt : 0,
+          practiceMode: Number.isFinite(item.practiceMode) ? item.practiceMode : 0,
+          progress,
+          problemState: Array.isArray(item.problemState) ? item.problemState : []
+        } as PracticeRecord
+      })
+        .filter((item): item is PracticeRecord => Boolean(item))
   } catch (error) {
     return []
   }
@@ -153,6 +183,17 @@ function syncPractice() {
   records.value = isSelf.value ? readRecords() : []
 }
 
+function handleBankClick(event: MouseEvent, code: string) {
+  if (event.defaultPrevented) return
+  if (event.button !== 0) return
+  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+  event.preventDefault()
+  const target = `/t/${code}`
+  window.setTimeout(() => {
+    router.push(target)
+  }, 80)
+}
+
 const chartDays = computed(() => {
   const days: { key: string; label: string; answered: number; minutes: number }[] = []
   const now = new Date()
@@ -177,7 +218,7 @@ const aggregatedDays = computed(() => {
     ).padStart(2, '0')}`
     const target = map.get(key)
     if (!target) return
-    target.minutes += Math.round((record.progress.timeSpentSeconds ?? 0) / 60)
+    target.minutes += Math.round(((record.progress?.timeSpentSeconds ?? 0) as number) / 60)
     target.answered += getRecordAnsweredCount(record)
   })
   return Array.from(map.values())
@@ -190,7 +231,9 @@ const totalAnswered = computed(() =>
   records.value.reduce((sum, record) => sum + getRecordAnsweredCount(record), 0)
 )
 const totalMinutes = computed(() =>
-  Math.round(records.value.reduce((sum, record) => sum + (record.progress.timeSpentSeconds ?? 0), 0) / 60)
+  Math.round(
+    records.value.reduce((sum, record) => sum + (record.progress?.timeSpentSeconds ?? 0), 0) / 60
+  )
 )
 const totalRecords = computed(() => records.value.length)
 
@@ -263,36 +306,58 @@ onMounted(() => {
 
 <template>
   <section class="space-page">
-    <header class="space-hero">
-      <div class="hero-info">
-        <div class="hero-eyebrow">个人空间</div>
-        <h1>欢迎回来，{{ displayName }}</h1>
-        <p>跟进学习节奏与练习表现，汇总数据洞察，持续优化题库建设。</p>
-        <div v-if="!isSelf" class="hero-note">访客视图 · 仅展示公开题库与基础资料</div>
-        <div v-else class="hero-stats">
-          <div class="hero-stat">
-            <div class="hero-stat-label">练习时长</div>
-            <div class="hero-stat-value">{{ totalMinutes }} 分钟</div>
+    <header class="space-header">
+      <div class="profile-card">
+        <div class="profile-avatar">{{ displayName.slice(0, 1) }}</div>
+        <div class="profile-main">
+          <div class="profile-title">
+            <div>
+              <div class="profile-label">个人空间</div>
+              <h1>{{ displayName }}</h1>
+            </div>
+            <div class="profile-tags">
+              <Tag :value="isSelf ? userStore.user?.groupName || '未分组' : '访客'" rounded />
+              <Tag :value="isSelf ? 'Active' : 'Public'" :severity="isSelf ? 'success' : 'info'" rounded />
+            </div>
           </div>
-          <div class="hero-stat">
-            <div class="hero-stat-label">完成题目</div>
-            <div class="hero-stat-value">{{ totalAnswered }} 题</div>
-          </div>
-          <div class="hero-stat">
-            <div class="hero-stat-label">记录次数</div>
-            <div class="hero-stat-value">{{ totalRecords }} 次</div>
+          <div class="profile-sub">
+            <span class="profile-email">{{ isSelf ? userStore.user?.email || '未填写邮箱' : '对外已隐藏' }}</span>
+            <span class="profile-divider">·</span>
+            <span>{{ isSelf ? '你的学习数据仅自己可见' : '访客视图，仅展示公开信息' }}</span>
           </div>
         </div>
       </div>
     </header>
 
-    <TabMenu class="space-tabs" :model="tabItems" />
+    <div v-if="isSelf" class="stat-strip">
+      <div class="stat-item">
+        <div class="stat-label">练习时长</div>
+        <div class="stat-value">{{ totalMinutes }} 分钟</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-label">完成题目</div>
+        <div class="stat-value">{{ totalAnswered }} 题</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-label">记录次数</div>
+        <div class="stat-value">{{ totalRecords }} 次</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-label">本次登录</div>
+        <div class="stat-value">{{ loginInfoText.current }}</div>
+      </div>
+    </div>
 
-    <section v-if="activeTab === 'profile'" class="tab-panel">
+    <div class="space-tabs-wrap">
+      <TabMenu class="space-tabs" :model="tabItems" />
+    </div>
+
+    <transition name="tab-slide" mode="out-in">
+      <section v-if="activeTab === 'profile'" key="profile" class="tab-panel">
       <div class="panel-grid">
         <div class="panel-card">
           <div class="panel-head">
-            <div class="panel-title">个人信息</div>
+            <div class="panel-title">基本信息</div>
             <Button
               v-if="isSelf && userStore.user"
               label="编辑资料"
@@ -306,64 +371,47 @@ onMounted(() => {
             <p>登录后即可查看个人资料与学习统计。</p>
             <Button label="立即登录" size="small" @click="router.push({ name: 'login' })" />
           </div>
-          <div v-else class="profile-stack">
-            <div class="profile-summary">
-              <div class="profile-avatar">{{ displayName.slice(0, 1) }}</div>
-              <div class="profile-meta">
-                <div class="profile-name">{{ displayName }}</div>
-                <div class="profile-email">
-                  {{ isSelf ? userStore.user?.email || '未填写邮箱' : '对外已隐藏' }}
-                </div>
-                <div class="profile-tags">
-                  <Tag :value="isSelf ? userStore.user?.groupName || '未分组' : '访客'" rounded />
-                  <Tag :value="isSelf ? 'Active' : 'Public'" :severity="isSelf ? 'success' : 'info'" rounded />
-                </div>
+          <div v-else class="info-grid">
+            <div class="info-item">
+              <div class="info-label">用户名</div>
+              <div class="info-value">{{ displayName }}</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">用户组</div>
+              <div class="info-value">
+                {{ isSelf ? userStore.user?.groupName || '未分组' : '对外已隐藏' }}
               </div>
             </div>
-            <div class="info-grid">
-              <div class="info-item">
-                <div class="info-label">用户名</div>
-                <div class="info-value">{{ displayName }}</div>
+            <div class="info-item">
+              <div class="info-label">邮箱</div>
+              <div class="info-value">
+                {{ isSelf ? userStore.user?.email || '未填写邮箱' : '对外已隐藏' }}
               </div>
-              <div class="info-item">
-                <div class="info-label">用户组</div>
-                <div class="info-value">
-                  {{ isSelf ? userStore.user?.groupName || '未分组' : '对外已隐藏' }}
-                </div>
-              </div>
-              <div class="info-item">
-                <div class="info-label">本次登录</div>
-                <div class="info-value">{{ loginInfoText.current }}</div>
-              </div>
-              <div class="info-item">
-                <div class="info-label">上次登录</div>
-                <div class="info-value">{{ loginInfoText.previous }}</div>
-              </div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">访问权限</div>
+              <div class="info-value">{{ isSelf ? '仅自己可见' : '公开资料' }}</div>
             </div>
           </div>
         </div>
-        <div class="panel-card highlight">
-        <div class="panel-title">学习概况</div>
-        <div v-if="!isSelf" class="panel-empty">对外已隐藏</div>
-        <div v-else class="summary-grid">
-            <div class="summary-item">
-              <div class="summary-label">累计练习时长</div>
-              <div class="summary-value">{{ totalMinutes }} 分钟</div>
+        <div class="panel-card">
+          <div class="panel-title">登录信息</div>
+          <div v-if="!isSelf" class="panel-empty">对外已隐藏</div>
+          <div v-else class="info-list">
+            <div class="info-row">
+              <span>本次登录</span>
+              <span>{{ loginInfoText.current }}</span>
             </div>
-            <div class="summary-item">
-              <div class="summary-label">累计完成题目</div>
-              <div class="summary-value">{{ totalAnswered }} 题</div>
-            </div>
-            <div class="summary-item">
-              <div class="summary-label">记录次数</div>
-              <div class="summary-value">{{ totalRecords }} 次</div>
+            <div class="info-row">
+              <span>上次登录</span>
+              <span>{{ loginInfoText.previous }}</span>
             </div>
           </div>
         </div>
       </div>
-    </section>
+      </section>
 
-    <section v-if="activeTab === 'practice'" class="tab-panel">
+      <section v-else-if="activeTab === 'practice'" key="practice" class="tab-panel">
       <div v-if="!isSelf" class="panel-card panel-empty">
         <p>练习数据已对外隐藏。</p>
       </div>
@@ -395,9 +443,9 @@ onMounted(() => {
           </div>
         </div>
       </div>
-    </section>
+      </section>
 
-    <section v-if="activeTab === 'banks'" class="tab-panel">
+      <section v-else-if="activeTab === 'banks'" key="banks" class="tab-panel">
       <div v-if="isSelf && !userStore.user" class="panel-card panel-empty">
         <p>登录后可查看你创建的题库。</p>
         <Button label="立即登录" size="small" @click="router.push({ name: 'login' })" />
@@ -410,6 +458,7 @@ onMounted(() => {
             <span class="skeleton-pill"></span>
             <span class="skeleton-pill"></span>
           </div>
+          <div class="skeleton-count"></div>
         </div>
       </div>
       <div v-else-if="banksError" class="panel-card panel-empty">
@@ -426,22 +475,44 @@ onMounted(() => {
         />
       </div>
       <div v-else class="bank-grid">
-        <div v-for="bank in banks" :key="bank.id" class="bank-card">
-          <div class="bank-title">{{ bank.title }}</div>
-          <div class="bank-meta">{{ bank.year }} 年 · {{ bank.questionCount }} 题</div>
-          <div class="bank-tags">
-            <Tag v-for="tag in bank.categories" :key="tag" :value="tag" rounded />
+        <div
+          v-for="bank in banks"
+          :key="bank.id"
+          class="bank-card bank-card-link p-ripple"
+          v-ripple
+          @click="handleBankClick($event, bank.code)"
+        >
+          <div class="bank-card-top">
+            <div class="bank-card-main">
+              <div class="bank-title">{{ bank.title }}</div>
+              <div class="bank-meta">
+                <span class="meta-date">{{ bank.year }} 年</span>
+                <span class="meta-owner">编号 {{ bank.code }}</span>
+              </div>
+              <div class="bank-tags">
+                <Tag v-for="tag in bank.categories" :key="tag" :value="tag" rounded />
+                <span v-if="bank.categories.length === 0" class="bank-tag-empty">无标签</span>
+              </div>
+              <div class="bank-actions">
+                <Button
+                  v-if="isSelf"
+                  label="编辑"
+                  size="small"
+                  severity="secondary"
+                  text
+                  @click.stop.prevent="router.push({ name: 'admin-question-bank-edit', params: { code: bank.code } })"
+                />
+              </div>
+            </div>
+            <div class="bank-count">
+              <div class="bank-count-value">{{ bank.questionCount }}</div>
+              <div class="bank-count-label">题目数</div>
+            </div>
           </div>
-          <Button
-            label="编辑题库"
-            size="small"
-            severity="secondary"
-            text
-            @click="router.push({ name: 'admin-question-bank-edit', params: { code: bank.code } })"
-          />
         </div>
       </div>
-    </section>
+      </section>
+    </transition>
   </section>
 </template>
 
@@ -449,113 +520,158 @@ onMounted(() => {
 .space-page {
   display: flex;
   flex-direction: column;
-  gap: 22px;
-  position: relative;
-  isolation: isolate;
-  padding-bottom: 6px;
-}
-
-.space-page::before {
-  content: '';
-  position: absolute;
-  inset: -40px 0 auto 20%;
-  height: 220px;
-  background: radial-gradient(circle at top, rgba(56, 189, 248, 0.18), transparent 70%);
-  filter: blur(6px);
-  z-index: -1;
-}
-
-.space-page::after {
-  content: '';
-  position: absolute;
-  inset: 40px 10% auto auto;
-  width: 240px;
-  height: 240px;
-  border-radius: 50%;
-  background: radial-gradient(circle at center, rgba(14, 165, 233, 0.16), transparent 72%);
-  z-index: -1;
-}
-
-.space-hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
-  background: linear-gradient(135deg, #f8fafc 0%, #eef2ff 55%, #e0f2fe 100%);
-  border-radius: 20px;
-  padding: 22px;
-  border: 1px solid #e2e8f0;
-  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
-  position: relative;
-  overflow: hidden;
 }
 
-.space-hero::after {
-  content: '';
-  position: absolute;
-  right: -60px;
-  bottom: -80px;
-  width: 220px;
-  height: 220px;
-  background: radial-gradient(circle, rgba(59, 130, 246, 0.25), transparent 70%);
-  pointer-events: none;
-}
-
-.hero-info h1 {
-  margin: 8px 0 6px;
-  font-size: 30px;
-  color: #0f172a;
-  font-family: 'Space Grotesk', 'SF Pro Display', 'Segoe UI', sans-serif;
-}
-
-.hero-info p {
-  margin: 0;
-  color: #475569;
-}
-
-.hero-note {
-  margin-top: 8px;
-  font-size: 12px;
-  color: #64748b;
-}
-
-.hero-stats {
-  margin-top: 10px;
+.space-header {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
   flex-wrap: wrap;
-  gap: 10px;
 }
 
-.hero-stat {
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid rgba(226, 232, 240, 0.9);
-  border-radius: 12px;
-  padding: 8px 12px;
-  min-width: 120px;
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
+.profile-card {
+  flex: 1;
+  min-width: 260px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  padding: 16px 18px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
 }
 
-.hero-stat-label {
-  font-size: 11px;
-  color: #64748b;
-}
-
-.hero-stat-value {
-  margin-top: 4px;
+.profile-avatar {
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  background: var(--vtix-primary-100);
+  border: 1px solid var(--vtix-primary-200);
+  color: var(--vtix-primary-700);
   font-weight: 800;
-  color: #0f172a;
+  font-size: 22px;
+  display: grid;
+  place-items: center;
 }
 
-.hero-eyebrow {
-  font-size: 12px;
+.profile-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.profile-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.profile-label {
+  font-size: 11px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: #94a3b8;
 }
 
+.profile-title h1 {
+  margin: 4px 0 0;
+  font-size: 28px;
+  color: #0f172a;
+  font-family: 'Space Grotesk', 'SF Pro Display', 'Segoe UI', sans-serif;
+}
+
+.profile-tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.profile-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.profile-email {
+  font-weight: 600;
+  color: #475569;
+}
+
+.profile-divider {
+  color: #cbd5f5;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.stat-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  padding: 12px 14px;
+  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.04);
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stat-label {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.stat-value {
+  font-weight: 800;
+  color: #0f172a;
+}
+
 .space-tabs :deep(.p-tabmenu-nav) {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
   border: none;
   background: transparent;
   gap: 10px;
+  padding-bottom: 6px;
+  margin-bottom: -6px;
+}
+
+.space-tabs-wrap {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+.space-tabs {
+  min-width: max-content;
+}
+
+.space-tabs :deep(.p-tabmenuitem) {
+  flex: 0 0 auto;
 }
 
 .space-tabs :deep(.p-tabmenuitem-link) {
@@ -564,6 +680,7 @@ onMounted(() => {
   color: #6b7280;
   font-weight: 700;
   padding: 8px 14px;
+  white-space: nowrap;
   transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
 }
 
@@ -578,35 +695,35 @@ onMounted(() => {
   color: #0f172a;
 }
 
-.tab-head {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 12px;
+.space-tabs :deep(.p-tabmenu-ink-bar) {
+  transition: transform 0.25s ease, width 0.25s ease;
 }
 
-.tab-head h2 {
-  margin: 0;
-  font-size: 18px;
-  color: #0f172a;
-  font-family: 'Space Grotesk', 'SF Pro Display', 'Segoe UI', sans-serif;
+.tab-slide-enter-active,
+.tab-slide-leave-active {
+  transition: opacity 0.25s ease, transform 0.25s ease;
 }
 
-.tab-head p {
-  margin: 4px 0 0;
-  font-size: 13px;
-  color: #64748b;
+.tab-slide-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
 }
 
-.tab-hint {
-  font-size: 12px;
-  color: #64748b;
-  background: #f1f5f9;
-  border: 1px solid #e2e8f0;
-  border-radius: 999px;
-  padding: 6px 10px;
-  white-space: nowrap;
+.tab-slide-enter-to {
+  opacity: 1;
+  transform: translateY(0);
 }
+
+.tab-slide-leave-from {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.tab-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
 
 .tab-panel {
   display: flex;
@@ -625,38 +742,10 @@ onMounted(() => {
   border: 1px solid #e5e7eb;
   border-radius: 16px;
   padding: 18px;
-  box-shadow: 0 16px 30px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.05);
   display: flex;
   flex-direction: column;
   gap: 14px;
-}
-
-.panel-card.highlight {
-  background: linear-gradient(160deg, #1e3a8a, #2563eb);
-  color: #ffffff;
-  border: none;
-  box-shadow: 0 18px 34px rgba(30, 64, 175, 0.35);
-  position: relative;
-  overflow: hidden;
-}
-
-.panel-card.highlight::after {
-  content: '';
-  position: absolute;
-  right: -50px;
-  top: -60px;
-  width: 160px;
-  height: 160px;
-  background: radial-gradient(circle, rgba(255, 255, 255, 0.24), transparent 70%);
-  pointer-events: none;
-}
-
-.panel-card.highlight .summary-label {
-  color: rgba(255, 255, 255, 0.7);
-}
-
-.panel-card.highlight .summary-value {
-  color: #ffffff;
 }
 
 .panel-title {
@@ -672,57 +761,6 @@ onMounted(() => {
   gap: 10px;
 }
 
-.profile-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.profile-summary {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 14px;
-  border-radius: 14px;
-  background: linear-gradient(135deg, rgba(248, 250, 252, 0.9), rgba(226, 232, 240, 0.7));
-  border: 1px solid rgba(226, 232, 240, 0.9);
-}
-
-.profile-avatar {
-  width: 56px;
-  height: 56px;
-  border-radius: 16px;
-  background: linear-gradient(135deg, #1e3a8a, #0ea5e9);
-  color: #ffffff;
-  font-weight: 700;
-  font-size: 20px;
-  display: grid;
-  place-items: center;
-  box-shadow: 0 10px 20px rgba(30, 58, 138, 0.24);
-}
-
-.profile-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.profile-name {
-  font-weight: 700;
-  color: #0f172a;
-  font-family: 'Space Grotesk', 'SF Pro Display', 'Segoe UI', sans-serif;
-}
-
-.profile-email {
-  font-size: 13px;
-  color: #64748b;
-}
-
-.profile-tags {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
 
 .panel-empty {
   text-align: center;
@@ -740,7 +778,6 @@ onMounted(() => {
   border-radius: 12px;
   padding: 10px 12px;
   border: 1px solid #e2e8f0;
-  box-shadow: inset 0 0 0 1px rgba(248, 250, 252, 0.6);
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -756,29 +793,23 @@ onMounted(() => {
   color: #0f172a;
 }
 
-.panel-card.highlight .info-value {
-  color: #ffffff;
-}
-
-.summary-grid {
-  display: grid;
-  gap: 12px;
-}
-
-.summary-item {
+.info-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 10px;
 }
 
-.summary-label {
-  font-size: 12px;
-  color: #64748b;
-}
-
-.summary-value {
-  font-size: 20px;
-  font-weight: 800;
+.info-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 13px;
 }
 
 .chart-grid {
@@ -794,7 +825,7 @@ onMounted(() => {
   align-items: end;
   height: 180px;
   padding: 6px 4px 4px;
-  background: linear-gradient(180deg, rgba(248, 250, 252, 0.9), transparent);
+  background: #f8fafc;
   border-radius: 12px;
 }
 
@@ -808,13 +839,13 @@ onMounted(() => {
 .bar-fill {
   width: 100%;
   border-radius: 10px 10px 6px 6px;
-  background: linear-gradient(180deg, #3b82f6, #1d4ed8);
+  background: linear-gradient(180deg, var(--vtix-primary-400), var(--vtix-primary-700));
   min-height: 6px;
   transition: height 0.3s ease;
 }
 
 .bar-fill.accent {
-  background: linear-gradient(180deg, #22c55e, #15803d);
+  background: linear-gradient(180deg, var(--vtix-primary-500), var(--vtix-primary-800));
 }
 
 .bar-label {
@@ -830,8 +861,8 @@ onMounted(() => {
 
 .bank-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
 }
 
 .bank-card {
@@ -841,31 +872,120 @@ onMounted(() => {
   padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  gap: 14px;
+  position: relative;
+  box-shadow: 0 16px 30px rgba(15, 23, 42, 0.08);
 }
 
-.bank-card:hover {
+.bank-card-link {
+  text-decoration: none;
+  color: inherit;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  cursor: pointer;
+}
+
+.bank-card-link:hover {
   transform: translateY(-2px);
-  box-shadow: 0 16px 30px rgba(15, 23, 42, 0.12);
+  box-shadow: 0 18px 36px rgba(15, 23, 42, 0.12);
+}
+
+.bank-card.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: #f8fafc;
+}
+
+.bank-card-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.bank-card-main {
+  flex: 1;
+  min-width: 0;
 }
 
 .bank-title {
   font-weight: 700;
-  color: #0f172a;
+  color: #111827;
+  font-size: 20px;
+  line-height: 1.3;
   font-family: 'Space Grotesk', 'SF Pro Display', 'Segoe UI', sans-serif;
 }
 
 .bank-meta {
+  margin-top: 6px;
   font-size: 12px;
-  color: #64748b;
+  color: #9aa2b2;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  line-height: 1.5;
+}
+
+.meta-date {
+  color: #6b7280;
+}
+
+.meta-owner {
+  color: #9aa2b2;
 }
 
 .bank-tags {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  margin-top: 8px;
+}
+
+.bank-tags :deep(.p-tag) {
+  font-size: 12px;
+}
+
+.bank-tag-empty {
+  font-size: 12px;
+  color: #94a3b8;
+  border: 1px dashed #e2e8f0;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.bank-actions {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.bank-count {
+  text-align: center;
+  min-width: 88px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+.bank-count-value {
+  font-size: 42px;
+  font-weight: 800;
+  color: #111827;
+}
+
+.bank-count-label {
+  font-size: 12px;
+  color: #9aa2b2;
+  margin-top: 4px;
+}
+
+.skeleton-count {
+  width: 64px;
+  height: 48px;
+  border-radius: 12px;
+  background: linear-gradient(90deg, #e2e8f0, #f8fafc, #e2e8f0);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s infinite;
 }
 
 .skeleton-line {
@@ -909,9 +1029,9 @@ onMounted(() => {
 }
 
 @media (max-width: 900px) {
-  .tab-head {
+  .space-header {
     flex-direction: column;
-    align-items: flex-start;
+    align-items: stretch;
   }
 
   .panel-grid {

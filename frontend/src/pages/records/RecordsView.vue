@@ -4,12 +4,20 @@ import { useRouter } from 'vue-router'
 import Button from 'primevue/button'
 import { useToast } from 'primevue/usetoast'
 import { useUserStore } from '../../stores/user'
+import {
+  getSyncAt,
+  getSyncCursor,
+  setSyncAt,
+  setSyncCursor,
+  syncRecords
+} from '../../base/recordSync'
 
 type PracticeRecord = {
   id: string
   testId: string
   testTitle?: string
   updatedAt: number
+  deletedAt?: number
   practiceMode: number
   progress: {
     timeSpentSeconds?: number
@@ -38,14 +46,22 @@ const modes = [
   { label: '模拟考试', value: 5 }
 ]
 
-function readRecords(): PracticeRecord[] {
+type RecordReadOptions = { includeDeleted?: boolean }
+
+function isDeletedRecord(record: PracticeRecord) {
+  return typeof (record as { deletedAt?: unknown }).deletedAt === 'number' &&
+    Number((record as { deletedAt?: number }).deletedAt ?? 0) > 0
+}
+
+function readRecords(options: RecordReadOptions = {}): PracticeRecord[] {
   if (!window.localStorage) return []
   const raw = localStorage.getItem(STORAGE_KEY)
   if (!raw) return []
   try {
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
-    return parsed.filter((item) => item && typeof item.id === 'string')
+    const list = parsed.filter((item) => item && typeof item.id === 'string')
+    return options.includeDeleted ? list : list.filter((item) => !isDeletedRecord(item))
   } catch (error) {
     return []
   }
@@ -56,7 +72,7 @@ function writeRecords(next: PracticeRecord[]) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
 }
 
-function syncRecords() {
+function syncLocalRecords() {
   records.value = readRecords().sort((a, b) => b.updatedAt - a.updatedAt)
 }
 
@@ -152,118 +168,52 @@ function exportSingleRecord(record: PracticeRecord) {
   URL.revokeObjectURL(link.href)
 }
 
-function normalizeRecords(list: PracticeRecord[]) {
-  return list
-    .filter((item) => item && typeof item.id === 'string')
-    .map((item) => ({
-      ...item,
-      updatedAt: typeof item.updatedAt === 'number' ? item.updatedAt : 0
-    }))
-}
-
-function serializeRecords(list: PracticeRecord[]) {
-  return JSON.stringify(
-    [...list].sort((a, b) => a.id.localeCompare(b.id))
-  )
-}
-
-function mergeByUpdatedAt(local: PracticeRecord[], remote: PracticeRecord[]) {
-  const localMap = new Map(local.map((item) => [item.id, item]))
-  const remoteMap = new Map(remote.map((item) => [item.id, item]))
-  const ids = new Set([...localMap.keys(), ...remoteMap.keys()])
-  const merged: PracticeRecord[] = []
-  let conflicts = 0
-  let localNewer = 0
-  let remoteNewer = 0
-  for (const id of ids) {
-    const localItem = localMap.get(id)
-    const remoteItem = remoteMap.get(id)
-    if (localItem && remoteItem) {
-      if (JSON.stringify(localItem) !== JSON.stringify(remoteItem)) {
-        conflicts += 1
-      }
-      const localTime = localItem.updatedAt ?? 0
-      const remoteTime = remoteItem.updatedAt ?? 0
-      if (localTime >= remoteTime) {
-        merged.push(localItem)
-        if (localTime > remoteTime) localNewer += 1
-      } else {
-        merged.push(remoteItem)
-        remoteNewer += 1
-      }
-    } else if (localItem) {
-      merged.push(localItem)
-      localNewer += 1
-    } else if (remoteItem) {
-      merged.push(remoteItem)
-      remoteNewer += 1
-    }
-  }
-  const trimmed = merged
-    .sort((a, b) => (a.updatedAt ?? 0) - (b.updatedAt ?? 0))
-    .slice(Math.max(0, merged.length - 10))
-  return { merged: trimmed, conflicts, localNewer, remoteNewer }
-}
 
 async function handleSyncAuto() {
   if (!userStore.user) {
     router.push({ name: 'login' })
     return
-  }
-  isSyncing.value = true
-  try {
-    const localRecords = normalizeRecords(readRecords())
-    const response = await fetch(`${apiBase}/api/records`, {
-      credentials: 'include'
-    })
-    if (!response.ok) {
-      throw new Error(`同步失败: ${response.status}`)
     }
-    const data = (await response.json()) as { records?: PracticeRecord[] }
-    const remoteRecords = normalizeRecords(Array.isArray(data.records) ? data.records : [])
-
-    const { merged, conflicts, localNewer, remoteNewer } = mergeByUpdatedAt(
-      localRecords,
-      remoteRecords
-    )
-
-    const localChanged = serializeRecords(merged) !== serializeRecords(localRecords)
-    const remoteChanged = serializeRecords(merged) !== serializeRecords(remoteRecords)
-
-    let finalRecords = merged
-    if (remoteChanged) {
-      const upload = await fetch(`${apiBase}/api/records`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ records: merged })
+    isSyncing.value = true
+    try {
+      const localRecords = readRecords({ includeDeleted: true })
+      const previousCursor = getSyncCursor(localStorage)
+      const since = localRecords.length ? previousCursor : 0
+      const localSince = getSyncAt(localStorage)
+      const result = await syncRecords<PracticeRecord>({
+        apiBase,
+        localRecords,
+        since,
+        localSince,
+        credentials: 'include'
       })
-      if (!upload.ok) {
-        throw new Error(`同步失败: ${upload.status}`)
+
+      if (result.localChanged) {
+        writeRecords(result.finalRecords)
       }
-      const uploadData = (await upload.json()) as { records?: PracticeRecord[] }
-      finalRecords = normalizeRecords(Array.isArray(uploadData.records) ? uploadData.records : merged)
-    }
+      records.value = result.finalRecords
+        .filter((item) => !isDeletedRecord(item))
+        .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+      setSyncCursor(localStorage, result.cursor)
+      setSyncAt(localStorage, Date.now())
 
-    if (localChanged) {
-      writeRecords(finalRecords)
-    }
-    records.value = [...finalRecords].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+      const details = result.noOp
+        ? '本地与云端已是最新'
+        : [
+            result.localDelta.length ? `上传 ${result.localDelta.length} 条` : '',
+            result.downloaded ? `下载 ${result.downloaded} 条` : '',
+            result.conflicts ? `冲突 ${result.conflicts} 条` : '',
+            result.trimmed ? `裁剪 ${result.trimmed} 条` : ''
+          ]
+            .filter(Boolean)
+            .join(' · ')
 
-    const details = [
-      localNewer ? `本地更新 ${localNewer} 条` : '',
-      remoteNewer ? `云端更新 ${remoteNewer} 条` : '',
-      conflicts ? `冲突 ${conflicts} 条` : ''
-    ]
-      .filter(Boolean)
-      .join(' · ')
-
-    toast.add({
-      severity: 'success',
-      summary: '同步完成',
-      detail: details || '本地与云端已一致',
-      life: 3500
-    })
+      toast.add({
+        severity: 'success',
+        summary: '同步完成',
+        detail: details || '同步完成',
+        life: 3500
+      })
   } catch (error) {
     toast.add({
       severity: 'error',
@@ -295,7 +245,7 @@ function toRecord(raw: any): PracticeRecord | null {
 
 function mergeRecords(incoming: PracticeRecord[]) {
   if (!incoming.length) return []
-  const existing = readRecords()
+  const existing = readRecords({ includeDeleted: true })
   const recordMap = new Map(existing.map((item) => [item.id, item]))
   for (const record of incoming) {
     recordMap.set(record.id, record)
@@ -305,7 +255,9 @@ function mergeRecords(incoming: PracticeRecord[]) {
     .sort((a, b) => a.updatedAt - b.updatedAt)
     .slice(Math.max(0, merged.length - 10))
   writeRecords(merged)
-  records.value = merged.sort((a, b) => b.updatedAt - a.updatedAt)
+  records.value = merged
+    .filter((item) => !isDeletedRecord(item))
+    .sort((a, b) => b.updatedAt - a.updatedAt)
   return merged
 }
 
@@ -339,9 +291,11 @@ async function handleImport(event: Event) {
 }
 
 function deleteRecord(recordId: string) {
-  const next = readRecords().filter((item) => item.id !== recordId)
+  const now = Date.now()
+  const next = readRecords({ includeDeleted: true }).filter((item) => item.id !== recordId)
+  next.push({ id: recordId, updatedAt: now, deletedAt: now } as PracticeRecord)
   writeRecords(next)
-  records.value = next.sort((a, b) => b.updatedAt - a.updatedAt)
+  records.value = readRecords().sort((a, b) => b.updatedAt - a.updatedAt)
 }
 
 function continueRecord(record: PracticeRecord) {
@@ -351,7 +305,7 @@ function continueRecord(record: PracticeRecord) {
 const recordCount = computed(() => records.value.length)
 
 onMounted(() => {
-  syncRecords()
+  syncLocalRecords()
 })
 </script>
 
@@ -359,9 +313,8 @@ onMounted(() => {
   <section class="records-page">
     <header class="page-head">
       <div>
-        <div class="eyebrow">全局记录</div>
-        <h1>做题记录</h1>
-        <p>集中查看和管理所有题库的做题记录。</p>
+        <div class="eyebrow">做题记录</div>
+        <h1>练习记录</h1>
       </div>
       <div class="page-actions">
         <Button label="导出" severity="secondary" text size="small" @click="exportAllRecords" />
@@ -390,16 +343,17 @@ onMounted(() => {
           <div class="record-title">{{ record.testTitle ?? `题库 ${record.testId}` }} · {{ getModeLabel(record.practiceMode) }}</div>
           <div class="record-meta">
             {{ formatTimestamp(record.updatedAt) }} ·
-            用时 {{ formatDuration(record.progress.timeSpentSeconds ?? 0) }} ·
-            进度 {{ getRecordAnsweredCount(record) }}/{{ record.progress.problemList?.length ?? 0 }}
+            用时 {{ formatDuration(record.progress?.timeSpentSeconds ?? 0) }} ·
+            进度 {{ getRecordAnsweredCount(record) }}/{{ record.progress?.problemList?.length ?? 0 }}
           </div>
           <div class="record-progress">
-            <div class="record-progress-bar">
-              <span :style="{ width: `${getRecordProgressPercent(record)}%` }"></span>
+            <div class="record-progress-bar" aria-hidden="true">
+              <div
+                class="record-progress-fill"
+                :style="{ width: `${getRecordProgressPercent(record)}%` }"
+              />
             </div>
-            <div class="record-progress-text">
-              已完成 {{ getRecordProgressPercent(record) }}%
-            </div>
+            <div class="record-progress-text">已完成 {{ getRecordProgressPercent(record) }}%</div>
           </div>
         </div>
         <div class="record-actions">
@@ -440,11 +394,6 @@ onMounted(() => {
   margin: 8px 0 6px;
   font-size: 28px;
   color: #0f172a;
-}
-
-.page-head p {
-  margin: 0;
-  color: #6b7280;
 }
 
 .eyebrow {
@@ -505,19 +454,21 @@ onMounted(() => {
 }
 
 .record-progress-bar {
-  flex: 1;
-  height: 6px;
+  width: 220px;
+  max-width: 45vw;
+  height: 4px;
   border-radius: 999px;
   background: #f1f5f9;
   border: 1px solid #e5e7eb;
   overflow: hidden;
 }
 
-.record-progress-bar span {
-  display: block;
+.record-progress-fill {
   height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, #60a5fa, #2563eb);
+  width: 0;
+  background: var(--vtix-primary-500);
+  border-radius: 999px;
+  transition: width 0.3s ease;
 }
 
 .record-progress-text {
@@ -545,6 +496,11 @@ onMounted(() => {
   .record-actions {
     width: 100%;
     justify-content: flex-end;
+  }
+
+  .record-progress-bar {
+    width: 100%;
+    max-width: none;
   }
 }
 </style>

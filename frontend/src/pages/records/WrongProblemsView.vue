@@ -2,8 +2,10 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import Button from 'primevue/button'
 import Checkbox from 'primevue/checkbox'
-import Dropdown from 'primevue/dropdown'
+import Select from 'primevue/select'
 import InputText from 'primevue/inputtext'
+import Paginator from 'primevue/paginator'
+import type { PageState } from 'primevue/paginator'
 import { useToast } from 'primevue/usetoast'
 import { useUserStore } from '../../stores/user'
 import type { ProblemType } from '../../base/ProblemTypes'
@@ -80,7 +82,7 @@ const pagedRecords = computed(() => {
   return filteredRecords.value.slice(start, start + pageSize.value)
 })
 
-watch([keyword, selectedTest, selectedType, pageSize], () => {
+watch([keyword, selectedTest, selectedType], () => {
   currentPage.value = 1
 })
 
@@ -210,9 +212,9 @@ async function handleImport(event: Event) {
   }
 }
 
-function setPage(page: number) {
-  if (page < 1 || page > totalPages.value) return
-  currentPage.value = page
+function handlePage(event: PageState) {
+  const page = event.page ?? 0
+  currentPage.value = page + 1
 }
 
 const choicesLabels = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
@@ -260,7 +262,6 @@ function formatUserAnswer(problem: ProblemType, answer: (number | string)[] | nu
       <div>
         <div class="eyebrow">错题管理</div>
         <h1>我的错题</h1>
-        <p>集中管理所有错题，支持筛选与批量删除。</p>
       </div>
       <div class="page-actions">
         <Button label="导出" severity="secondary" text size="small" @click="exportWrongProblems" />
@@ -271,8 +272,8 @@ function formatUserAnswer(problem: ProblemType, answer: (number | string)[] | nu
 
     <div class="filters">
       <InputText v-model="keyword" placeholder="搜索题库或题目内容" />
-      <Dropdown v-model="selectedTest" :options="testOptions" optionLabel="label" optionValue="value" />
-      <Dropdown v-model="selectedType" :options="typeOptions" optionLabel="label" optionValue="value" />
+      <Select v-model="selectedTest" :options="testOptions" optionLabel="label" optionValue="value" />
+      <Select v-model="selectedType" :options="typeOptions" optionLabel="label" optionValue="value" />
     </div>
 
     <div v-if="filteredRecords.length === 0" class="empty">暂无错题</div>
@@ -329,15 +330,13 @@ function formatUserAnswer(problem: ProblemType, answer: (number | string)[] | nu
       </div>
 
       <div class="pagination">
-        <Button label="上一页" severity="secondary" text size="small" :disabled="currentPage === 1"
-          @click="setPage(currentPage - 1)" />
-        <div class="pages">
-          <Button v-for="page in totalPages" :key="page" type="button" :label="String(page)"
-            :severity="page === currentPage ? 'contrast' : 'secondary'" :outlined="page !== currentPage" size="small"
-            class="page-btn" @click="setPage(page)" />
-        </div>
-        <Button label="下一页" severity="secondary" text size="small" :disabled="currentPage === totalPages"
-          @click="setPage(currentPage + 1)" />
+        <Paginator
+          :first="(currentPage - 1) * pageSize"
+          :rows="pageSize"
+          :totalRecords="filteredRecords.length"
+          template="PrevPageLink PageLinks NextPageLink"
+          @page="handlePage"
+        />
       </div>
     </div>
   </section>
@@ -392,6 +391,7 @@ function formatUserAnswer(problem: ProblemType, answer: (number | string)[] | nu
 }
 
 .filters :deep(.p-inputtext),
+.filters :deep(.p-select),
 .filters :deep(.p-dropdown) {
   width: 100%;
 }
@@ -529,17 +529,24 @@ function formatUserAnswer(problem: ProblemType, answer: (number | string)[] | nu
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
   margin-top: 8px;
 }
 
-.pages {
-  display: flex;
-  gap: 6px;
+.pagination :deep(.p-paginator) {
+  border: none;
+  background: transparent;
+  gap: 8px;
 }
 
-.page-btn :deep(.p-button) {
+.pagination :deep(.p-paginator-page),
+.pagination :deep(.p-paginator-prev),
+.pagination :deep(.p-paginator-next) {
+  min-width: 32px;
+  height: 32px;
   border-radius: 10px;
+}
+
+.pagination :deep(.p-paginator-pages .p-paginator-page) {
   font-size: 14px;
 }
 

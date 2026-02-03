@@ -8,6 +8,19 @@ export const registerPublicProblemSetRoutes = (app: Elysia) =>
     .get("/api/problem-sets", async () => {
       return loadProblemSetList({ onlyPublic: true });
     })
+    .get("/api/problem-sets/recommended", async ({ query }) => {
+      const limitRaw = Number((query as any)?.limit ?? 0);
+      const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : 0;
+      const list = await loadProblemSetList({ onlyPublic: true });
+      const recommended = list
+        .filter((item) => item.recommendedRank !== null)
+        .sort((a, b) => {
+          const aRank = a.recommendedRank ?? 0;
+          const bRank = b.recommendedRank ?? 0;
+          return aRank - bRank;
+        });
+      return limit > 0 ? recommended.slice(0, limit) : recommended;
+    })
     .get("/api/problem-sets/:code", async ({ params, set, request, query }) => {
       const user = getSessionUser(request);
       const detail = await loadProblemSetDetail(params.code);

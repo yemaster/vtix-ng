@@ -14,6 +14,12 @@ export type WrongProblemRecord = {
 
 const STORAGE_KEY = 'vtixWrongProblems'
 
+function normalizeUserId(raw: unknown) {
+  if (typeof raw === 'string') return raw.trim()
+  if (typeof raw === 'number' && Number.isFinite(raw)) return String(raw)
+  return ''
+}
+
 function readWrongProblems(): WrongProblemRecord[] {
   if (!window.localStorage) return []
   const raw = localStorage.getItem(STORAGE_KEY)
@@ -21,7 +27,15 @@ function readWrongProblems(): WrongProblemRecord[] {
   try {
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
-    return parsed.filter((item) => item && typeof item.id === 'string' && typeof item.userId === 'string')
+    return parsed
+      .map((item) => {
+        if (!item || typeof item !== 'object') return null
+        if (typeof item.id !== 'string') return null
+        const userId = normalizeUserId((item as { userId?: unknown }).userId)
+        if (!userId) return null
+        return { ...item, userId } as WrongProblemRecord
+      })
+      .filter((item): item is WrongProblemRecord => Boolean(item?.id && item?.userId))
   } catch (error) {
     return []
   }
@@ -55,9 +69,10 @@ export function addWrongProblem(params: {
   userAnswer: (number | string)[] | null
 }) {
   const records = readWrongProblems()
+  const userId = normalizeUserId(params.userId) || 'guest'
   const key = buildWrongProblemKey(params.testId, params.problem)
   const now = Date.now()
-  const existing = records.find((item) => item.userId === params.userId && item.key === key)
+  const existing = records.find((item) => item.userId === userId && item.key === key)
   if (existing) {
     existing.userAnswer = params.userAnswer
     existing.updatedAt = now
@@ -71,7 +86,7 @@ export function addWrongProblem(params: {
   const record: WrongProblemRecord = {
     id: createId(),
     key,
-    userId: params.userId,
+    userId,
     testId: params.testId,
     testTitle: params.testTitle,
     problem: params.problem,
@@ -85,29 +100,37 @@ export function addWrongProblem(params: {
 }
 
 export function getWrongProblemsByUser(userId: string) {
-  return readWrongProblems().filter((record) => record.userId === userId)
+  const target = normalizeUserId(userId)
+  if (!target) return []
+  return readWrongProblems().filter((record) => record.userId === target)
 }
 
 export function getWrongProblemsByTest(userId: string, testId: string) {
-  return readWrongProblems().filter((record) => record.userId === userId && record.testId === testId)
+  const target = normalizeUserId(userId)
+  if (!target) return []
+  return readWrongProblems().filter((record) => record.userId === target && record.testId === testId)
 }
 
 export function removeWrongProblemsByIds(userId: string, ids: string[]) {
   if (!ids.length) return []
   const set = new Set(ids)
-  const next = readWrongProblems().filter((record) => record.userId !== userId || !set.has(record.id))
+  const target = normalizeUserId(userId)
+  const next = readWrongProblems().filter((record) => record.userId !== target || !set.has(record.id))
   writeWrongProblems(next)
   return next
 }
 
 export function removeAllWrongProblemsByUser(userId: string) {
-  const next = readWrongProblems().filter((record) => record.userId !== userId)
+  const target = normalizeUserId(userId)
+  const next = readWrongProblems().filter((record) => record.userId !== target)
   writeWrongProblems(next)
   return next
 }
 
 function normalizeWrongProblemRecord(userId: string, raw: any): WrongProblemRecord | null {
   if (!raw || typeof raw !== 'object') return null
+  const normalizedUserId = normalizeUserId(userId)
+  if (!normalizedUserId) return null
   const testId = typeof raw.testId === 'string' ? raw.testId : ''
   if (!testId || !raw.problem || typeof raw.problem !== 'object') return null
   const problem = raw.problem as ProblemType
@@ -115,7 +138,7 @@ function normalizeWrongProblemRecord(userId: string, raw: any): WrongProblemReco
   return {
     id: typeof raw.id === 'string' && raw.id ? raw.id : createId(),
     key,
-    userId,
+    userId: normalizedUserId,
     testId,
     testTitle: typeof raw.testTitle === 'string' ? raw.testTitle : '',
     problem,
@@ -126,13 +149,15 @@ function normalizeWrongProblemRecord(userId: string, raw: any): WrongProblemReco
 }
 
 export function mergeWrongProblemsByUser(userId: string, incoming: any[]) {
+  const normalizedUserId = normalizeUserId(userId)
+  if (!normalizedUserId) return []
   const existing = readWrongProblems()
   const normalized = incoming
-    .map((item) => normalizeWrongProblemRecord(userId, item))
+    .map((item) => normalizeWrongProblemRecord(normalizedUserId, item))
     .filter((item): item is WrongProblemRecord => Boolean(item?.id && item?.testId))
 
-  const otherUsers = existing.filter((record) => record.userId !== userId)
-  const ownRecords = existing.filter((record) => record.userId === userId)
+  const otherUsers = existing.filter((record) => record.userId !== normalizedUserId)
+  const ownRecords = existing.filter((record) => record.userId === normalizedUserId)
   const map = new Map<string, WrongProblemRecord>()
 
   ownRecords.forEach((record) => {

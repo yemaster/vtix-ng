@@ -2,5 +2,8 @@
   "dbDialect": "sqlite",
   "databaseUrl": "data/vtix.db",
   "mysqlUrl": "mysql://user:password@localhost:3306/vtix",
-  "sqlitePath": "data/vtix.db"
+  "sqlitePath": "data/vtix.db",
+  "adminName": "Admin",
+  "adminEmail": "admin@vtix.dev",
+  "adminPassword": "admin1234"
 }

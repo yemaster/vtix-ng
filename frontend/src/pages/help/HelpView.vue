@@ -7,15 +7,7 @@ import Tag from 'primevue/tag'
     <header class="page-head">
       <div class="page-intro">
         <div class="eyebrow">帮助中心</div>
-        <h1>如何使用 VTIX</h1>
-        <p>从创建题库到做题复盘，快速掌握使用流程。</p>
-        <div class="intro-meta">
-          <span class="meta-item">全流程指引</span>
-          <span class="meta-dot">·</span>
-          <span class="meta-item">快捷键速查</span>
-          <span class="meta-dot">·</span>
-          <span class="meta-item">数据管理提示</span>
-        </div>
+        <h1>如何使用 Vtix 答题自测</h1>
       </div>
       <div class="head-tags">
         <Tag value="快速上手" rounded />
@@ -102,14 +94,39 @@ import Tag from 'primevue/tag'
               <span>新建题库 → 编辑题目 → 发布/保存</span>
             </div>
           </article>
+        </section>
 
-          <article class="guide-card">
-            <div class="card-title">个人空间</div>
-            <p>查看个人信息、练习统计与你创建的题库。</p>
-            <div class="card-steps">
-              <span>个人空间 → 个人信息/练习情况/我的题库</span>
-            </div>
-          </article>
+        <section class="qa-section">
+          <div class="section-head">
+            <h2>常见问题 Q&A</h2>
+            <p>快速解决练习与记录相关的疑问。</p>
+          </div>
+          <div class="qa-list">
+            <article class="qa-item">
+              <div class="qa-q">Q：我如何继续之前的练习？</div>
+              <div class="qa-a">A：进入题库后，会自动继续最近的一次练习。也可以进入题库的练习记录页面（电脑端点击导航条中的做题记录，手机端点击底部的记录），可以选择练习继续。也可以在做题记录管理页面进入。</div>
+            </article>
+            <article class="qa-item">
+              <div class="qa-q">Q：练习记录会自动保存吗？</div>
+              <div class="qa-a">A：会。做题过程中会定期保存，离开页面也会自动保存最近记录。</div>
+            </article>
+            <article class="qa-item">
+              <div class="qa-q">Q：错题如何再次练习？</div>
+              <div class="qa-a">A：在“错题管理”中按题库筛选，进入错题回顾模式即可重做。</div>
+            </article>
+            <article class="qa-item">
+              <div class="qa-q">Q：如何同步到云端？</div>
+              <div class="qa-a">A：登录后在记录页面点击“同步”，即可将本地记录上传并合并云端数据。</div>
+            </article>
+            <article class="qa-item">
+              <div class="qa-q">Q：可以导入历史练习记录吗？</div>
+              <div class="qa-a">A：可以。在记录页面选择“导入”，上传之前导出的记录文件即可。</div>
+            </article>
+            <article class="qa-item">
+              <div class="qa-q">Q：我还有其他的问题。</div>
+              <div class="qa-a">A：联系 yemaster，在关于页面查看联系方法。</div>
+            </article>
+          </div>
         </section>
       </div>
 
@@ -168,21 +185,14 @@ import Tag from 'primevue/tag'
   gap: 18px;
   padding: 20px 22px;
   border-radius: 18px;
-  background: linear-gradient(135deg, #f8fafc 0%, #eef2ff 100%);
-  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
   position: relative;
   overflow: hidden;
 }
 
 .page-head::after {
-  content: '';
-  position: absolute;
-  right: -40px;
-  top: -50px;
-  width: 180px;
-  height: 180px;
-  background: radial-gradient(circle, rgba(99, 102, 241, 0.18), transparent 70%);
-  pointer-events: none;
+  content: none;
 }
 
 .page-head h1 {
@@ -219,7 +229,7 @@ import Tag from 'primevue/tag'
 }
 
 .meta-dot {
-  color: #cbd5f5;
+  color: var(--vtix-primary-200);
 }
 
 .head-tags {
@@ -249,8 +259,8 @@ import Tag from 'primevue/tag'
 .quick-index {
   font-weight: 700;
   font-size: 14px;
-  color: #4f46e5;
-  background: #eef2ff;
+  color: var(--vtix-primary-700);
+  background: var(--vtix-primary-100);
   border-radius: 10px;
   padding: 4px 8px;
 }
@@ -332,12 +342,46 @@ import Tag from 'primevue/tag'
   padding: 8px 10px;
 }
 
+.qa-section {
+  margin-top: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.qa-list {
+  display: grid;
+  gap: 12px;
+}
+
+.qa-item {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.qa-q {
+  font-weight: 700;
+  color: #0f172a;
+  font-size: 14px;
+}
+
+.qa-a {
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
 .side-panel {
   display: flex;
   flex-direction: column;
   gap: 14px;
   position: sticky;
-  top: 18px;
+  top: 96px;
 }
 
 .panel {
@@ -392,8 +436,8 @@ import Tag from 'primevue/tag'
 }
 
 .panel.highlight {
-  background: linear-gradient(135deg, #eff6ff 0%, #ecfeff 100%);
-  border-color: #bae6fd;
+  background: linear-gradient(135deg, var(--vtix-primary-50) 0%, var(--vtix-primary-100) 100%);
+  border-color: var(--vtix-primary-200);
 }
 
 .panel.highlight p {

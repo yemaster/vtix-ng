@@ -8,6 +8,7 @@ export const PERMISSIONS = {
   MANAGE_QUESTION_BANK_ALL: 1 << 10,
   MANAGE_QUESTION_BANK: 1 << 10,
   MANAGE_USERS: 1 << 11,
+  MANAGE_NOTICES: 1 << 12,
 } as const;
 
 export type PermissionValue = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -50,7 +51,8 @@ export const USER_GROUPS: Record<string, UserGroup> = {
       PERMISSIONS.ACCESS_RECORDS |
       PERMISSIONS.ACCESS_WRONG_RECORDS |
       PERMISSIONS.MANAGE_QUESTION_BANK_ALL |
-      PERMISSIONS.MANAGE_USERS,
+      PERMISSIONS.MANAGE_USERS |
+      PERMISSIONS.MANAGE_NOTICES,
   },
 };
 

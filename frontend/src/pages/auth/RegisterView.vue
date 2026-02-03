@@ -3,10 +3,46 @@ import { ref } from 'vue'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import Password from 'primevue/password'
+import { useToast } from 'primevue/usetoast'
+import { useRouter } from 'vue-router'
+import { useUserStore } from '../../stores/user'
 
 const name = ref('')
 const email = ref('')
 const password = ref('')
+const router = useRouter()
+const userStore = useUserStore()
+const toast = useToast()
+
+async function handleSubmit() {
+  const nameValue = name.value.trim()
+  const emailValue = email.value.trim()
+  const passwordValue = password.value
+  if (!nameValue || !emailValue || !passwordValue) {
+    toast.add({
+      severity: 'warn',
+      summary: '信息不完整',
+      detail: '请填写姓名、邮箱与密码',
+      life: 3000
+    })
+    return
+  }
+  const ok = await userStore.register({
+    name: nameValue,
+    email: emailValue,
+    password: passwordValue
+  })
+  if (!ok) {
+    toast.add({
+      severity: 'error',
+      summary: '注册失败',
+      detail: userStore.error || '注册失败，请稍后再试',
+      life: 3500
+    })
+    return
+  }
+  router.push({ name: 'home' })
+}
 </script>
 
 <template>
@@ -24,7 +60,7 @@ const password = ref('')
           <small>填写信息后即可开始练习</small>
         </div>
 
-        <form class="form" autocomplete="on">
+        <form class="form" autocomplete="on" @submit.prevent="handleSubmit">
           <label class="field">
             <span>姓名</span>
             <InputText
@@ -58,7 +94,12 @@ const password = ref('')
             />
           </label>
 
-          <Button type="submit" label="注册" class="action primary" />
+          <Button
+            type="submit"
+            label="注册"
+            class="action primary"
+            :loading="userStore.loading"
+          />
 
           <div class="hint">
             已有账号？

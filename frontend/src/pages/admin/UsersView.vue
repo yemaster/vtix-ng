@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import Button from 'primevue/button'
-import Dropdown from 'primevue/dropdown'
+import Select from 'primevue/select'
 import InputText from 'primevue/inputtext'
+import Paginator from 'primevue/paginator'
+import type { PageState } from 'primevue/paginator'
+import { useToast } from 'primevue/usetoast'
 
 type UserGroup = {
   id: string
@@ -25,9 +28,9 @@ const users = ref<AdminUser[]>([])
 const groups = ref<UserGroup[]>([])
 const loading = ref(false)
 const loadError = ref('')
-const submitError = ref('')
 const saving = ref(false)
 const showModal = ref(false)
+const toast = useToast()
 
 const form = ref({
   id: '',
@@ -40,6 +43,7 @@ const search = ref('')
 const selectedGroup = ref('all')
 const pageSize = ref(8)
 const currentPage = ref(1)
+const pageSizeOptions = [8, 16, 32]
 
 const isEditing = computed(() => Boolean(form.value.id))
 const groupOptions = computed(() => [
@@ -75,7 +79,6 @@ function resetForm() {
     email: '',
     groupId: groups.value[0]?.id ?? ''
   }
-  submitError.value = ''
 }
 
 function startEdit(user: AdminUser) {
@@ -85,7 +88,6 @@ function startEdit(user: AdminUser) {
     email: user.email,
     groupId: user.groupId
   }
-  submitError.value = ''
   showModal.value = true
 }
 
@@ -96,13 +98,20 @@ function startCreate() {
     email: '',
     groupId: groups.value[0]?.id ?? ''
   }
-  submitError.value = ''
   showModal.value = true
 }
 
 function closeModal() {
   showModal.value = false
   resetForm()
+}
+
+function handlePage(event: PageState) {
+  if (typeof event.rows === 'number') {
+    pageSize.value = event.rows
+  }
+  const page = event.page ?? 0
+  currentPage.value = page + 1
 }
 
 async function loadData() {
@@ -124,7 +133,7 @@ async function loadData() {
     groups.value = Array.isArray(groupData) ? groupData : []
     users.value = Array.isArray(userData) ? userData : []
     if (!form.value.groupId && groups.value.length) {
-      form.value.groupId = groups.value[0].id
+      form.value.groupId = groups.value[0]?.id ?? ''
     }
   } catch (error) {
     loadError.value = error instanceof Error ? error.message : '加载失败'
@@ -136,7 +145,6 @@ async function loadData() {
 }
 
 async function saveUser() {
-  submitError.value = ''
   saving.value = true
   try {
     const payload = {
@@ -145,7 +153,12 @@ async function saveUser() {
       groupId: form.value.groupId
     }
     if (!payload.name && !payload.email) {
-      submitError.value = '请输入用户名称或邮箱'
+      toast.add({
+        severity: 'warn',
+        summary: '无法保存',
+        detail: '请输入用户名称或邮箱',
+        life: 3000
+      })
       return
     }
     const url = isEditing.value
@@ -163,8 +176,19 @@ async function saveUser() {
     }
     await loadData()
     closeModal()
+    toast.add({
+      severity: 'success',
+      summary: isEditing.value ? '保存成功' : '创建成功',
+      detail: isEditing.value ? '用户已更新' : '用户已创建',
+      life: 3000
+    })
   } catch (error) {
-    submitError.value = error instanceof Error ? error.message : '保存失败'
+    toast.add({
+      severity: 'error',
+      summary: '保存失败',
+      detail: error instanceof Error ? error.message : '保存失败',
+      life: 3500
+    })
   } finally {
     saving.value = false
   }
@@ -174,7 +198,7 @@ onMounted(() => {
   void loadData()
 })
 
-watch([search, selectedGroup, pageSize], () => {
+watch([search, selectedGroup], () => {
   currentPage.value = 1
 })
 
@@ -210,19 +234,9 @@ watch(totalPages, (value) => {
       </div>
       <div class="filter-group">
         <span>用户组</span>
-        <Dropdown
+        <Select
           v-model="selectedGroup"
           :options="groupOptions"
-          optionLabel="label"
-          optionValue="value"
-          class="group-filter"
-        />
-      </div>
-      <div class="filter-group">
-        <span>每页</span>
-        <Dropdown
-          v-model="pageSize"
-          :options="[{ label: '8', value: 8 }, { label: '16', value: 16 }, { label: '32', value: 32 }]"
           optionLabel="label"
           optionValue="value"
           class="group-filter"
@@ -269,34 +283,13 @@ watch(totalPages, (value) => {
             </table>
           </div>
           <div class="pagination">
-            <Button
-              label="上一页"
-              severity="secondary"
-              text
-              size="small"
-              :disabled="currentPage === 1"
-              @click="currentPage -= 1"
-            />
-            <div class="pages">
-              <Button
-                v-for="page in totalPages"
-                :key="page"
-                type="button"
-                :label="String(page)"
-                :severity="page === currentPage ? 'contrast' : 'secondary'"
-                :outlined="page !== currentPage"
-                size="small"
-                class="page-btn"
-                @click="currentPage = page"
-              />
-            </div>
-            <Button
-              label="下一页"
-              severity="secondary"
-              text
-              size="small"
-              :disabled="currentPage === totalPages"
-              @click="currentPage += 1"
+            <Paginator
+              :first="(currentPage - 1) * pageSize"
+              :rows="pageSize"
+              :totalRecords="filteredUsers.length"
+              :rowsPerPageOptions="pageSizeOptions"
+              template="PrevPageLink PageLinks NextPageLink RowsPerPageSelect"
+              @page="handlePage"
             />
           </div>
         </div>
@@ -320,7 +313,7 @@ watch(totalPages, (value) => {
           </label>
           <label class="field">
             <span>用户组</span>
-            <Dropdown
+            <Select
               v-model="form.groupId"
               :options="groupOptions"
               optionLabel="label"
@@ -329,7 +322,6 @@ watch(totalPages, (value) => {
               class="group-select"
             />
           </label>
-          <div v-if="submitError" class="form-error">{{ submitError }}</div>
         </div>
         <div class="modal-actions">
           <Button
@@ -448,17 +440,36 @@ watch(totalPages, (value) => {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
 }
 
-.pages {
-  display: flex;
-  gap: 6px;
+.pagination :deep(.p-paginator) {
+  border: none;
+  background: transparent;
+  gap: 8px;
 }
 
-.page-btn :deep(.p-button) {
+.pagination :deep(.p-paginator-page),
+.pagination :deep(.p-paginator-prev),
+.pagination :deep(.p-paginator-next) {
+  min-width: 32px;
+  height: 32px;
   border-radius: 10px;
+}
+
+.pagination :deep(.p-paginator-pages .p-paginator-page) {
   font-size: 14px;
+}
+
+.pagination :deep(.p-paginator-rpp-select),
+.pagination :deep(.p-paginator-rpp-dropdown) {
+  border-radius: 8px;
+}
+
+.pagination :deep(.p-select-label),
+.pagination :deep(.p-dropdown-label) {
+  font-size: 12px;
+  color: #374151;
+  padding: 4px 8px;
 }
 
 .status {
@@ -493,13 +504,9 @@ watch(totalPages, (value) => {
   font-weight: 600;
 }
 
+.group-select :deep(.p-select),
 .group-select :deep(.p-dropdown) {
   width: 100%;
-}
-
-.form-error {
-  color: #b91c1c;
-  font-size: 13px;
 }
 
 .table-skeleton {

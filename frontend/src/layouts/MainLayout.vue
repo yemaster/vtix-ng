@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import Button from 'primevue/button'
 import Menu from 'primevue/menu'
+import type { MenuItem } from 'primevue/menuitem'
 import { useUserStore } from '../stores/user'
 import AppFooter from '../components/AppFooter.vue'
 
@@ -22,19 +23,19 @@ let mediaHandler: (() => void) | null = null
 
 const hideTopbar = computed(() => isMobile.value && route.name === 'test')
 
-const MANAGE_QUESTION_BANK_OWN = 1 << 9
 const MANAGE_QUESTION_BANK_ALL = 1 << 10
 const MANAGE_USERS = 1 << 11
 
 const mainNavItems = [
-  { label: '首页', name: 'home', icon: 'pi pi-home' },
   { label: '题库', name: 'question-bank', icon: 'pi pi-book' },
-  { label: '做题记录', name: 'records', icon: 'pi pi-clipboard' },
-  { label: '错题管理', name: 'wrong-problems', icon: 'pi pi-exclamation-triangle' },
+  { label: '练习记录', name: 'records', icon: 'pi pi-clipboard' },
+  { label: '错题', name: 'wrong-problems', icon: 'pi pi-exclamation-triangle' },
   { label: '帮助', name: 'help', icon: 'pi pi-question-circle' },
 ]
 
-const userMenuItems = computed(() => {
+type DrawerMenuItem = MenuItem & { disabled?: boolean }
+
+const userMenuItems = computed<DrawerMenuItem[]>(() => {
   const items = [
     {
       label: '个人空间',
@@ -62,16 +63,21 @@ const userMenuItems = computed(() => {
   ]
 
   const permissions = userStore.user?.permissions ?? 0
-  const canManageAll = (permissions & MANAGE_QUESTION_BANK_ALL) === MANAGE_QUESTION_BANK_ALL
-  const canManageOwn = (permissions & MANAGE_QUESTION_BANK_OWN) === MANAGE_QUESTION_BANK_OWN
-  const isAdmin = (permissions & MANAGE_USERS) === MANAGE_USERS
-  if (canManageAll || canManageOwn || isAdmin) {
-    items.push({
-      label: '管理后台',
-      icon: 'pi pi-cog',
-      command: () => router.push({ name: 'admin-home' })
-    })
-  }
+    const canManageAll = (permissions & MANAGE_QUESTION_BANK_ALL) === MANAGE_QUESTION_BANK_ALL
+    const isAdmin = (permissions & MANAGE_USERS) === MANAGE_USERS
+    if (isAdmin) {
+      items.push({
+        label: '管理后台',
+        icon: 'pi pi-cog',
+        command: () => router.push({ name: 'admin-home' })
+      })
+    } else if (canManageAll) {
+      items.push({
+        label: '题库管理',
+        icon: 'pi pi-cog',
+        command: () => router.push({ name: 'admin-question-banks' })
+      })
+    }
 
   items.push({
     label: '登出',
@@ -84,6 +90,12 @@ const userMenuItems = computed(() => {
 
   return items
 })
+
+function runMenuCommand(item: DrawerMenuItem, event: Event) {
+  if (typeof item.command === 'function') {
+    item.command({ originalEvent: event, item } as any)
+  }
+}
 
 function toggleUserMenu(event: Event) {
   userMenu.value?.toggle(event)
@@ -127,18 +139,20 @@ watch(
     <header v-show="!hideTopbar" class="topbar">
       <div class="topbar-inner">
         <div class="left-group">
-          <div class="brand">
+          <RouterLink class="brand brand-link" :to="{ name: 'home' }">
             <span class="brand-dot" />
             <span class="brand-word">VTIX</span>
-          </div>
+          </RouterLink>
           <nav v-if="!isMobile" class="nav">
             <RouterLink
               v-for="item in mainNavItems"
               :key="item.name"
               :to="{ name: item.name }"
-              :class="{ active: activeName === item.name }"
+              :class="['nav-link', { active: activeName === item.name }]"
+              v-ripple
             >
-              {{ item.label }}
+              <span class="nav-icon" :class="item.icon" aria-hidden="true" />
+              <span class="nav-text">{{ item.label }}</span>
             </RouterLink>
           </nav>
         </div>
@@ -156,7 +170,7 @@ watch(
                 <span class="caret">▾</span>
               </button>
               <span class="group-badge">{{ userStore.user.groupName || '用户组' }}</span>
-              <Menu ref="userMenu" :model="userMenuItems" popup />
+              <Menu ref="userMenu" size="big" :model="userMenuItems" popup />
             </div>
           </template>
         </div>
@@ -166,13 +180,15 @@ watch(
       </div>
     </header>
 
-    <div v-if="isMobile && isMobileMenuOpen" class="mobile-backdrop" @click="isMobileMenuOpen = false" />
+    <transition name="backdrop-fade">
+      <div v-if="isMobile && isMobileMenuOpen" class="mobile-backdrop" @click="isMobileMenuOpen = false" />
+    </transition>
     <aside v-if="isMobile" id="mobile-drawer" :class="['mobile-drawer', { open: isMobileMenuOpen }]">
       <div class="drawer-head">
-        <div class="brand mini">
+        <RouterLink class="brand mini brand-link" :to="{ name: 'home' }">
           <span class="brand-dot" />
           <span class="brand-word">VTIX</span>
-        </div>
+        </RouterLink>
         <Button type="button" severity="secondary" text icon="pi pi-times" class="drawer-close" aria-label="关闭菜单"
           @click="isMobileMenuOpen = false" />
       </div>
@@ -181,10 +197,11 @@ watch(
           v-for="item in mainNavItems"
           :key="item.name"
           :to="{ name: item.name }"
-          :class="{ active: activeName === item.name }"
+          :class="['drawer-link', { active: activeName === item.name }]"
+          v-ripple
         >
           <span class="nav-icon" :class="item.icon" aria-hidden="true" />
-          <span>{{ item.label }}</span>
+          <span class="nav-text">{{ item.label }}</span>
         </RouterLink>
       </nav>
       <div class="drawer-actions">
@@ -205,11 +222,11 @@ watch(
           <div class="drawer-menu">
             <button
               v-for="item in userMenuItems"
-              :key="item.label"
+              :key="String(item.label ?? '')"
               type="button"
               :disabled="item.disabled"
               :class="['drawer-menu-item', { disabled: item.disabled }]"
-              @click="item.command && item.command()"
+              @click="runMenuCommand(item, $event)"
             >
               <span class="nav-icon" :class="item.icon" aria-hidden="true" />
               <span>{{ item.label }}</span>
@@ -265,27 +282,60 @@ watch(
 }
 
 .brand-word {
-  font-size: 14px;
+  font-size: 16px;
+}
+
+.topbar .brand-dot,
+.drawer-head .brand-dot {
+  display: none;
+}
+
+.brand-link {
+  text-decoration: none;
+  color: inherit;
 }
 
 .nav {
   display: inline-flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
 }
 
-.nav a {
-  color: #111827;
+.nav-link {
+  color: #0f172a;
   font-weight: 600;
   text-decoration: none;
-  padding: 8px 10px;
-  border-radius: 10px;
-  transition: background 0.2s ease, color 0.2s ease;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: background 0.3s ease, color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+  position: relative;
+  overflow: hidden;
 }
 
-.nav a:hover,
-.nav a.active {
-  background: #f1f3f6;
+.nav-link .nav-icon {
+  font-size: 14px;
+  color: #64748b;
+}
+
+.nav-link:hover {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+  color: #0f172a;
+}
+
+.nav-link.active {
+  background: var(--vtix-primary-100);
+  color: #0f172a;
+  border-color: var(--vtix-primary-100);
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.08);
+}
+
+.nav-link.active .nav-icon {
   color: #0f172a;
 }
 
@@ -313,7 +363,7 @@ watch(
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  transition: background 0.2s ease, color 0.2s ease;
+  transition: background 0.3s ease, color 0.3s ease;
 }
 
 .user-trigger:hover {
@@ -383,7 +433,7 @@ watch(
   font-weight: 500;
   font-size: 14px;
   cursor: pointer;
-  transition: background 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
+  transition: background 0.3s ease, box-shadow 0.3s ease, color 0.3s ease;
   display: inline-flex;
   align-items: center;
   gap: 10px;
@@ -447,14 +497,17 @@ watch(
 .mobile-drawer {
   position: fixed;
   top: 0;
-  right: 0;
+  left: 0;
+  right: auto;
   height: 100vh;
   width: min(78vw, 320px);
   background: #ffffff;
-  border-left: 1px solid #e5e7eb;
-  box-shadow: -12px 0 30px rgba(15, 23, 42, 0.12);
-  transform: translateX(100%);
-  transition: transform 0.25s ease;
+  border-right: 1px solid #e5e7eb;
+  box-shadow: 12px 0 30px rgba(15, 23, 42, 0.12);
+  transform: translateX(-100%);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 0.3s ease, opacity 0.3s ease;
   z-index: 21;
   display: flex;
   flex-direction: column;
@@ -464,6 +517,8 @@ watch(
 
 .mobile-drawer.open {
   transform: translateX(0);
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .drawer-head {
@@ -473,7 +528,7 @@ watch(
 }
 
 .brand.mini .brand-word {
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .drawer-close {
@@ -494,7 +549,7 @@ watch(
   gap: 8px;
 }
 
-.drawer-nav a {
+.drawer-link {
   text-decoration: none;
   color: #0f172a;
   font-weight: 500;
@@ -503,16 +558,22 @@ watch(
   border-radius: 10px;
   background: transparent;
   border: 1px solid transparent;
-  transition: background 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
+  transition: background 0.3s ease, box-shadow 0.3s ease, color 0.3s ease;
   display: inline-flex;
   align-items: center;
   gap: 10px;
+  position: relative;
+  overflow: hidden;
 }
 
-.drawer-nav a.active,
-.drawer-nav a:hover {
-  background: #f1f5f9;
+.drawer-link.active,
+.drawer-link:hover {
+  background: var(--vtix-primary-100);
   box-shadow: 0 6px 14px rgba(15, 23, 42, 0.08);
+}
+
+.nav-text {
+  white-space: nowrap;
 }
 
 

@@ -11,62 +11,86 @@ const router = createRouter({
                 {
                     path: '',
                     name: 'home',
-                    component: () => import('./pages/home/HomeView.vue')
+                    component: () => import('./pages/home/HomeView.vue'),
+                    meta: { title: '首页' }
                 },
                 {
                     path: 'question-bank',
                     name: 'question-bank',
-                    component: () => import('./pages/question-bank/QuestionBankView.vue')
+                    component: () => import('./pages/question-bank/QuestionBankView.vue'),
+                    meta: { title: '题库' }
                 },
-                {
-                    path: 'question-bank/create',
-                    name: 'question-bank-create',
-                    component: () => import('./pages/question-bank/CreateQuestionBankView.vue')
-                },
-                {
-                    path: 'question-bank/:code/edit',
-                    name: 'question-bank-edit',
-                    component: () => import('./pages/question-bank/EditQuestionBankView.vue')
-                },
+                // {
+                //     path: 'question-bank/create',
+                //     name: 'question-bank-create',
+                //     component: () => import('./pages/question-bank/CreateQuestionBankView.vue'),
+                //     meta: { title: '新建题库' }
+                // },
+                // {
+                //     path: 'question-bank/:code/edit',
+                //     name: 'question-bank-edit',
+                //     component: () => import('./pages/question-bank/EditQuestionBankView.vue'),
+                //     meta: { title: '编辑题库' }
+                // },
                 {
                     path: 'my-question-bank',
                     name: 'my-question-bank',
-                    component: () => import('./pages/question-bank/MyQuestionBankView.vue')
+                    component: () => import('./pages/question-bank/MyQuestionBankView.vue'),
+                    meta: { title: '我的题库' }
                 },
                 {
                     path: 'records',
                     name: 'records',
-                    component: () => import('./pages/records/RecordsView.vue')
+                    component: () => import('./pages/records/RecordsView.vue'),
+                    meta: { title: '练习记录' }
+                },
+                {
+                    path: 'notices',
+                    name: 'notices',
+                    component: () => import('./pages/notices/NoticesListView.vue'),
+                    meta: { title: '公告列表' }
+                },
+                {
+                    path: 'notices/:id',
+                    name: 'notice-detail',
+                    component: () => import('./pages/notices/NoticeDetailView.vue'),
+                    meta: { title: '通知公告' }
                 },
                 {
                     path: 'help',
                     name: 'help',
-                    component: () => import('./pages/help/HelpView.vue')
+                    component: () => import('./pages/help/HelpView.vue'),
+                    meta: { title: '使用帮助' }
                 },
                 {
                     path: 'about',
                     name: 'about',
-                    component: () => import('./pages/about/AboutView.vue')
+                    component: () => import('./pages/about/AboutView.vue'),
+                    meta: { title: '关于' }
                 },
                 {
                     path: 'user/:name',
                     name: 'user-space',
-                    component: () => import('./pages/profile/PersonalSpaceView.vue')
+                    component: () => import('./pages/profile/PersonalSpaceView.vue'),
+                    meta: { title: '个人空间' }
                 },
                 {
                     path: 'user/:name/edit',
                     name: 'user-edit',
-                    component: () => import('./pages/profile/EditProfileView.vue')
+                    component: () => import('./pages/profile/EditProfileView.vue'),
+                    meta: { title: '编辑资料' }
                 },
                 {
                     path: 'wrong-problems',
                     name: 'wrong-problems',
-                    component: () => import('./pages/records/WrongProblemsView.vue')
+                    component: () => import('./pages/records/WrongProblemsView.vue'),
+                    meta: { title: '错题本' }
                 },
                 {
                     path: '/t/:id',
                     name: 'test',
-                    component: () => import('./pages/test/TestView.vue')
+                    component: () => import('./pages/test/TestView.vue'),
+                    meta: { title: '练习中' }
                 }
             ]
         },
@@ -78,49 +102,70 @@ const router = createRouter({
                 {
                     path: '',
                     name: 'admin-home',
-                    component: () => import('./pages/admin/AdminHomeView.vue')
-                },
-                {
-                    path: 'trends',
-                    name: 'admin-trends',
-                    component: () => import('./pages/admin/AdminTrendsView.vue')
+                    component: () => import('./pages/admin/AdminHomeView.vue'),
+                    meta: { title: '管理后台' }
                 },
                 {
                     path: 'user-groups',
                     name: 'admin-user-groups',
-                    component: () => import('./pages/admin/UserGroupsView.vue')
+                    component: () => import('./pages/admin/UserGroupsView.vue'),
+                    meta: { title: '用户组管理' }
                 },
                 {
                     path: 'users',
                     name: 'admin-users',
-                    component: () => import('./pages/admin/UsersView.vue')
+                    component: () => import('./pages/admin/UsersView.vue'),
+                    meta: { title: '用户管理' }
+                },
+                {
+                    path: 'notices',
+                    name: 'admin-notices',
+                    component: () => import('./pages/admin/NoticesView.vue'),
+                    meta: { title: '通知公告管理' }
                 },
                 {
                     path: 'question-banks',
                     name: 'admin-question-banks',
-                    component: () => import('./pages/admin/QuestionBankManageView.vue')
+                    component: () => import('./pages/admin/QuestionBankManageView.vue'),
+                    meta: { title: '题库管理' }
                 },
                 {
                     path: 'question-banks/create',
                     name: 'admin-question-bank-create',
-                    component: () => import('./pages/admin/QuestionBankCreateView.vue')
+                    component: () => import('./pages/admin/QuestionBankCreateView.vue'),
+                    meta: { title: '新建题库' }
                 },
                 {
                     path: 'question-banks/:code/edit',
                     name: 'admin-question-bank-edit',
-                    component: () => import('./pages/admin/QuestionBankEditView.vue')
+                    component: () => import('./pages/admin/QuestionBankEditView.vue'),
+                    meta: { title: '编辑题库' }
                 }
             ]
         },
         {
             path: '/login',
             name: 'login',
-            component: () => import('./pages/auth/LoginView.vue')
+            component: () => import('./pages/auth/LoginView.vue'),
+            meta: { title: '登录' }
         },
         {
             path: '/register',
             name: 'register',
-            component: () => import('./pages/auth/RegisterView.vue')
+            component: () => import('./pages/auth/RegisterView.vue'),
+            meta: { title: '注册' }
+        },
+        {
+            path: '/error',
+            name: 'error',
+            component: () => import('./pages/error/ErrorView.vue'),
+            meta: { title: '错误' }
+        },
+        {
+            path: '/:pathMatch(.*)*',
+            name: 'not-found',
+            component: () => import('./pages/error/ErrorView.vue'),
+            meta: { title: '页面未找到' }
         }
     ],
     scrollBehavior() {
@@ -142,6 +187,13 @@ router.beforeEach((to, from) => {
         query: { ...to.query, redirect: safeRedirect },
         replace: true
     }
+})
+
+const TITLE_SUFFIX = ' - vtix 答题'
+const DEFAULT_TITLE = `VTIX${TITLE_SUFFIX}`
+router.afterEach((to) => {
+    const title = typeof to.meta?.title === 'string' ? to.meta.title.trim() : ''
+    document.title = title ? `${title}${TITLE_SUFFIX}` : DEFAULT_TITLE
 })
 
 export default router

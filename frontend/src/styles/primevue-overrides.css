@@ -1,25 +1,3 @@
-.action-btn.p-button {
-  border-radius: 12px;
-  font-weight: 700;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-
-.action-btn.primary.p-button {
-  background: #1f2937;
-  border-color: #1f2937;
-  color: #ffffff;
-  box-shadow: 0 4px 10px rgba(31, 41, 55, 0.22);
-}
-
-.action-btn.primary.p-button:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 14px rgba(31, 41, 55, 0.28);
-}
-
-.action-btn.ghost.p-button {
-  color: #1f2937;
-}
-
 .drawer-actions .action-btn.p-button {
   width: 100%;
 }

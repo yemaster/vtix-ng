@@ -1,6 +1,7 @@
 export type PracticeRecord = {
   id: string;
   updatedAt?: number;
+  [key: string]: unknown;
 };
 
 const userRecords = new Map<string, PracticeRecord[]>();

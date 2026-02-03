@@ -10,6 +10,8 @@ import {
 } from "drizzle-orm/mysql-core";
 
 const VARCHAR_ID = 191;
+type TestConfigItem = { type: number; number: number; score: number };
+type TestMeta = TestConfigItem[] | number[] | number | null;
 
 export const problemSets = mysqlTable("problem_sets", {
   id: int("id").autoincrement().primaryKey(),
@@ -22,7 +24,7 @@ export const problemSets = mysqlTable("problem_sets", {
   creatorName: varchar("creator_name", { length: 255 }).notNull(),
   isPublic: boolean("is_public").notNull().default(false),
   inviteCode: varchar("invite_code", { length: 255 }),
-  testMeta: json("test_meta").$type<number | number[] | null>(),
+  testMeta: json("test_meta").$type<TestMeta>(),
   scoreMeta: json("score_meta").$type<number[] | null>(),
   questionCount: int("question_count").notNull().default(0),
 });
@@ -99,9 +101,25 @@ export const userRecords = mysqlTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     recordId: varchar("record_id", { length: 128 }).notNull(),
+    recordData: json("record_data").$type<Record<string, unknown> | null>(),
+    syncSeq: bigint("sync_seq", { mode: "number" }),
+    deletedAt: bigint("deleted_at", { mode: "number" }),
     updatedAt: bigint("updated_at", { mode: "number" }),
   },
   (table) => ({
     pk: primaryKey({ columns: [table.userId, table.recordId] }),
   })
 );
+
+export const notices = mysqlTable("notices", {
+  id: int("id").autoincrement().primaryKey(),
+  title: varchar("title", { length: 255 }).notNull(),
+  content: text("content").notNull(),
+  isPinned: boolean("is_pinned").notNull().default(false),
+  authorId: int("author_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "restrict" }),
+  authorName: varchar("author_name", { length: 255 }).notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+});

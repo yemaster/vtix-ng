@@ -1,28 +1,71 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { useUserStore } from '../../stores/user'
 
 type AdminStats = {
   totalSets: number
   publicSets: number
   activeUsers: number
+  visitCount: number
   practiceCount: number
   deltas?: {
     totalSets7d?: number
     publicSets7d?: number
     activeUsersToday?: number
+    visitToday?: number
     practiceToday?: number
   }
 }
 
-const quickLinks = [
-  { title: '题库管理', desc: '查看与维护题库', disabled: true },
-  { title: '用户管理', desc: '用户与权限配置', disabled: true },
-  { title: '用户组管理', desc: '分组与权限模板', disabled: true }
-]
+type QuickLink = {
+  title: string
+  desc: string
+  to: { name: string }
+  disabled: boolean
+}
 
 const apiBase = import.meta.env.VITE_API_BASE ?? 'http://localhost:3000'
 const router = useRouter()
+const userStore = useUserStore()
+
+const MANAGE_QUESTION_BANK_OWN = 1 << 9
+const MANAGE_QUESTION_BANK_ALL = 1 << 10
+const MANAGE_USERS = 1 << 11
+
+const canManageQuestionBanks = computed(() => {
+  const permissions = userStore.user?.permissions ?? 0
+  return (
+    (permissions & MANAGE_QUESTION_BANK_ALL) === MANAGE_QUESTION_BANK_ALL ||
+    (permissions & MANAGE_QUESTION_BANK_OWN) === MANAGE_QUESTION_BANK_OWN
+  )
+})
+
+const canManageUsers = computed(() => {
+  const permissions = userStore.user?.permissions ?? 0
+  return (permissions & MANAGE_USERS) === MANAGE_USERS
+})
+
+const quickLinks = computed<QuickLink[]>(() => [
+  {
+    title: '题库管理',
+    desc: '查看与维护题库',
+    to: { name: 'admin-question-banks' },
+    disabled: !canManageQuestionBanks.value
+  },
+  {
+    title: '用户管理',
+    desc: '用户与权限配置',
+    to: { name: 'admin-users' },
+    disabled: !canManageUsers.value
+  },
+  {
+    title: '用户组管理',
+    desc: '分组与权限模板',
+    to: { name: 'admin-user-groups' },
+    disabled: !canManageUsers.value
+  }
+])
 
 const stats = ref<AdminStats | null>(null)
 const loading = ref(true)
@@ -43,6 +86,7 @@ const metaText = computed(() => ({
   totalSets: formatDelta('近 7 天', stats.value?.deltas?.totalSets7d),
   publicSets: formatDelta('近 7 天', stats.value?.deltas?.publicSets7d),
   activeUsers: formatDelta('今日', stats.value?.deltas?.activeUsersToday),
+  visitCount: formatDelta('今日', stats.value?.deltas?.visitToday),
   practiceCount: formatDelta('今日', stats.value?.deltas?.practiceToday)
 }))
 
@@ -57,6 +101,11 @@ async function loadStats() {
       router.push({ name: 'login' })
       return
     }
+    if (response.status === 403) {
+      loadError.value = '无权限查看数据概览'
+      stats.value = null
+      return
+    }
     if (!response.ok) {
       throw new Error(`加载失败: ${response.status}`)
     }
@@ -67,6 +116,11 @@ async function loadStats() {
   } finally {
     loading.value = false
   }
+}
+
+function handleQuickLink(link: QuickLink) {
+  if (link.disabled) return
+  router.push(link.to)
 }
 
 onMounted(() => {
@@ -95,26 +149,40 @@ onMounted(() => {
     </div>
 
     <section class="stats-grid">
-      <div class="vtix-panel stat-card">
-        <div class="stat-title">题库总数</div>
-        <div class="stat-value">{{ loading ? '—' : formatNumber(stats?.totalSets) }}</div>
-        <div class="stat-meta">{{ loading ? '加载中' : metaText.totalSets }}</div>
-      </div>
-      <div class="vtix-panel stat-card">
-        <div class="stat-title">公开题库</div>
-        <div class="stat-value">{{ loading ? '—' : formatNumber(stats?.publicSets) }}</div>
-        <div class="stat-meta">{{ loading ? '加载中' : metaText.publicSets }}</div>
-      </div>
-      <div class="vtix-panel stat-card">
-        <div class="stat-title">活跃用户</div>
-        <div class="stat-value">{{ loading ? '—' : formatNumber(stats?.activeUsers) }}</div>
-        <div class="stat-meta">{{ loading ? '加载中' : metaText.activeUsers }}</div>
-      </div>
-      <div class="vtix-panel stat-card">
-        <div class="stat-title">练习次数</div>
-        <div class="stat-value">{{ loading ? '—' : formatNumber(stats?.practiceCount) }}</div>
-        <div class="stat-meta">{{ loading ? '加载中' : metaText.practiceCount }}</div>
-      </div>
+      <template v-if="loading">
+        <div v-for="n in 5" :key="`stat-skeleton-${n}`" class="vtix-panel stat-card skeleton">
+          <div class="skeleton-line sm"></div>
+          <div class="skeleton-line lg"></div>
+          <div class="skeleton-line md"></div>
+        </div>
+      </template>
+      <template v-else-if="!loadError">
+        <div class="vtix-panel stat-card">
+          <div class="stat-title">题库总数</div>
+          <div class="stat-value">{{ formatNumber(stats?.totalSets) }}</div>
+          <div class="stat-meta">{{ metaText.totalSets }}</div>
+        </div>
+        <div class="vtix-panel stat-card">
+          <div class="stat-title">公开题库</div>
+          <div class="stat-value">{{ formatNumber(stats?.publicSets) }}</div>
+          <div class="stat-meta">{{ metaText.publicSets }}</div>
+        </div>
+        <div class="vtix-panel stat-card">
+          <div class="stat-title">活跃用户</div>
+          <div class="stat-value">{{ formatNumber(stats?.activeUsers) }}</div>
+          <div class="stat-meta">{{ metaText.activeUsers }}</div>
+        </div>
+        <div class="vtix-panel stat-card">
+          <div class="stat-title">访问量</div>
+          <div class="stat-value">{{ formatNumber(stats?.visitCount) }}</div>
+          <div class="stat-meta">{{ metaText.visitCount }}</div>
+        </div>
+        <div class="vtix-panel stat-card">
+          <div class="stat-title">练习次数</div>
+          <div class="stat-value">{{ formatNumber(stats?.practiceCount) }}</div>
+          <div class="stat-meta">{{ metaText.practiceCount }}</div>
+        </div>
+      </template>
     </section>
 
     <section class="panel-grid">
@@ -122,45 +190,22 @@ onMounted(() => {
         <div class="vtix-panel__title">快速入口</div>
         <div class="vtix-panel__content">
           <div class="quick-links">
-            <div
+            <button
               v-for="item in quickLinks"
               :key="item.title"
+              type="button"
               :class="['quick-card', { disabled: item.disabled }]"
+              :disabled="item.disabled"
+              @click="handleQuickLink(item)"
             >
               <div class="quick-title">{{ item.title }}</div>
               <div class="quick-desc">{{ item.desc }}</div>
-              <div class="quick-note">即将上线</div>
-            </div>
+              <div class="quick-note">{{ item.disabled ? '暂无权限' : '点击进入' }}</div>
+            </button>
           </div>
         </div>
       </div>
 
-      <div class="vtix-panel">
-        <div class="vtix-panel__title">待办提醒</div>
-        <div class="vtix-panel__content">
-          <div class="todo-item">
-            <div>
-              <div class="todo-title">题库审核</div>
-              <div class="todo-desc">有 4 个新题库等待审核发布</div>
-            </div>
-            <span class="todo-tag">4</span>
-          </div>
-          <div class="todo-item">
-            <div>
-              <div class="todo-title">用户反馈</div>
-              <div class="todo-desc">今日收到 6 条用户反馈</div>
-            </div>
-            <span class="todo-tag soft">6</span>
-          </div>
-          <div class="todo-item">
-            <div>
-              <div class="todo-title">权限变更</div>
-              <div class="todo-desc">请检查最近的权限调整记录</div>
-            </div>
-            <span class="todo-tag warning">!</span>
-          </div>
-        </div>
-      </div>
     </section>
   </section>
 </template>
@@ -265,9 +310,35 @@ onMounted(() => {
   color: #94a3b8;
 }
 
+.stat-card.skeleton {
+  gap: 12px;
+}
+
+.skeleton-line {
+  border-radius: 999px;
+  background: linear-gradient(90deg, #e2e8f0, #f8fafc, #e2e8f0);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s infinite;
+}
+
+.skeleton-line.sm {
+  height: 12px;
+  width: 40%;
+}
+
+.skeleton-line.md {
+  height: 12px;
+  width: 60%;
+}
+
+.skeleton-line.lg {
+  height: 28px;
+  width: 70%;
+}
+
 .panel-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
 }
 
@@ -285,10 +356,23 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  appearance: none;
+  font: inherit;
+  text-align: left;
+  width: 100%;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .quick-card.disabled {
   opacity: 0.7;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.quick-card:not(.disabled):hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.08);
 }
 
 .quick-title {
@@ -306,49 +390,13 @@ onMounted(() => {
   color: #94a3b8;
 }
 
-.todo-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid #e2e8f0;
-  background: #f8fafc;
-}
-
-.todo-title {
-  font-weight: 700;
-  color: #0f172a;
-}
-
-.todo-desc {
-  font-size: 12px;
-  color: #64748b;
-  margin-top: 2px;
-}
-
-.todo-tag {
-  min-width: 30px;
-  height: 28px;
-  border-radius: 999px;
-  background: #0f172a;
-  color: #ffffff;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  font-size: 12px;
-}
-
-.todo-tag.soft {
-  background: #e2e8f0;
-  color: #0f172a;
-}
-
-.todo-tag.warning {
-  background: #fef3c7;
-  color: #b45309;
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
 }
 
 @media (max-width: 900px) {

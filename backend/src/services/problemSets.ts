@@ -27,9 +27,15 @@ type ListJson = {
 
 type ProblemJson = {
   title: string;
-  test: number | [number, number, number, number, number];
-  score: [number, number, number, number, number];
+  test?: unknown;
+  score?: unknown;
   problems: unknown[];
+};
+
+export type TestConfigItem = {
+  type: number;
+  number: number;
+  score: number;
 };
 
 export type ProblemSetItem = {
@@ -45,8 +51,7 @@ export type ProblemSetItem = {
   creatorName: string;
   isPublic: boolean;
   inviteCode: string | null;
-  test?: number | [number, number, number, number, number];
-  score?: [number, number, number, number, number];
+  test?: TestConfigItem[];
   problems?: unknown[];
 };
 
@@ -60,6 +65,95 @@ type ProblemInput = {
 
 const dataRoot = resolve(process.cwd(), "../old/public/data");
 let seeded = false;
+const DEFAULT_TEST_SCORES = [0, 1, 2, 1, 1];
+
+function toSafeNumber(value: unknown, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function normalizeTestConfigList(raw: unknown): TestConfigItem[] {
+  if (!Array.isArray(raw)) return [];
+  const order: number[] = [];
+  const map = new Map<number, TestConfigItem>();
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const type = Math.floor(toSafeNumber((item as any).type, -1));
+    if (!Number.isFinite(type) || type < 0 || type > 4) continue;
+    const number = Math.max(0, Math.floor(toSafeNumber((item as any).number, 0)));
+    if (number <= 0) continue;
+    const score = Math.max(0, toSafeNumber((item as any).score, 0));
+    if (!map.has(type)) {
+      order.push(type);
+      map.set(type, { type, number, score });
+    } else {
+      const existing = map.get(type)!;
+      existing.number += number;
+      existing.score = score;
+    }
+  }
+  return order.map((type) => map.get(type)!).filter(Boolean);
+}
+
+function buildDefaultTestConfig(
+  counts: number[],
+  scores: number[] = DEFAULT_TEST_SCORES
+) {
+  const result: TestConfigItem[] = [];
+  for (const type of [1, 2, 3, 4, 0]) {
+    const count = Math.max(0, Math.floor(toSafeNumber(counts[type], 0)));
+    if (count <= 0) continue;
+    const score = Math.max(0, toSafeNumber(scores[type], 0));
+    result.push({ type, number: count, score });
+  }
+  return result;
+}
+
+function normalizeLegacyTestConfig(
+  counts: number[],
+  scores: number[] = DEFAULT_TEST_SCORES
+) {
+  const result: TestConfigItem[] = [];
+  const maxLen = Math.max(counts.length, scores.length);
+  for (let type = 0; type < maxLen; type += 1) {
+    const count = Math.max(0, Math.floor(toSafeNumber(counts[type], 0)));
+    if (count <= 0) continue;
+    const score = Math.max(0, toSafeNumber(scores[type], 0));
+    result.push({ type, number: count, score });
+  }
+  return result;
+}
+
+function normalizeTestMeta(
+  rawTest: unknown,
+  rawScore: unknown,
+  fallbackCounts?: number[]
+) {
+  if (Array.isArray(rawTest) && rawTest.length === 0 && fallbackCounts) {
+    const scores = Array.isArray(rawScore)
+      ? rawScore.map((value) => toSafeNumber(value, 0))
+      : DEFAULT_TEST_SCORES;
+    return buildDefaultTestConfig(fallbackCounts, scores);
+  }
+  const normalizedList = normalizeTestConfigList(rawTest);
+  if (normalizedList.length > 0) return normalizedList;
+  if (Array.isArray(rawTest) && rawTest.every((item) => typeof item === "number")) {
+    const scores = Array.isArray(rawScore)
+      ? rawScore.map((value) => toSafeNumber(value, 0))
+      : DEFAULT_TEST_SCORES;
+    return normalizeLegacyTestConfig(
+      rawTest.map((value) => toSafeNumber(value, 0)),
+      scores
+    );
+  }
+  if (fallbackCounts && fallbackCounts.length > 0) {
+    const scores = Array.isArray(rawScore)
+      ? rawScore.map((value) => toSafeNumber(value, 0))
+      : DEFAULT_TEST_SCORES;
+    return buildDefaultTestConfig(fallbackCounts, scores);
+  }
+  return [];
+}
 
 async function readJson<T>(filePath: string): Promise<T> {
   const raw = await readFile(filePath, "utf-8");
@@ -90,9 +184,12 @@ async function ensureSeeded() {
       }
       const recommendedRank =
         list.recommended.findIndex((item) => item === code) + 1;
-      const testMeta = detail?.test ?? null;
-      const scoreMeta = detail?.score ?? null;
-      const questionCount = detail?.problems?.length ?? 0;
+      const rawProblems = Array.isArray(detail?.problems)
+        ? (detail?.problems as ProblemInput[])
+        : [];
+      const questionCount = rawProblems.length;
+      const counts = countProblemTypes(rawProblems);
+      const testMeta = normalizeTestMeta(detail?.test, detail?.score, counts);
 
       const setId = await insertProblemSetRow(tx, {
         code,
@@ -101,7 +198,7 @@ async function ensureSeeded() {
         isNew: meta.new,
         recommendedRank: recommendedRank > 0 ? recommendedRank : null,
         testMeta,
-        scoreMeta,
+        scoreMeta: null,
         questionCount,
         creatorId: "system",
         creatorName: "系统",
@@ -119,9 +216,6 @@ async function ensureSeeded() {
         );
       }
 
-      const rawProblems = Array.isArray(detail?.problems)
-        ? (detail?.problems as ProblemInput[])
-        : [];
       if (rawProblems.length > 0) {
         const problemIds = await insertProblems(tx, rawProblems);
         if (problemIds.length > 0) {
@@ -165,6 +259,16 @@ function normalizeProblemInput(raw: ProblemInput): ProblemInput | null {
     answer,
     hint,
   };
+}
+
+function countProblemTypes(list: ProblemInput[]) {
+  const counts = [0, 0, 0, 0, 0];
+  for (const item of list) {
+    const type = Number(item?.type);
+    if (!Number.isFinite(type) || type < 0 || type > 4) continue;
+    counts[type] += 1;
+  }
+  return counts;
 }
 
 async function ensureCategories(
@@ -219,7 +323,7 @@ async function insertProblemSetRow(
     year: number;
     isNew: boolean;
     recommendedRank: number | null;
-    testMeta: number | number[] | null;
+    testMeta: TestConfigItem[] | null;
     scoreMeta: number[] | null;
     questionCount: number;
     creatorId: string;
@@ -370,7 +474,7 @@ export async function loadProblemSetList(options?: {
     year: number;
     isNew: boolean;
     recommendedRank: number | null;
-    testMeta: number | number[] | null;
+    testMeta: TestConfigItem[] | number[] | number | null;
     scoreMeta: number[] | null;
     questionCount: number;
     creatorId: string;
@@ -430,7 +534,7 @@ export async function loadProblemSetDetail(
     year: number;
     isNew: boolean;
     recommendedRank: number | null;
-    testMeta: number | number[] | null;
+    testMeta: TestConfigItem[] | number[] | number | null;
     scoreMeta: number[] | null;
     questionCount: number;
     creatorId: string;
@@ -463,6 +567,14 @@ export async function loadProblemSetDetail(
     orderIndex: number;
   }>;
 
+  const counts = [0, 0, 0, 0, 0];
+  for (const problem of problemRows) {
+    if (problem.type >= 0 && problem.type <= 4) {
+      counts[problem.type] += 1;
+    }
+  }
+  const testMeta = normalizeTestMeta(row.testMeta, row.scoreMeta, counts);
+
   return {
     id: row.code,
     code: row.code,
@@ -476,10 +588,7 @@ export async function loadProblemSetDetail(
     creatorName: options?.creatorName ?? row.creatorName,
     isPublic: Boolean(row.isPublic),
     inviteCode: row.inviteCode ?? null,
-    test: row.testMeta ?? undefined,
-    score: (row.scoreMeta ?? undefined) as
-      | [number, number, number, number, number]
-      | undefined,
+    test: testMeta.length ? testMeta : [],
     problems: problemRows.map((problem) => toProblemPayload(problem)),
   } as ProblemSetItem;
 }
@@ -487,6 +596,11 @@ export async function loadProblemSetDetail(
 export async function createProblemSet(item: ProblemSetItem) {
   await ensureSeeded();
   return db.transaction(async (tx) => {
+    const problemList = Array.isArray(item.problems)
+      ? (item.problems as ProblemInput[])
+      : [];
+    const counts = countProblemTypes(problemList);
+    const testMeta = normalizeTestMeta(item.test, null, counts);
     const categoryIds = await ensureCategories(tx, item.categories ?? []);
     const setId = await insertProblemSetRow(tx, {
       code: item.code,
@@ -494,8 +608,8 @@ export async function createProblemSet(item: ProblemSetItem) {
       year: item.year,
       isNew: Boolean(item.isNew),
       recommendedRank: item.recommendedRank ?? null,
-      testMeta: item.test ?? null,
-      scoreMeta: item.score ?? null,
+      testMeta: testMeta.length ? testMeta : null,
+      scoreMeta: null,
       questionCount: Number.isFinite(item.questionCount) ? item.questionCount : 0,
       creatorId: item.creatorId,
       creatorName: item.creatorName,
@@ -512,9 +626,6 @@ export async function createProblemSet(item: ProblemSetItem) {
       );
     }
 
-    const problemList = Array.isArray(item.problems)
-      ? (item.problems as ProblemInput[])
-      : [];
     const problemIds = await insertProblems(tx, problemList);
     if (problemIds.length > 0) {
       await tx.insert(problemSetProblems).values(
@@ -535,6 +646,7 @@ export async function createProblemSet(item: ProblemSetItem) {
       id: item.code,
       categories: item.categories ?? [],
       questionCount: problemIds.length,
+      test: testMeta.length ? testMeta : [],
     } as ProblemSetItem;
   });
 }
@@ -566,6 +678,11 @@ async function deleteProblemSetRelations(
 export async function updateProblemSet(item: ProblemSetItem) {
   await ensureSeeded();
   return db.transaction(async (tx) => {
+    const problemList = Array.isArray(item.problems)
+      ? (item.problems as ProblemInput[])
+      : [];
+    const counts = countProblemTypes(problemList);
+    const testMeta = normalizeTestMeta(item.test, null, counts);
     const rows = (await tx
       .select({ id: problemSets.id })
       .from(problemSets)
@@ -583,8 +700,8 @@ export async function updateProblemSet(item: ProblemSetItem) {
         year: item.year,
         isNew: Boolean(item.isNew),
         recommendedRank: item.recommendedRank ?? null,
-        testMeta: item.test ?? null,
-        scoreMeta: item.score ?? null,
+        testMeta: testMeta.length ? testMeta : null,
+        scoreMeta: null,
         questionCount: Number.isFinite(item.questionCount) ? item.questionCount : 0,
         creatorId: item.creatorId,
         creatorName: item.creatorName,
@@ -605,9 +722,6 @@ export async function updateProblemSet(item: ProblemSetItem) {
       );
     }
 
-    const problemList = Array.isArray(item.problems)
-      ? (item.problems as ProblemInput[])
-      : [];
     const problemIds = await insertProblems(tx, problemList);
     if (problemIds.length > 0) {
       await tx.insert(problemSetProblems).values(
@@ -628,8 +742,58 @@ export async function updateProblemSet(item: ProblemSetItem) {
       id: item.code,
       categories: item.categories ?? [],
       questionCount: problemIds.length,
+      test: testMeta.length ? testMeta : [],
     } as ProblemSetItem;
   });
+}
+
+export async function updateProblemSetRecommended(
+  code: string,
+  recommendedRank: number | null
+) {
+  await ensureSeeded();
+  const rows = (await db
+    .select({ id: problemSets.id })
+    .from(problemSets)
+    .where(eq(problemSets.code, code))
+    .limit(1)) as Array<{ id: number }>;
+  if (!rows[0]) return false;
+  await db
+    .update(problemSets)
+    .set({ recommendedRank })
+    .where(eq(problemSets.id, rows[0].id));
+  return true;
+}
+
+export async function updateProblemSetFlags(
+  code: string,
+  flags: { isNew?: boolean; isPublic?: boolean }
+) {
+  await ensureSeeded();
+  const rows = (await db
+    .select({ id: problemSets.id })
+    .from(problemSets)
+    .where(eq(problemSets.code, code))
+    .limit(1)) as Array<{ id: number }>;
+  if (!rows[0]) return false;
+  const updates: Record<string, unknown> = {};
+  if (typeof flags.isNew === "boolean") {
+    updates.isNew = flags.isNew;
+  }
+  if (typeof flags.isPublic === "boolean") {
+    updates.isPublic = flags.isPublic;
+    if (flags.isPublic) {
+      updates.inviteCode = null;
+    }
+  }
+  if (Object.keys(updates).length === 0) {
+    return true;
+  }
+  await db
+    .update(problemSets)
+    .set(updates)
+    .where(eq(problemSets.id, rows[0].id));
+  return true;
 }
 
 export async function deleteProblemSet(code: string) {

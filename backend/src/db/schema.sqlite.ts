@@ -1,5 +1,8 @@
 import { integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
+type TestConfigItem = { type: number; number: number; score: number };
+type TestMeta = TestConfigItem[] | number[] | number | null;
+
 export const problemSets = sqliteTable("problem_sets", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   code: text("code").notNull().unique(),
@@ -12,7 +15,7 @@ export const problemSets = sqliteTable("problem_sets", {
   isPublic: integer("is_public", { mode: "boolean" }).notNull().default(false),
   inviteCode: text("invite_code"),
   testMeta: text("test_meta", { mode: "json" })
-    .$type<number | number[] | null>()
+    .$type<TestMeta>()
     .default(null),
   scoreMeta: text("score_meta", { mode: "json" })
     .$type<number[] | null>()
@@ -96,9 +99,27 @@ export const userRecords = sqliteTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     recordId: text("record_id").notNull(),
+    recordData: text("record_data", { mode: "json" })
+      .$type<Record<string, unknown> | null>()
+      .default(null),
+    syncSeq: integer("sync_seq"),
+    deletedAt: integer("deleted_at"),
     updatedAt: integer("updated_at"),
   },
   (table) => ({
     pk: primaryKey({ columns: [table.userId, table.recordId] }),
   })
 );
+
+export const notices = sqliteTable("notices", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  title: text("title").notNull(),
+  content: text("content").notNull(),
+  isPinned: integer("is_pinned", { mode: "boolean" }).notNull().default(false),
+  authorId: integer("author_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "restrict" }),
+  authorName: text("author_name").notNull(),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});

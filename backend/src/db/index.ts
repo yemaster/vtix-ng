@@ -24,7 +24,7 @@ if (useMysql) {
   }
   const pool = createPool(mysqlUrl);
   mysqlPool = pool;
-  db = drizzleMysql(pool, { schema: mysqlSchema });
+  db = drizzleMysql(pool, { schema: mysqlSchema, mode: "default" });
 } else {
   const dbPath = appConfig.databaseUrl || appConfig.sqlitePath || "data/vtix.db";
   mkdirSync(dirname(dbPath), { recursive: true });
@@ -42,4 +42,5 @@ export const problemSetProblems = schema.problemSetProblems;
 export const users = schema.users;
 export const userGroups = schema.userGroups;
 export const userRecords = schema.userRecords;
+export const notices = schema.notices;
 export { db, schema, sqliteClient, mysqlPool };

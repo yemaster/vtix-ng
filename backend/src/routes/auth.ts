@@ -1,5 +1,5 @@
 import { Elysia } from "elysia";
-import { eq, or } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db, userGroups, users } from "../db";
 import { ensureDefaultUserGroups } from "../db/seed";
 import {
@@ -17,6 +17,9 @@ const MAX_PASSWORD_LENGTH = 128;
 const MIN_NAME_LENGTH = 2;
 const MAX_NAME_LENGTH = 32;
 const MAX_EMAIL_LENGTH = 254;
+const SECURE_COOKIE =
+  String(process.env.COOKIE_SECURE ?? "").toLowerCase() === "true" ||
+  String(process.env.NODE_ENV ?? "").toLowerCase() === "production";
 
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
@@ -54,6 +57,22 @@ function validatePassword(password: string) {
     return "Password too long";
   }
   return null;
+}
+
+function makeSessionCookie(token: string, maxAge?: number) {
+  const parts = [
+    `vtix_session=${encodeURIComponent(token)}`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+  ];
+  if (SECURE_COOKIE) {
+    parts.push("Secure");
+  }
+  if (typeof maxAge === "number") {
+    parts.push(`Max-Age=${maxAge}`);
+  }
+  return parts.join("; ");
 }
 
 async function resolveGroup(groupId: string) {
@@ -170,37 +189,31 @@ export const registerAuthRoutes = (app: Elysia) =>
 
       const sessionUser = await toSessionUser(created);
       const token = createSession(sessionUser);
-      set.headers["Set-Cookie"] = `vtix_session=${token}; Path=/; HttpOnly; SameSite=Lax`;
+      set.headers["Set-Cookie"] = makeSessionCookie(token);
       return { user: sessionUser };
     })
     .post("/api/login", async ({ body, set }) => {
       const payload = (body ?? {}) as {
-        email?: string;
         name?: string;
         password?: string;
       };
-      const emailRaw = typeof payload.email === "string" ? payload.email.trim() : "";
       const nameRaw = typeof payload.name === "string" ? payload.name.trim() : "";
       const password =
         typeof payload.password === "string" ? payload.password : "";
 
-      if ((!emailRaw && !nameRaw) || !password) {
+      if (!nameRaw || !password) {
         set.status = 400;
         return { error: "Invalid payload" };
       }
-
-      const email = emailRaw ? normalizeEmail(emailRaw) : "";
-      const name = nameRaw;
-      const condition = email
-        ? name
-          ? or(eq(users.email, email), eq(users.name, name))
-          : eq(users.email, email)
-        : eq(users.name, name);
+      if (nameRaw.includes("@")) {
+        set.status = 400;
+        return { error: "Invalid username" };
+      }
 
       const [existing] = await db
         .select()
         .from(users)
-        .where(condition)
+        .where(eq(users.name, nameRaw))
         .limit(1);
 
       if (!existing) {
@@ -214,7 +227,7 @@ export const registerAuthRoutes = (app: Elysia) =>
 
       const user = await toSessionUser(existing);
       const token = createSession(user);
-      set.headers["Set-Cookie"] = `vtix_session=${token}; Path=/; HttpOnly; SameSite=Lax`;
+      set.headers["Set-Cookie"] = makeSessionCookie(token);
       return { user };
     })
     .post("/api/me/password", async ({ request, body, set }) => {
@@ -368,7 +381,6 @@ export const registerAuthRoutes = (app: Elysia) =>
     })
     .post("/api/logout", ({ request, set }) => {
       clearSession(request);
-      set.headers["Set-Cookie"] =
-        "vtix_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax";
+      set.headers["Set-Cookie"] = makeSessionCookie("", 0);
       return { ok: true };
     });

@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import Button from 'primevue/button'
-import Dropdown from 'primevue/dropdown'
 import InputText from 'primevue/inputtext'
+import Paginator from 'primevue/paginator'
+import type { PageState } from 'primevue/paginator'
 import Tag from 'primevue/tag'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../../stores/user'
@@ -12,6 +13,7 @@ type QuestionBankItem = {
   code: string
   title: string
   year: number
+  creatorName?: string
   isNew: boolean
   recommendedRank: number | null
   categories: string[]
@@ -33,11 +35,11 @@ const selectedCategory = ref('全部')
 const pageSize = ref(6)
 const currentPage = ref(1)
 const pageSizeOptions = [
-  { label: '6', value: 6 },
-  { label: '12', value: 12 }
+  6,
+  12
 ]
 
-const canEditAll = computed(
+const canManageAll = computed(
   () => Boolean(userStore.user?.permissions && (userStore.user.permissions & MANAGE_QUESTION_BANK_ALL))
 )
 
@@ -93,7 +95,6 @@ const filteredItems = computed(() => {
 })
 
 const totalPages = computed(() => Math.max(1, Math.ceil(filteredItems.value.length / pageSize.value)))
-
 const pagedItems = computed(() => {
   const start = (currentPage.value - 1) * pageSize.value
   return filteredItems.value.slice(start, start + pageSize.value)
@@ -103,19 +104,18 @@ watch([search, selectedCategory], () => {
   currentPage.value = 1
 })
 
-watch(pageSize, () => {
-  currentPage.value = 1
-})
-
 watch(totalPages, (value) => {
   if (currentPage.value > value) {
     currentPage.value = value
   }
 })
 
-function setPage(page: number) {
-  if (page < 1 || page > totalPages.value) return
-  currentPage.value = page
+function handlePage(event: PageState) {
+  if (typeof event.rows === 'number') {
+    pageSize.value = event.rows
+  }
+  const page = event.page ?? 0
+  currentPage.value = page + 1
 }
 
 function handleCardClick(event: MouseEvent, code: string) {
@@ -126,11 +126,11 @@ function handleCardClick(event: MouseEvent, code: string) {
   const target = `/t/${code}`
   window.setTimeout(() => {
     router.push(target)
-  }, 120)
+  }, 80)
 }
 
-function handleEditClick(code: string) {
-  router.push({ name: 'admin-question-bank-edit', params: { code } })
+function handleManageClick() {
+  router.push({ name: 'admin-question-banks' })
 }
 
 onMounted(() => {
@@ -144,7 +144,6 @@ onMounted(() => {
       <div>
         <div class="eyebrow">题库管理</div>
         <h1>题库列表</h1>
-        <p>集中管理题库内容，支持搜索、分类筛选与年份查看。</p>
       </div>
       <div class="page-actions">
         <Button
@@ -153,6 +152,13 @@ onMounted(() => {
           size="small"
           class="action-btn primary"
           @click="handleCreateClick"
+        />
+        <Button
+          v-if="canManageAll"
+          label="管理题库"
+          size="small"
+          severity="secondary"
+          @click="handleManageClick"
         />
         <Button
           label="刷新"
@@ -175,7 +181,7 @@ onMounted(() => {
           :key="category"
           type="button"
           :label="category"
-          :severity="selectedCategory === category ? 'contrast' : 'secondary'"
+          :severity="selectedCategory === category ? 'primary' : 'secondary'"
           :outlined="selectedCategory !== category"
           size="small"
           class="tag-btn"
@@ -217,21 +223,10 @@ onMounted(() => {
             <div class="card-title">{{ item.title }}</div>
             <div class="card-meta">
               <span class="meta-date">{{ item.year }} 年</span>
-              <span class="meta-owner">编号 {{ item.code }}</span>
+              <span class="meta-owner">by {{ item.creatorName || '匿名' }}</span>
             </div>
             <div class="pill-group">
               <Tag v-for="category in item.categories" :key="category" :value="category" rounded />
-            </div>
-            <div class="card-actions">
-              <Button
-                v-if="canEditAll"
-                label="编辑"
-                size="small"
-                severity="secondary"
-                text
-                class="edit-btn"
-                @click.stop.prevent="handleEditClick(item.code)"
-              />
             </div>
           </div>
           <div class="count">
@@ -245,44 +240,13 @@ onMounted(() => {
     <div v-if="!isLoading && pagedItems.length === 0" class="empty">暂无匹配题库</div>
 
     <div class="pagination">
-      <Button
-        label="上一页"
-        severity="secondary"
-        text
-        size="small"
-        :disabled="currentPage === 1"
-        @click="setPage(currentPage - 1)"
-      />
-      <div class="pages">
-        <Button
-          v-for="page in totalPages"
-          :key="page"
-          type="button"
-          :label="String(page)"
-          :severity="page === currentPage ? 'contrast' : 'secondary'"
-          :outlined="page !== currentPage"
-          size="small"
-          class="page-btn"
-          @click="setPage(page)"
-        />
-      </div>
-      <div class="page-size">
-        <span>每页</span>
-        <Dropdown
-          v-model="pageSize"
-          :options="pageSizeOptions"
-          optionLabel="label"
-          optionValue="value"
-          class="size-select"
-        />
-      </div>
-      <Button
-        label="下一页"
-        severity="secondary"
-        text
-        size="small"
-        :disabled="currentPage === totalPages"
-        @click="setPage(currentPage + 1)"
+      <Paginator
+        :first="(currentPage - 1) * pageSize"
+        :rows="pageSize"
+        :totalRecords="filteredItems.length"
+        :rowsPerPageOptions="pageSizeOptions"
+        template="PrevPageLink PageLinks NextPageLink RowsPerPageSelect"
+        @page="handlePage"
       />
     </div>
   </section>
@@ -325,17 +289,6 @@ onMounted(() => {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: #9aa2b2;
-}
-
-.primary {
-  border: none;
-  border-radius: 12px;
-  background: #1f2937;
-  color: #ffffff;
-  padding: 12px 18px;
-  font-weight: 700;
-  cursor: pointer;
-  box-shadow: 0 10px 24px rgba(31, 41, 55, 0.2);
 }
 
 .status {
@@ -417,8 +370,8 @@ onMounted(() => {
 }
 
 .card.recommended {
-  border-color: #2563eb;
-  box-shadow: 0 16px 30px rgba(37, 99, 235, 0.15);
+  border-color: var(--vtix-primary-500);
+  box-shadow: 0 16px 30px rgba(14, 165, 233, 0.18);
 }
 
 .card-link {
@@ -430,6 +383,10 @@ onMounted(() => {
 .card-link:hover {
   transform: translateY(-2px);
   box-shadow: 0 18px 36px rgba(15, 23, 42, 0.12);
+}
+
+.card.recommended.card-link:hover {
+  box-shadow: 0 18px 36px rgba(14, 165, 233, 0.22);
 }
 
 .card.skeleton {
@@ -484,20 +441,9 @@ onMounted(() => {
   gap: 10px;
 }
 
-.edit-btn :deep(.p-button) {
-  font-weight: 600;
-}
-
 .card-main {
   flex: 1;
   min-width: 0;
-}
-
-.card-actions {
-  margin-top: 10px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
 }
 
 .card-title {
@@ -611,37 +557,34 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
   margin-top: 8px;
 }
 
-.pages {
-  display: flex;
-  gap: 6px;
+.pagination :deep(.p-paginator) {
+  border: none;
+  background: transparent;
+  gap: 8px;
 }
 
-.page-btn :deep(.p-button) {
+.pagination :deep(.p-paginator-page),
+.pagination :deep(.p-paginator-prev),
+.pagination :deep(.p-paginator-next) {
+  min-width: 32px;
+  height: 32px;
   border-radius: 10px;
+}
+
+.pagination :deep(.p-paginator-pages .p-paginator-page) {
   font-size: 14px;
 }
 
-.page-size {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: #6b7280;
-  font-size: 12px;
-}
-
-.size-select {
-  min-width: 72px;
-}
-
-.size-select :deep(.p-dropdown) {
+.pagination :deep(.p-paginator-rpp-select),
+.pagination :deep(.p-paginator-rpp-dropdown) {
   border-radius: 8px;
 }
 
-.size-select :deep(.p-dropdown-label) {
+.pagination :deep(.p-select-label),
+.pagination :deep(.p-dropdown-label) {
   font-size: 12px;
   color: #374151;
   padding: 4px 8px;

@@ -1,5 +1,6 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db, userGroups, users } from "./index";
+import { appConfig } from "../config";
 import { USER_GROUPS } from "../utils/permissions";
 import { hashPassword } from "../utils/password";
 
@@ -33,48 +34,40 @@ export async function ensureDefaultUserGroups() {
   const missing = DEFAULT_GROUPS.filter((group) => !existingIds.has(group.id));
   if (missing.length > 0) {
     await db.insert(userGroups).values(missing);
+    console.log(
+      `Seeded ${missing.length} default user group(s): ${missing
+        .map((group) => group.id)
+        .join(", ")}`
+    );
   }
 }
 
 export async function ensureAdminUser() {
   await ensureDefaultUserGroups();
 
-  const adminEmail = process.env.ADMIN_EMAIL ?? "admin@vtix.dev";
-  const adminName = process.env.ADMIN_NAME ?? "Admin";
-  const adminPassword = process.env.ADMIN_PASSWORD ?? "admin1234";
+  const adminEmail = appConfig.adminEmail;
+  const adminName = appConfig.adminName;
+  const adminPassword = appConfig.adminPassword;
   const now = Date.now();
 
-  let existing =
-    adminEmail
-      ? (await db
-          .select()
-          .from(users)
-          .where(eq(users.email, adminEmail))
-          .limit(1))[0]
-      : undefined;
-
-  if (!existing && adminName) {
-    existing = (
-      await db.select().from(users).where(eq(users.name, adminName)).limit(1)
-    )[0];
+  const [countRow] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(users);
+  const totalUsers = Number(countRow?.count ?? 0);
+  if (totalUsers > 0) {
+    console.log("Admin seed skipped: users already exist.");
+    return;
   }
 
-  if (!existing) {
-    await db.insert(users).values({
-      name: adminName,
-      email: adminEmail || null,
-      passwordHash: hashPassword(adminPassword),
-      groupId: USER_GROUPS.admin.id,
-      createdAt: now,
-      updatedAt: now,
-    });
-  } else if (existing.groupId !== USER_GROUPS.admin.id) {
-    await db
-      .update(users)
-      .set({
-        groupId: USER_GROUPS.admin.id,
-        updatedAt: now,
-      })
-      .where(eq(users.id, existing.id));
-  }
+  await db.insert(users).values({
+    name: adminName,
+    email: adminEmail || null,
+    passwordHash: hashPassword(adminPassword),
+    groupId: USER_GROUPS.admin.id,
+    createdAt: now,
+    updatedAt: now,
+  });
+  console.log(
+    `Seeded default admin user: ${adminName} (${adminEmail || "no-email"})`
+  );
 }

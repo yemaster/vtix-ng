@@ -11,6 +11,13 @@ import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import type { ChooseProblemType, ProblemType } from '../../base/ProblemTypes'
 import { deepCopy } from '../../base/funcs'
 import PracticeProgress from '../../base/PracticeProgress'
+import {
+  getSyncAt,
+  getSyncCursor,
+  setSyncAt,
+  setSyncCursor,
+  syncRecords
+} from '../../base/recordSync'
 import { addWrongProblem, getWrongProblemsByTest } from '../../base/wrongProblems'
 import { useUserStore } from '../../stores/user'
 import { formatDistanceToNow } from 'date-fns'
@@ -18,9 +25,15 @@ import { zhCN } from 'date-fns/locale'
 
 type ProblemListType = {
   title: string
-  test: [number, number, number, number, number] | number
-  score: [number, number, number, number, number]
+  test: TestConfigItem[] | number[] | number | null
+  score?: number[]
   problems: ProblemType[]
+}
+
+type TestConfigItem = {
+  type: number
+  number: number
+  score: number
 }
 
 type PracticeRecord = {
@@ -28,6 +41,7 @@ type PracticeRecord = {
   testId: string
   testTitle?: string
   updatedAt: number
+  deletedAt?: number
   practiceMode: number
   progress: ReturnType<InstanceType<typeof PracticeProgress>['toJSON']>
   problemState: number[]
@@ -38,7 +52,6 @@ type PracticeRecord = {
 
 const STORAGE_KEY = 'vtixSave'
 const LOCAL_SYNC_KEY = 'vtixLastLocalSaveAt'
-const CLOUD_SYNC_KEY = 'vtixLastCloudSyncAt'
 
 const router = useRouter()
 const route = useRoute()
@@ -48,10 +61,14 @@ const apiBase = import.meta.env.VITE_API_BASE ?? 'http://localhost:3000'
 
 const loading = ref(true)
 const loadError = ref('')
+const needInvite = ref(false)
+const inviteCode = ref(typeof route.query.invite === 'string' ? route.query.invite : '')
+const inviteError = ref('')
+const inviteSubmitting = ref(false)
 
 const problemInfo = ref<ProblemListType>({
   title: '加载中',
-  test: [0, 0, 0, 0, 0],
+  test: [],
   score: [0, 0, 0, 0, 0],
   problems: []
 })
@@ -60,6 +77,7 @@ const testTitle = computed(() => problemInfo.value.title || '测试题库')
 
 const viewMode = ref<'menu' | 'question' | 'list'>('question')
 const isMobile = ref(false)
+const BODY_HIDE_FOOTER_CLASS = 'test-view-mobile-footer-hidden'
 let mediaQuery: MediaQueryList | null = null
 let mediaHandler: (() => void) | null = null
 
@@ -112,6 +130,7 @@ const writeAnswer = ref('')
 const problemState = ref<number[]>([])
 const errorProblems = ref<ProblemType[]>([])
 const currentUserId = computed(() => userStore.user?.id ?? 'guest')
+const wrongProblemsVersion = ref(0)
 
 const currentProblem = computed(() => nowProblemList.value[nowProblemId.value])
 const currentTypeLabel = computed(() => {
@@ -119,13 +138,13 @@ const currentTypeLabel = computed(() => {
   return problemTypes[type] ?? '题目'
 })
 
-const isSubmitted = computed(() => problemState.value[nowProblemId.value] >= 2)
+const isSubmitted = computed(() => (problemState.value[nowProblemId.value] ?? 0) >= 2)
 const isSingleChoice = computed(
   () => currentProblem.value?.type === 1 || currentProblem.value?.type === 4
 )
 const isMultiChoice = computed(() => currentProblem.value?.type === 2)
 const showFillAnswer = computed(
-  () => currentProblem.value?.type === 3 && problemState.value[nowProblemId.value] === 3
+  () => currentProblem.value?.type === 3 && (problemState.value[nowProblemId.value] ?? 0) === 3
 )
 const fillAnswerText = computed(() => {
   if (!currentProblem.value || currentProblem.value.type !== 3) return ''
@@ -134,23 +153,76 @@ const fillAnswerText = computed(() => {
 const examTypeOrder = [2, 1, 3, 4, 0]
 const examSectionLabels = ['送分题', '单选题', '多选题', '填空题', '判断题']
 const cnNumbers = ['一', '二', '三', '四', '五', '六']
+const DEFAULT_TEST_SCORES = [0, 1, 2, 1, 1]
 
-const examSections = computed(() => {
-  const meta = problemInfo.value.test
-  if (!Array.isArray(meta)) return []
-  return examTypeOrder
-    .map((type) => ({
-      type,
-      count: meta[type] ?? 0,
-      score: problemInfo.value.score?.[type] ?? 0,
-      label: examSectionLabels[type] ?? '题目'
-    }))
-    .filter((section) => section.count > 0)
+function normalizeTestConfig(rawTest: unknown, rawScore: unknown) {
+  if (Array.isArray(rawTest)) {
+    if (rawTest.every((item) => item && typeof item === 'object')) {
+      const order: number[] = []
+      const map = new Map<number, TestConfigItem>()
+      rawTest.forEach((item) => {
+        const type = Math.floor(Number((item as any).type))
+        if (!Number.isFinite(type) || type < 0 || type > 4) return
+        const number = Math.max(0, Math.floor(Number((item as any).number ?? 0)))
+        if (number <= 0) return
+        const score = Math.max(0, Number((item as any).score ?? 0))
+        if (!map.has(type)) {
+          order.push(type)
+          map.set(type, { type, number, score })
+        } else {
+          const existing = map.get(type)
+          if (existing) {
+            existing.number += number
+            existing.score = score
+          }
+        }
+      })
+      return order.map((type) => map.get(type) as TestConfigItem).filter(Boolean)
+    }
+    if (rawTest.every((item) => typeof item === 'number')) {
+      const scores = Array.isArray(rawScore) ? rawScore : DEFAULT_TEST_SCORES
+      return rawTest
+        .map((count, type) => ({
+          type,
+          number: Math.max(0, Math.floor(Number(count ?? 0))),
+          score: Math.max(0, Number(scores[type] ?? 0))
+        }))
+        .filter((item) => item.number > 0)
+    }
+  }
+  return []
+}
+
+const testConfig = computed(() => normalizeTestConfig(problemInfo.value.test, problemInfo.value.score))
+const testScoreMap = computed(() => {
+  const map = new Map<number, number>()
+  testConfig.value.forEach((item) => {
+    map.set(item.type, item.score)
+  })
+  return map
+})
+const testCountMap = computed(() => {
+  const map = new Map<number, number>()
+  testConfig.value.forEach((item) => {
+    map.set(item.type, item.number)
+  })
+  return map
+})
+const examSectionOrder = computed(() => {
+  const seen = new Set<number>()
+  const order: number[] = []
+  testConfig.value.forEach((item) => {
+    if (!seen.has(item.type)) {
+      seen.add(item.type)
+      order.push(item.type)
+    }
+  })
+  return order.length ? order : examTypeOrder
 })
 
 const examNumberGroups = computed(() => {
   if (!isExamMode.value) return []
-  const groups = examTypeOrder.map((type) => ({
+  const groups = examSectionOrder.value.map((type) => ({
     type,
     label: examSectionLabels[type] ?? '题目',
     indices: [] as number[]
@@ -163,7 +235,7 @@ const examNumberGroups = computed(() => {
 })
 
 function getScoreForType(type: number) {
-  return problemInfo.value.score?.[type] ?? 0
+  return testScoreMap.value.get(type) ?? 0
 }
 
 const examMaxScore = computed(() => {
@@ -197,9 +269,17 @@ const hasCustomTypeSelected = computed(() =>
   customTypeOptions.some((option) => setType.value[option.type])
 )
 
+const wrongReviewAvailable = computed(() => {
+  wrongProblemsVersion.value
+  const stored = getWrongProblemsByTest(currentUserId.value, testId)
+  if (stored.length > 0) return true
+  return errorProblems.value.length > 0
+})
+
 const tabItems = computed(() => [
   ...modes.map((mode) => ({
     label: mode.label,
+    disabled: mode.value === 4 && !wrongReviewAvailable.value,
     command: () => handleModeClick(mode.value)
   })),
   {
@@ -213,6 +293,7 @@ const tabItems = computed(() => [
 const menuItems = computed(() => [
   ...modes.map((mode) => ({
     label: mode.label,
+    disabled: mode.value === 4 && !wrongReviewAvailable.value,
     command: () => handleModeClick(mode.value)
   })),
   {
@@ -237,6 +318,8 @@ const totalCount = computed(() => nowProblemList.value.length)
 const timeSpentSeconds = computed(() => progress.value?.timeSpentSeconds ?? 0)
 let timerId: number | null = null
 let syncTickerId: number | null = null
+let nextProblemTimer: number | null = null
+const NEXT_PROBLEM_DELAY_MS = 350
 
 const currentModeLabel = computed(() => {
   const mode = modes.find((item) => item.value === practiceMode.value)
@@ -330,7 +413,7 @@ const syncAgoText = computed(() => {
 const syncTick = ref(0)
 
 const mobileMenuItems = [
-  { label: '菜单', value: 'menu' as const },
+  { label: '模式选择', value: 'menu' as const },
   { label: '练习', value: 'question' as const },
   { label: '选题', value: 'list' as const },
   { label: '记录', value: 'records' as const }
@@ -359,8 +442,16 @@ const multiChoice = computed<number[]>({
   }
 })
 
+const TITLE_SUFFIX = ' - vtix 大题'
+
 function setTitle(title: string) {
-  document.title = title
+  const base = title.trim()
+  document.title = base ? `${base}${TITLE_SUFFIX}` : `VTIX${TITLE_SUFFIX}`
+}
+
+function syncFooterVisibility() {
+  if (typeof document === 'undefined') return
+  document.body.classList.toggle(BODY_HIDE_FOOTER_CLASS, isMobile.value)
 }
 
 function isTypingTarget(target: EventTarget | null) {
@@ -377,6 +468,8 @@ function handleKeydown(event: KeyboardEvent) {
 
   const key = event.key.toLowerCase()
   if (key === 'enter') {
+    event.preventDefault()
+    event.stopPropagation()
     submitAnswer()
     return
   }
@@ -408,14 +501,27 @@ function generateProgressId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 }
 
-function readRecords(): PracticeRecord[] {
+type RecordReadOptions = { includeDeleted?: boolean }
+
+function isDeletedRecord(record: PracticeRecord) {
+  return typeof (record as { deletedAt?: unknown }).deletedAt === 'number' &&
+    Number((record as { deletedAt?: number }).deletedAt ?? 0) > 0
+}
+
+function readRecords(options: RecordReadOptions = {}): PracticeRecord[] {
   if (!window.localStorage) return []
   const raw = localStorage.getItem(STORAGE_KEY)
   if (!raw) return []
   try {
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
-    return parsed.filter((item) => item && typeof item.id === 'string' && item.progress)
+    const list = parsed.filter(
+      (item) =>
+        item &&
+        typeof item.id === 'string' &&
+        (item.progress || typeof item.deletedAt === 'number')
+    )
+    return options.includeDeleted ? list : list.filter((item) => !isDeletedRecord(item))
   } catch (error) {
     return []
   }
@@ -429,7 +535,7 @@ function writeRecords(records: PracticeRecord[]) {
   localSaveAt.value = now
 }
 
-function syncRecords() {
+function syncLocalRecords() {
   savedRecords.value = readRecords()
 }
 
@@ -441,7 +547,7 @@ function loadLocalSyncTime() {
     canUseLocalStorage.value = true
     const raw = Number(localStorage.getItem(LOCAL_SYNC_KEY))
     localSaveAt.value = Number.isFinite(raw) && raw > 0 ? raw : null
-    const cloudRaw = Number(localStorage.getItem(CLOUD_SYNC_KEY))
+    const cloudRaw = getSyncAt(localStorage)
     cloudSyncAt.value = Number.isFinite(cloudRaw) && cloudRaw > 0 ? cloudRaw : null
   } catch (error) {
     canUseLocalStorage.value = false
@@ -450,46 +556,6 @@ function loadLocalSyncTime() {
   }
 }
 
-function normalizeRecords(list: PracticeRecord[]) {
-  return list
-    .filter((item) => item && typeof item.id === 'string')
-    .map((item) => ({
-      ...item,
-      updatedAt: typeof item.updatedAt === 'number' ? item.updatedAt : 0
-    }))
-}
-
-function serializeRecords(list: PracticeRecord[]) {
-  return JSON.stringify([...list].sort((a, b) => a.id.localeCompare(b.id)))
-}
-
-function mergeByUpdatedAt(local: PracticeRecord[], remote: PracticeRecord[]) {
-  const localMap = new Map(local.map((item) => [item.id, item]))
-  const remoteMap = new Map(remote.map((item) => [item.id, item]))
-  const ids = new Set([...localMap.keys(), ...remoteMap.keys()])
-  const merged: PracticeRecord[] = []
-  let conflicts = 0
-  for (const id of ids) {
-    const localItem = localMap.get(id)
-    const remoteItem = remoteMap.get(id)
-    if (localItem && remoteItem) {
-      if (JSON.stringify(localItem) !== JSON.stringify(remoteItem)) {
-        conflicts += 1
-      }
-      const localTime = localItem.updatedAt ?? 0
-      const remoteTime = remoteItem.updatedAt ?? 0
-      merged.push(localTime >= remoteTime ? localItem : remoteItem)
-    } else if (localItem) {
-      merged.push(localItem)
-    } else if (remoteItem) {
-      merged.push(remoteItem)
-    }
-  }
-  const trimmed = merged
-    .sort((a, b) => (a.updatedAt ?? 0) - (b.updatedAt ?? 0))
-    .slice(Math.max(0, merged.length - 10))
-  return { merged: trimmed, conflicts }
-}
 
 async function syncCloudRecords() {
   if (!userStore.user) return
@@ -500,38 +566,25 @@ async function syncCloudRecords() {
   lastCloudSyncAttempt = now
   cloudSyncing.value = true
   try {
-    const localRecords = normalizeRecords(readRecords())
-    const response = await fetch(`${apiBase}/api/records`, {
+    const localRecords = readRecords({ includeDeleted: true })
+    const previousCursor = getSyncCursor(localStorage)
+    const since = localRecords.length ? previousCursor : 0
+    const localSince = getSyncAt(localStorage)
+    const result = await syncRecords<PracticeRecord>({
+      apiBase,
+      localRecords,
+      since,
+      localSince,
       credentials: 'include'
     })
-    if (!response.ok) {
-      throw new Error(`同步失败: ${response.status}`)
+    if (result.localChanged) {
+      writeRecords(result.finalRecords)
     }
-    const data = (await response.json()) as { records?: PracticeRecord[] }
-    const remoteRecords = normalizeRecords(Array.isArray(data.records) ? data.records : [])
-    const { merged } = mergeByUpdatedAt(localRecords, remoteRecords)
-    const localChanged = serializeRecords(merged) !== serializeRecords(localRecords)
-    const remoteChanged = serializeRecords(merged) !== serializeRecords(remoteRecords)
-    let finalRecords = merged
-    if (remoteChanged) {
-      const upload = await fetch(`${apiBase}/api/records`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ records: merged })
-      })
-      if (!upload.ok) {
-        throw new Error(`同步失败: ${upload.status}`)
-      }
-      const uploadData = (await upload.json()) as { records?: PracticeRecord[] }
-      finalRecords = normalizeRecords(Array.isArray(uploadData.records) ? uploadData.records : merged)
-    }
-    if (localChanged) {
-      writeRecords(finalRecords)
-    }
+    savedRecords.value = result.finalRecords.filter((item) => !isDeletedRecord(item))
     cloudSyncFailed.value = false
+    setSyncCursor(localStorage, result.cursor)
     cloudSyncAt.value = Date.now()
-    localStorage.setItem(CLOUD_SYNC_KEY, String(cloudSyncAt.value))
+    setSyncAt(localStorage, cloudSyncAt.value)
   } catch (error) {
     cloudSyncFailed.value = true
   } finally {
@@ -602,40 +655,54 @@ function shuffleList(list: ProblemType[]) {
   const copy = deepCopy(list)
   for (let i = copy.length - 1; i > 0; i -= 1) {
     const j = Math.floor(Math.random() * (i + 1))
-      ;[copy[i], copy[j]] = [copy[j], copy[i]]
+    const valueI = copy[i]
+    const valueJ = copy[j]
+    if (valueI === undefined || valueJ === undefined) continue
+    copy[i] = valueJ
+    copy[j] = valueI
   }
   return copy
 }
 
-function shuffleProblemChoices(problem: ProblemType) {
+function shuffleProblemChoices(problem: ProblemType): ProblemType {
   if (problem.type === 3) return problem
   const choicesList = [...problem.choices]
   const indices = choicesList.map((_, index) => index)
   for (let i = indices.length - 1; i > 0; i -= 1) {
     const j = Math.floor(Math.random() * (i + 1))
-      ;[indices[i], indices[j]] = [indices[j], indices[i]]
+    const valueI = indices[i]
+    const valueJ = indices[j]
+    if (valueI === undefined || valueJ === undefined) continue
+    indices[i] = valueJ
+    indices[j] = valueI
   }
-  const newChoices = indices.map((index) => choicesList[index])
+  const newChoices = indices.map((index) => choicesList[index]!)
   if (problem.type === 2) {
     const newAnswer = problem.answer.map((answer) => indices.indexOf(answer)).sort((a, b) => a - b)
     return {
-      ...problem,
+      type: 2,
+      content: problem.content,
       choices: newChoices,
-      answer: newAnswer
+      answer: newAnswer,
+      hint: problem.hint
     }
   }
   const newAnswer = indices.indexOf(problem.answer)
   if (problem.type === 4) {
     return {
-      ...problem,
-      choices: [newChoices[0], newChoices[1]],
-      answer: newAnswer
+      type: 4,
+      content: problem.content,
+      choices: [newChoices[0]!, newChoices[1]!],
+      answer: newAnswer,
+      hint: problem.hint
     }
   }
   return {
-    ...problem,
+    type: 1,
+    content: problem.content,
     choices: newChoices,
-    answer: newAnswer
+    answer: newAnswer,
+    hint: problem.hint
   }
 }
 
@@ -751,22 +818,25 @@ function saveCurrentRecord() {
     setType: [...setType.value] as [boolean, boolean, boolean, boolean, boolean],
     setShuffle: setShuffle.value
   }
-  let records = readRecords().filter((item) => item.id !== record.id)
+    let records = readRecords({ includeDeleted: true }).filter((item) => item.id !== record.id)
   records.push(record)
   records = records
     .sort((a, b) => a.updatedAt - b.updatedAt)
     .slice(Math.max(0, records.length - 10))
   writeRecords(records)
-  savedRecords.value = records
+    savedRecords.value = records.filter((item) => !isDeletedRecord(item))
   hasDirty.value = false
   scheduleCloudSync()
 }
 
-function deleteRecord(recordId: string) {
-  const records = readRecords().filter((item) => item.id !== recordId)
-  writeRecords(records)
-  savedRecords.value = records
-}
+  function deleteRecord(recordId: string) {
+    const now = Date.now()
+    const records = readRecords({ includeDeleted: true }).filter((item) => item.id !== recordId)
+    records.push({ id: recordId, updatedAt: now, deletedAt: now } as PracticeRecord)
+    writeRecords(records)
+    savedRecords.value = readRecords()
+    scheduleCloudSync()
+  }
 
 function loadRecord(recordId: string) {
   const record = readRecords().find((item) => item.id === recordId)
@@ -833,7 +903,7 @@ async function handleImport(event: Event) {
       .filter((record): record is PracticeRecord => Boolean(record))
       .filter((record) => record.testId === testId)
     if (!incoming.length) return
-    const existing = readRecords()
+      const existing = readRecords({ includeDeleted: true })
     const recordMap = new Map(existing.map((item) => [item.id, item]))
     for (const record of incoming) {
       recordMap.set(record.id, record)
@@ -843,7 +913,7 @@ async function handleImport(event: Event) {
       .sort((a, b) => a.updatedAt - b.updatedAt)
       .slice(Math.max(0, merged.length - 10))
     writeRecords(merged)
-    savedRecords.value = merged
+    savedRecords.value = merged.filter((item) => !isDeletedRecord(item))
   } catch (error) {
     // ignore invalid files
   } finally {
@@ -856,7 +926,9 @@ function loadLatestRecord() {
     .filter((item) => item.testId === testId)
     .sort((a, b) => b.updatedAt - a.updatedAt)
   if (!records.length) return false
-  applyRecord(records[0])
+  const latest = records[0]
+  if (!latest) return false
+  applyRecord(latest)
   return true
 }
 
@@ -885,12 +957,16 @@ function getChoiceClass(index: number) {
   return {
     correct: selected && correct,
     wrong: selected && !correct,
-    missed: !selected && correct
+    missed: !selected && correct,
+    incorrect: !correct
   }
 }
 
 function setMode(mode: number) {
   saveCurrentRecord()
+  if (mode === 4 && !wrongReviewAvailable.value) {
+    return
+  }
   practiceMode.value = mode
   if (mode === 0) {
     createProgress(deepCopy(problemInfo.value.problems), mode)
@@ -913,17 +989,32 @@ function setMode(mode: number) {
 function buildTestList() {
   const base = problemInfo.value.problems
   const meta = problemInfo.value.test
-  if (Array.isArray(meta)) {
+  if (testConfig.value.length) {
+    const order = examSectionOrder.value
+    const pools = new Map<number, ProblemType[]>()
+    for (const problem of base) {
+      const list = pools.get(problem.type)
+      if (list) {
+        list.push(problem)
+      } else {
+        pools.set(problem.type, [problem])
+      }
+    }
     const list: ProblemType[] = []
-    for (const type of examTypeOrder) {
-      const count = meta[type]
+    for (const type of order) {
+      const count = Math.max(0, Math.floor(Number(testCountMap.value.get(type) ?? 0)))
       if (count <= 0) continue
-      const pool = base.filter((p) => p.type === type)
-      list.push(...pool.slice(0, count))
+      const pool = pools.get(type) ?? []
+      if (pool.length) {
+        list.push(...pool.slice(0, count))
+      }
     }
     return list.length ? list : base
   }
-  return base.slice(0, Math.min(meta, base.length))
+  if (typeof meta === 'number' && Number.isFinite(meta)) {
+    return base.slice(0, Math.min(meta, base.length))
+  }
+  return base
 }
 
 function choose(index: number) {
@@ -969,8 +1060,10 @@ function checkAnswer() {
     passed = userParts.length === answers.length
     if (passed) {
       for (let i = 0; i < answers.length; i += 1) {
-        const allowed = answers[i].split(';').map((v) => v.trim())
-        if (!allowed.includes(userParts[i])) {
+        const answerPart = answers[i] ?? ''
+        const userPart = userParts[i] ?? ''
+        const allowed = answerPart.split(';').map((v) => v.trim())
+        if (!allowed.includes(userPart)) {
           passed = false
           break
         }
@@ -981,42 +1074,47 @@ function checkAnswer() {
   answerList.value[nowProblemId.value] = [...nowAnswer.value]
   if (passed) {
     problemState.value[nowProblemId.value] = 2
-  } else {
-    problemState.value[nowProblemId.value] = 3
-    errorProblems.value.push(problem)
-    addWrongProblem({
-      userId: currentUserId.value,
-      testId,
-      testTitle: testTitle.value,
-      problem,
-      userAnswer: Array.isArray(nowAnswer.value) ? [...nowAnswer.value] : null
-    })
+    } else {
+      problemState.value[nowProblemId.value] = 3
+      errorProblems.value.push(problem)
+      addWrongProblem({
+        userId: currentUserId.value,
+        testId,
+        testTitle: testTitle.value,
+        problem,
+        userAnswer: Array.isArray(nowAnswer.value) ? [...nowAnswer.value] : null
+      })
+      wrongProblemsVersion.value += 1
+    }
+    progress.value?.markSubmitted(nowProblemId.value)
   }
-  progress.value?.markSubmitted(nowProblemId.value)
-}
 
 function formatFillAnswer(problem: ProblemType) {
+  if (problem.type !== 3) return ''
   return problem.answer
     .split(',')
-    .map((part) =>
+    .map((part: string) =>
       part
         .split(';')
-        .map((value) => value.trim())
-        .filter((value) => value.length > 0)
+        .map((value: string) => value.trim())
+        .filter((value: string) => value.length > 0)
         .join(' / ')
     )
-    .filter((value) => value.length > 0)
+    .filter((value: string) => value.length > 0)
     .join(' ，')
 }
 
 function isFillAnswerCorrect(problem: ProblemType, rawAnswer: string) {
+  if (problem.type !== 3) return false
   const normalized = normalizeFill(rawAnswer)
-  const userParts = normalized.split(',').map((value) => value.trim())
-  const answers = problem.answer.split(',').map((value) => value.trim())
+  const userParts = normalized.split(',').map((value: string) => value.trim())
+  const answers = problem.answer.split(',').map((value: string) => value.trim())
   if (userParts.length !== answers.length) return false
   for (let i = 0; i < answers.length; i += 1) {
-    const allowed = answers[i].split(';').map((value) => value.trim())
-    if (!allowed.includes(userParts[i])) {
+    const answerPart = answers[i] ?? ''
+    const userPart = userParts[i] ?? ''
+    const allowed = answerPart.split(';').map((value: string) => value.trim())
+    if (!allowed.includes(userPart)) {
       return false
     }
   }
@@ -1071,19 +1169,21 @@ function submitExam() {
   errorProblems.value = []
   for (let i = 0; i < nowProblemList.value.length; i += 1) {
     const problem = nowProblemList.value[i]
+    if (!problem) continue
     const answer = answerList.value[i]
     const passed = evaluateProblem(problem, answer)
     problemState.value[i] = passed ? 2 : 3
-    if (!passed) {
-      errorProblems.value.push(problem)
-      addWrongProblem({
-        userId: currentUserId.value,
-        testId,
-        testTitle: testTitle.value,
-        problem,
-        userAnswer: Array.isArray(answer) ? [...answer] : null
-      })
-    }
+      if (!passed) {
+        errorProblems.value.push(problem)
+        addWrongProblem({
+          userId: currentUserId.value,
+          testId,
+          testTitle: testTitle.value,
+          problem,
+          userAnswer: Array.isArray(answer) ? [...answer] : null
+        })
+        wrongProblemsVersion.value += 1
+      }
     progress.value.markSubmitted(i)
   }
   examSubmitted.value = true
@@ -1110,12 +1210,25 @@ function submitAnswer() {
   }
   checkAnswer()
   if (problemState.value[nowProblemId.value] === 2 && nowProblemId.value + 1 < nowProblemList.value.length) {
-    nowProblemId.value += 1
+    const targetIndex = nowProblemId.value
+    if (nextProblemTimer !== null) {
+      window.clearTimeout(nextProblemTimer)
+    }
+    nextProblemTimer = window.setTimeout(() => {
+      nextProblemTimer = null
+      if (nowProblemId.value !== targetIndex) return
+      if (problemState.value[targetIndex] !== 2) return
+      if (targetIndex + 1 >= nowProblemList.value.length) return
+      nowProblemId.value = targetIndex + 1
+    }, NEXT_PROBLEM_DELAY_MS)
   }
   saveCurrentRecord()
 }
 
 function handleModeClick(mode: number) {
+  if (mode === 4 && !wrongReviewAvailable.value) {
+    return
+  }
   showRecords.value = false
   setMode(mode)
   viewMode.value = 'question'
@@ -1130,6 +1243,15 @@ function startCustomPractice() {
   viewMode.value = 'question'
 }
 
+function restartCurrentMode() {
+  showRecords.value = false
+  if (practiceMode.value === 2) {
+    startCustomPractice()
+    return
+  }
+  setMode(practiceMode.value)
+}
+
 function handleFillInput() {
   if (!currentProblem.value || currentProblem.value.type !== 3) return
   if (isSubmitted.value) return
@@ -1141,14 +1263,26 @@ function handleFillInput() {
 
 async function loadProblem() {
   try {
-    const response = await fetch(`${apiBase}/api/problem-sets/${testId}`)
+    loading.value = true
+    loadError.value = ''
+    const invite = inviteCode.value.trim()
+    const inviteParam = invite ? `?invite=${encodeURIComponent(invite)}` : ''
+    const response = await fetch(`${apiBase}/api/problem-sets/${testId}${inviteParam}`)
+    if (response.status === 403) {
+      needInvite.value = true
+      inviteError.value = invite ? '邀请码无效或已过期' : '该题库需要邀请码'
+      loading.value = false
+      return
+    }
     if (!response.ok) {
       throw new Error(`加载失败: ${response.status}`)
     }
     const data = (await response.json()) as ProblemListType
     problemInfo.value = data
     loading.value = false
-    syncRecords()
+    needInvite.value = false
+    inviteError.value = ''
+    syncLocalRecords()
     const recordId = typeof route.query.record === 'string' ? route.query.record : ''
     if (recordId && loadRecord(recordId)) {
       return
@@ -1164,6 +1298,21 @@ async function loadProblem() {
   }
 }
 
+async function submitInvite() {
+  if (!inviteCode.value.trim()) {
+    inviteError.value = '请输入邀请码'
+    return
+  }
+  if (inviteSubmitting.value) return
+  inviteSubmitting.value = true
+  inviteError.value = ''
+  try {
+    await loadProblem()
+  } finally {
+    inviteSubmitting.value = false
+  }
+}
+
 onMounted(() => {
   setTitle(testTitle.value)
   loadLocalSyncTime()
@@ -1174,6 +1323,7 @@ onMounted(() => {
   mediaHandler = () => {
     if (mediaQuery) {
       isMobile.value = mediaQuery.matches
+      syncFooterVisibility()
     }
   }
   mediaHandler()
@@ -1182,7 +1332,7 @@ onMounted(() => {
   } else {
     mediaQuery.addListener(mediaHandler)
   }
-  window.addEventListener('keydown', handleKeydown)
+    window.addEventListener('keydown', handleKeydown, true)
   syncTickerId = window.setInterval(() => {
     if (!canUseLocalStorage.value) return
     if (!localSaveAt.value && !cloudSyncAt.value) return
@@ -1208,7 +1358,10 @@ onBeforeUnmount(() => {
       mediaQuery.removeListener(mediaHandler)
     }
   }
-  window.removeEventListener('keydown', handleKeydown)
+  if (typeof document !== 'undefined') {
+    document.body.classList.remove(BODY_HIDE_FOOTER_CLASS)
+  }
+    window.removeEventListener('keydown', handleKeydown, true)
   stopTimer()
   if (syncTickerId !== null) {
     window.clearInterval(syncTickerId)
@@ -1217,6 +1370,10 @@ onBeforeUnmount(() => {
   if (cloudSyncTimer !== null) {
     window.clearTimeout(cloudSyncTimer)
     cloudSyncTimer = null
+  }
+  if (nextProblemTimer !== null) {
+    window.clearTimeout(nextProblemTimer)
+    nextProblemTimer = null
   }
   saveCurrentRecord()
   void syncCloudRecords()
@@ -1275,38 +1432,55 @@ watch(nowProblemId, () => {
       </div>
     </header>
 
-    <div class="mode-tabs" v-show="!isMobile || (viewMode === 'menu' && !showRecords)">
-      <TabMenu v-if="!isMobile" :model="tabItems" :activeIndex="activeTabIndex" @tab-change="handleTabChange" />
-      <Menu v-else :model="menuItems" class="mobile-mode-menu" />
-    </div>
-
-    <section v-if="showRecords" class="record-panel">
-      <div class="record-head">
-        <span>做题记录</span>
-        <div class="record-tools">
-          <Button size="small" label="导出" severity="secondary" text @click="exportRecords" />
-          <Button size="small" label="导入" severity="secondary" text @click="triggerImport" />
-          <input ref="importInput" type="file" accept="application/json" class="record-file" @change="handleImport" />
+    <section v-if="needInvite" class="invite-panel">
+      <div class="invite-card">
+        <div class="invite-title">该题库需要邀请码</div>
+        <p class="invite-desc">请输入创建人提供的邀请码后继续查看题目内容。</p>
+        <div class="invite-input">
+          <InputText v-model="inviteCode" placeholder="输入邀请码" />
+          <Button label="验证并进入" :loading="inviteSubmitting" @click="submitInvite" />
         </div>
-      </div>
-      <div v-if="matchingRecords.length === 0" class="record-empty">暂无记录</div>
-      <div v-else class="record-list">
-        <div v-for="record in matchingRecords" :key="record.id" class="record-item">
-          <div class="record-info">
-            <div class="record-title">{{ getModeLabel(record.practiceMode) }}</div>
-            <div class="record-meta">
-              {{ formatTimestamp(record.updatedAt) }} ·
-              {{ formatDuration(record.progress.timeSpentSeconds ?? 0) }} ·
-              {{ getRecordAnsweredCount(record) }}/{{ record.progress.problemList.length }}
-            </div>
-          </div>
-          <div class="record-actions">
-            <Button size="small" label="继续" @click="loadRecord(record.id)" />
-            <Button size="small" label="删除" severity="danger" text @click="deleteRecord(record.id)" />
-          </div>
-        </div>
+        <div v-if="inviteError" class="invite-error">{{ inviteError }}</div>
       </div>
     </section>
+
+    <template v-else>
+      <div class="mode-tabs" v-show="!isMobile || (viewMode === 'menu' && !showRecords)">
+        <div v-show="!isMobile">
+          <TabMenu :model="tabItems" :activeIndex="activeTabIndex" @tab-change="handleTabChange" />
+        </div>
+        <div v-show="isMobile">
+          <Menu :model="menuItems" class="mobile-mode-menu" />
+        </div>
+      </div>
+
+      <section v-if="showRecords" class="record-panel">
+        <div class="record-head">
+          <span>做题记录</span>
+          <div class="record-tools">
+            <Button size="small" label="导出" severity="secondary" text @click="exportRecords" />
+            <Button size="small" label="导入" severity="secondary" text @click="triggerImport" />
+            <input ref="importInput" type="file" accept="application/json" class="record-file" @change="handleImport" />
+          </div>
+        </div>
+        <div v-if="matchingRecords.length === 0" class="record-empty">暂无记录</div>
+        <div v-else class="record-list">
+          <div v-for="record in matchingRecords" :key="record.id" class="record-item">
+            <div class="record-info">
+              <div class="record-title">{{ getModeLabel(record.practiceMode) }}</div>
+              <div class="record-meta">
+                {{ formatTimestamp(record.updatedAt) }} ·
+                {{ formatDuration(record.progress.timeSpentSeconds ?? 0) }} ·
+                {{ getRecordAnsweredCount(record) }}/{{ record.progress.problemList.length }}
+              </div>
+            </div>
+            <div class="record-actions">
+              <Button size="small" label="继续" @click="loadRecord(record.id)" />
+              <Button size="small" label="删除" severity="danger" text @click="deleteRecord(record.id)" />
+            </div>
+          </div>
+        </div>
+      </section>
 
     <div class="main-grid" v-show="!showRecords">
       <section class="custom-panel" v-if="showCustomConfig" v-show="!isMobile || viewMode === 'question'">
@@ -1380,13 +1554,21 @@ watch(nowProblemId, () => {
           <span class="placeholder">暂无题目</span>
         </div>
         <div class="submit-row">
+          <Button v-if="!isSingleChoice" type="button" label="提交" @click="submitAnswer" />
           <Button type="button" label="上一题" severity="secondary" :disabled="nowProblemId === 0"
             @click="nowProblemId -= 1" />
           <Button type="button" label="下一题" severity="secondary" :disabled="nowProblemId + 1 >= nowProblemList.length"
             @click="nowProblemId += 1" />
-          <Button type="button" label="提交" @click="submitAnswer" />
-          <Button v-if="isExamMode" type="button" label="交卷" severity="info" :disabled="examSubmitted"
+          <Button v-if="isExamMode" type="button" label="交卷" severity="success" :disabled="examSubmitted"
             @click="submitExam" />
+          <Button
+            type="button"
+            label="开始新的"
+            severity="secondary"
+            class="restart-btn"
+            :disabled="!nowProblemList.length"
+            @click="restartCurrentMode"
+          />
         </div>
       </section>
 
@@ -1436,7 +1618,7 @@ watch(nowProblemId, () => {
           </div>
         </div>
         <div v-else class="number-grid">
-          <div v-for="(item, index) in nowProblemList" :key="index" :class="[
+          <div v-for="(problem, index) in nowProblemList" :key="`${problem.type}-${index}`" :class="[
             'number-btn',
             {
               active: index === nowProblemId,
@@ -1484,6 +1666,7 @@ watch(nowProblemId, () => {
         <span v-else-if="item.value === 'records'" class="dock-sub">{{ syncAgoText }}</span>
       </button>
     </nav>
+    </template>
   </section>
 </template>
 
@@ -1591,7 +1774,7 @@ watch(nowProblemId, () => {
 
 .mode-tabs :deep(.mobile-mode-menu .p-menu-item-link) {
   border-radius: 10px;
-  padding: 12px 16px;
+  padding: 14px 16px;
   color: #111827;
 }
 
@@ -1608,6 +1791,49 @@ watch(nowProblemId, () => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.invite-panel {
+  display: flex;
+  justify-content: center;
+  padding: 12px 0 8px;
+}
+
+.invite-card {
+  width: min(520px, 100%);
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  padding: 18px;
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.invite-title {
+  font-weight: 700;
+  color: #0f172a;
+  font-size: 16px;
+}
+
+.invite-desc {
+  margin: 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.invite-input {
+  display: flex;
+  gap: 10px;
+}
+
+.invite-input :deep(.p-inputtext) {
+  flex: 1;
+}
+
+.invite-error {
+  color: #b91c1c;
+  font-size: 12px;
 }
 
 .record-head {
@@ -1862,11 +2088,28 @@ watch(nowProblemId, () => {
   border-color: #f59e0b;
 }
 
+.choice-row.incorrect .choice-label {
+  color: #94a3b8;
+}
+
 .submit-row {
   margin-top: 16px;
   display: flex;
   justify-content: flex-start;
   gap: 10px;
+  flex-wrap: wrap;
+}
+
+.submit-row .restart-btn {
+  margin-left: auto;
+}
+
+.submit-row :deep(.p-button-label) {
+  white-space: nowrap;
+}
+
+.submit-row :deep(.p-button) {
+  flex: 0 0 auto;
 }
 
 .list-panel {
@@ -2022,14 +2265,14 @@ watch(nowProblemId, () => {
 }
 
 .number-btn.active {
-  border-color: #0f172a !important;
-  background: #e5e7eb !important;
-  color: #111827 !important;
-}
+    border-color: #0f172a !important;
+    background: #0f172a !important;
+    color: #ffffff !important;
+  }
 
-.number-btn.answered {
-  border-color: #3b82f6 !important;
-  color: #3b82f6 !important;
+  .number-btn.answered {
+    border-color: #3b82f6 !important;
+    color: #3b82f6 !important;
 }
 
 .number-btn.correct {
@@ -2037,17 +2280,41 @@ watch(nowProblemId, () => {
   color: #22c55e !important;
 }
 
-.number-btn.wrong {
-  border-color: #ef4444 !important;
-  color: #ef4444 !important;
-}
+  .number-btn.wrong {
+    border-color: #ef4444 !important;
+    color: #ef4444 !important;
+  }
 
-.number-btn.answered:hover,
-.number-btn.correct:hover,
-.number-btn.wrong:hover {
-  background: #f3f4f6;
-  border-color: currentColor;
-}
+  .number-btn.active.answered {
+    border-color: #3b82f6 !important;
+    background: #3b82f6 !important;
+    color: #ffffff !important;
+  }
+
+  .number-btn.active.correct {
+    border-color: #22c55e !important;
+    background: #22c55e !important;
+    color: #ffffff !important;
+  }
+
+  .number-btn.active.wrong {
+    border-color: #ef4444 !important;
+    background: #ef4444 !important;
+    color: #ffffff !important;
+  }
+
+  .number-btn.answered:hover,
+  .number-btn.correct:hover,
+  .number-btn.wrong:hover {
+    background: #f3f4f6;
+    border-color: currentColor;
+  }
+
+  .number-btn.active.answered:hover,
+  .number-btn.active.correct:hover,
+  .number-btn.active.wrong:hover {
+    background: currentColor;
+  }
 
 .mobile-menu {
   display: none;
@@ -2055,6 +2322,10 @@ watch(nowProblemId, () => {
 
 @media (max-width: 900px) {
   :deep(.topbar) {
+    display: none;
+  }
+
+  :global(.test-view-mobile-footer-hidden .site-footer) {
     display: none;
   }
 
@@ -2151,11 +2422,11 @@ watch(nowProblemId, () => {
   }
 
   .dock-sub.is-accent {
-    color: #2563eb;
+    color: var(--vtix-primary-600);
   }
 
   .dock-sub.is-progress {
-    color: #16a34a;
+    color: var(--vtix-primary-600);
   }
 
   .dock-item.active .dock-sub {
@@ -2163,11 +2434,11 @@ watch(nowProblemId, () => {
   }
 
   .dock-item.active .dock-sub.is-accent {
-    color: #1d4ed8;
+    color: var(--vtix-primary-700);
   }
 
   .dock-item.active .dock-sub.is-progress {
-    color: #15803d;
+    color: var(--vtix-primary-700);
   }
 
   .dock-item :deep(.p-ink) {

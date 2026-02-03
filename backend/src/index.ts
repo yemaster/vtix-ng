@@ -9,12 +9,12 @@ await ensureDatabaseReady();
 await ensureAdminUser();
 
 const app = new Elysia()
-  .use(cors({ origin: true, credentials: true }))
+  .use(cors({ origin: true, credentials: true, exposeHeaders: ["x-total-count"] }))
   .decorate("db", db)
   .use(registerRoutes)
-  .get("/", () => "Hello Elysia")
+  .get("/", () => "Hello Vtix")
   .listen(3000);
 
 console.log(
-  `🦊 Elysia is running at ${app.server?.hostname}:${app.server?.port}`
+  `vtix-backend is running at ${app.server?.hostname}:${app.server?.port}`
 );

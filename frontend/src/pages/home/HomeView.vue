@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import Button from 'primevue/button'
 import Tag from 'primevue/tag'
@@ -9,6 +9,7 @@ type PracticeRecord = {
   testId: string
   testTitle?: string
   updatedAt: number
+  deletedAt?: number
   practiceMode: number
   progress: {
     timeSpentSeconds?: number
@@ -18,14 +19,65 @@ type PracticeRecord = {
 }
 
 const router = useRouter()
+const apiBase = import.meta.env.VITE_API_BASE ?? 'http://localhost:3000'
 const STORAGE_KEY = 'vtixSave'
 const records = ref<PracticeRecord[]>([])
+const notices = ref<NoticeItem[]>([])
+const recommendedSets = ref<RecommendedSet[]>([])
 
-const stats = [
-    { title: '题库总量', value: '12', detail: '覆盖近三年题库', delta: '+2 本月', tone: 'indigo', progress: 72 },
-    { title: '题目总数', value: '3,280', detail: '持续更新中', delta: '+120 周', tone: 'emerald', progress: 64 },
-    { title: '推荐题库', value: '3', detail: '重点优先练习', delta: '重点', tone: 'amber', progress: 38 }
-]
+type NoticeItem = {
+    id: string
+    title: string
+    authorName: string
+    isPinned: boolean
+    createdAt: number
+    updatedAt: number
+}
+
+type StatsResponse = {
+    totalSets: number
+    questionCount: number
+    recommendedCount: number
+}
+
+type RecommendedSet = {
+    code: string
+    title: string
+    year: number
+    questionCount: number
+    categories: string[]
+    recommendedRank: number | null
+}
+
+const statsData = ref<StatsResponse>({
+    totalSets: 0,
+    questionCount: 0,
+    recommendedCount: 0
+})
+
+const stats = computed(() => [
+    {
+        title: '题库总量',
+        value: formatStatValue(statsData.value.totalSets),
+        detail: '覆盖公开题库',
+        delta: '公开',
+        tone: 'indigo'
+    },
+    {
+        title: '题目总数',
+        value: formatStatValue(statsData.value.questionCount),
+        detail: '持续更新中',
+        delta: '累计',
+        tone: 'emerald'
+    },
+    {
+        title: '推荐题库',
+        value: formatStatValue(statsData.value.recommendedCount),
+        detail: '重点优先练习',
+        delta: '推荐',
+        tone: 'amber'
+    }
+])
 
 const modes = [
     { label: '顺序练习', value: 0 },
@@ -35,11 +87,13 @@ const modes = [
     { label: '模拟考试', value: 5 }
 ]
 
-const timeline = [
-    { name: '2025 思想道德与法治', date: '推荐 · 717 题', status: '最新', code: '2025sxdd' },
-    { name: '2024 近代史纲要', date: '政治类 · 题库', status: '已整理', code: '2024jdsgy' },
-    { name: '2023 校规校纪', date: '入学类 · 题库', status: '可练习', code: '2023xgxj' }
-]
+const recommendedTimeline = computed(() =>
+    recommendedSets.value.map((item) => ({
+        code: item.code,
+        name: item.title,
+        date: item.year ? `${item.year} 年 · ${item.questionCount} 题` : `推荐 · ${item.questionCount} 题`
+    }))
+)
 
 const recentRecords = computed(() =>
     records.value
@@ -48,8 +102,35 @@ const recentRecords = computed(() =>
         .slice(0, 3)
 )
 
+const pinnedNotices = computed(() => notices.value.filter((item) => item.isPinned))
+
+const heroStats = computed(() => {
+    const todayStart = getTodayStart()
+    const practiceToday = records.value.filter((item) => item.updatedAt >= todayStart).length
+    const practiceTotal = records.value.length
+    const totalSeconds = records.value.reduce(
+        (sum, item) => sum + (item.progress?.timeSpentSeconds ?? 0),
+        0
+    )
+    return [
+        { label: '今日练习', value: formatStatValue(practiceToday) },
+        { label: '累计练习', value: formatStatValue(practiceTotal) },
+        { label: '累计时长', value: formatDuration(totalSeconds) }
+    ]
+})
+
+const topGridRef = ref<HTMLElement | null>(null)
+const heroRef = ref<HTMLElement | null>(null)
+let heroResizeObserver: ResizeObserver | null = null
+
 function getModeLabel(value: number) {
     return modes.find((item) => item.value === value)?.label ?? '练习'
+}
+
+function getTodayStart() {
+    const now = new Date()
+    now.setHours(0, 0, 0, 0)
+    return now.getTime()
 }
 
 function formatTimestamp(timestamp: number) {
@@ -74,6 +155,109 @@ function formatDuration(seconds: number) {
     return `${mm}:${ss}`
 }
 
+function formatFullTime(timestamp: number) {
+    if (!Number.isFinite(timestamp) || timestamp <= 0) {
+        return '--'
+    }
+    const date = new Date(timestamp)
+    const year = date.getFullYear()
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    const hours = String(date.getHours()).padStart(2, '0')
+    const minutes = String(date.getMinutes()).padStart(2, '0')
+    return `${year}-${month}-${day} ${hours}:${minutes}`
+}
+
+function formatRelativeTime(timestamp: number) {
+    if (!Number.isFinite(timestamp) || timestamp <= 0) {
+        return '--'
+    }
+    const diff = Date.now() - timestamp
+    if (diff < 60 * 1000) {
+        return '刚刚'
+    }
+    if (diff < 60 * 60 * 1000) {
+        return `${Math.floor(diff / (60 * 1000))} 分钟前`
+    }
+    if (diff < 24 * 60 * 60 * 1000) {
+        return `${Math.floor(diff / (60 * 60 * 1000))} 小时前`
+    }
+    const days = Math.floor(diff / (24 * 60 * 60 * 1000))
+    return `${days} 天前`
+}
+
+function formatStatValue(value: number) {
+    if (!Number.isFinite(value)) {
+        return '--'
+    }
+    return new Intl.NumberFormat('zh-CN').format(value)
+}
+
+async function loadStats() {
+    try {
+        const response = await fetch(`${apiBase}/api/stats`)
+        if (!response.ok) {
+            throw new Error(`加载失败: ${response.status}`)
+        }
+        const data = (await response.json()) as StatsResponse
+        statsData.value = {
+            totalSets: Number.isFinite(data.totalSets) ? data.totalSets : 0,
+            questionCount: Number.isFinite(data.questionCount) ? data.questionCount : 0,
+            recommendedCount: Number.isFinite(data.recommendedCount) ? data.recommendedCount : 0
+        }
+    } catch {
+        statsData.value = {
+            totalSets: 0,
+            questionCount: 0,
+            recommendedCount: 0
+        }
+    }
+}
+
+async function loadNotices() {
+    try {
+        const response = await fetch(`${apiBase}/api/notices?limit=50`)
+        if (!response.ok) {
+            throw new Error(`加载失败: ${response.status}`)
+        }
+        const data = (await response.json()) as NoticeItem[]
+        notices.value = Array.isArray(data)
+            ? data.map((item) => ({
+                  id: String(item.id),
+                  title: item.title ?? '',
+                  authorName: item.authorName ?? '管理员',
+                  isPinned: Boolean(item.isPinned),
+                  createdAt: Number(item.createdAt ?? 0),
+                  updatedAt: Number(item.updatedAt ?? item.createdAt ?? 0)
+              }))
+            : []
+    } catch {
+        notices.value = []
+    }
+}
+
+async function loadRecommended() {
+    try {
+        const response = await fetch(`${apiBase}/api/problem-sets/recommended?limit=12`)
+        if (!response.ok) {
+            throw new Error(`加载失败: ${response.status}`)
+        }
+        const data = (await response.json()) as RecommendedSet[]
+        recommendedSets.value = Array.isArray(data)
+            ? data.map((item) => ({
+                  code: String(item.code ?? ''),
+                  title: String(item.title ?? ''),
+                  year: Number(item.year ?? 0),
+                  questionCount: Number.isFinite(item.questionCount) ? item.questionCount : 0,
+                  categories: Array.isArray(item.categories) ? item.categories : [],
+                  recommendedRank: item.recommendedRank ?? null
+              })).filter((item) => item.code && item.title)
+            : []
+    } catch {
+        recommendedSets.value = []
+    }
+}
+
 function loadRecords() {
     if (!window.localStorage) return
     const raw = localStorage.getItem(STORAGE_KEY)
@@ -81,7 +265,12 @@ function loadRecords() {
     try {
         const parsed = JSON.parse(raw)
         if (Array.isArray(parsed)) {
-            records.value = parsed.filter((item) => item && typeof item.id === 'string')
+            records.value = parsed.filter(
+                (item) =>
+                    item &&
+                    typeof item.id === 'string' &&
+                    !(typeof item.deletedAt === 'number' && Number(item.deletedAt) > 0)
+            )
         }
     } catch {
         records.value = []
@@ -90,38 +279,102 @@ function loadRecords() {
 
 onMounted(() => {
     loadRecords()
+    void loadStats()
+    void loadNotices()
+    void loadRecommended()
+    if (typeof ResizeObserver !== 'undefined') {
+        heroResizeObserver = new ResizeObserver(() => {
+            syncBannerHeight()
+        })
+        if (heroRef.value) {
+            heroResizeObserver.observe(heroRef.value)
+        }
+        syncBannerHeight()
+    } else {
+        syncBannerHeight()
+        window.addEventListener('resize', syncBannerHeight)
+    }
 })
+
+onUnmounted(() => {
+    if (heroResizeObserver) {
+        heroResizeObserver.disconnect()
+        heroResizeObserver = null
+    } else {
+        window.removeEventListener('resize', syncBannerHeight)
+    }
+})
+
+function syncBannerHeight() {
+    const height = heroRef.value?.getBoundingClientRect().height
+    if (!height || !topGridRef.value) return
+    topGridRef.value.style.setProperty('--banner-height', `${Math.ceil(height)}px`)
+}
 </script>
 
 <template>
   <section class="page">
-    <div class="hero-card">
-      <div class="eyebrow">VTIX / 题库学习面板</div>
-      <h1>聚合题库与练习进度，一站式备考</h1>
-      <p>
-        统一管理题库、练习与错题复盘，快速定位薄弱点，提升答题效率。
-      </p>
-      <div class="hero-actions">
-        <Button label="进入题库" @click="router.push({ name: 'question-bank' })" />
-        <Button label="开始练习" severity="secondary" outlined @click="router.push({ name: 'question-bank' })" />
-      </div>
-      <div class="hero-meta">
-        <div>
-          <div class="meta-label">今日练习</div>
-          <div class="meta-value">86</div>
+    <div ref="topGridRef" class="top-grid">
+      <div ref="heroRef" class="hero-card">
+        <div class="eyebrow">VTIX 答题自测</div>
+        <h1>开学考和政治机考随心练</h1>
+        <div class="hero-actions">
+          <Button label="进入题库" @click="router.push({ name: 'question-bank' })" />
+          <Button label="开始练习" severity="secondary" outlined @click="router.push({ name: 'question-bank' })" />
         </div>
-        <div>
-          <div class="meta-label">已掌握题目</div>
-          <div class="meta-value">1,204</div>
-        </div>
-        <div>
-          <div class="meta-label">正确率提升</div>
-          <div class="meta-value positive">+6.8%</div>
+        <div class="hero-meta">
+          <div v-for="item in heroStats" :key="item.label">
+            <div class="meta-label">{{ item.label }}</div>
+            <div class="meta-value">{{ item.value }}</div>
+          </div>
         </div>
       </div>
+
+      <section class="notice-spotlight">
+        <div class="panel notice-panel">
+          <div class="panel-head">
+            <div>
+              <div class="panel-eyebrow">公告通知</div>
+              <h2>置顶公告</h2>
+            </div>
+            <div class="panel-actions">
+              <button type="button" class="panel-link" @click="router.push({ name: 'notices' })">查看全部</button>
+            </div>
+          </div>
+          <div v-if="pinnedNotices.length === 0" class="notice-empty">
+            暂无置顶公告
+            <RouterLink class="notice-more" :to="{ name: 'notices' }">查看全部公告</RouterLink>
+          </div>
+          <div v-else class="notice-table-wrap">
+            <table class="notice-table">
+              <thead>
+                <tr>
+                  <th>标题</th>
+                  <th>发布人</th>
+                  <th>时间</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in pinnedNotices" :key="item.id" :class="{ 'is-pinned': item.isPinned }">
+                  <td>
+                    <RouterLink class="notice-link" :to="{ name: 'notice-detail', params: { id: item.id } }">
+                      <span class="notice-title">{{ item.title }}</span>
+                      <Tag v-if="item.isPinned" value="置顶" severity="info" rounded />
+                    </RouterLink>
+                  </td>
+                  <td class="notice-meta">{{ item.authorName || '管理员' }}</td>
+                  <td class="notice-time" v-tooltip.bottom="formatFullTime(item.createdAt)">
+                    {{ formatRelativeTime(item.createdAt) }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
     </div>
 
-    <div class="grid">
+    <div class="grid stats-grid">
       <div v-for="stat in stats" :key="stat.title" class="stat-card">
         <div class="stat-top">
           <div class="stat-label">{{ stat.title }}</div>
@@ -129,9 +382,6 @@ onMounted(() => {
         </div>
         <div class="stat-value">{{ stat.value }}</div>
         <div class="stat-detail">{{ stat.detail }}</div>
-        <div class="stat-bar">
-          <span :style="{ width: `${stat.progress}%` }" :class="`is-${stat.tone}`"></span>
-        </div>
       </div>
     </div>
 
@@ -177,14 +427,15 @@ onMounted(() => {
           </div>
           <Tag value="重点练习" severity="secondary" rounded />
         </div>
-        <ul class="timeline">
-          <li v-for="item in timeline" :key="item.name" class="timeline-item">
+        <div v-if="recommendedTimeline.length === 0" class="record-empty">暂无推荐题库</div>
+        <ul v-else class="timeline">
+          <li v-for="item in recommendedTimeline" :key="item.code" class="timeline-item">
             <RouterLink class="timeline-link" :to="`/t/${item.code}`">
               <div>
                 <div class="timeline-name">{{ item.name }}</div>
                 <div class="timeline-date">{{ item.date }}</div>
               </div>
-              <Tag :value="item.status" severity="secondary" rounded />
+              <Tag value="推荐" severity="secondary" rounded />
             </RouterLink>
           </li>
         </ul>
@@ -198,14 +449,22 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 20px;
+  --card-radius: 14px;
+  --card-border: #e4e7ec;
+}
+
+.top-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.9fr);
+  gap: 16px;
+  align-items: start;
 }
 
 .hero-card {
-  background: linear-gradient(135deg, #f7f8fa 0%, #ffffff 40%, #f4f5f7 100%);
-  border: 1px solid #e4e7ec;
-  border-radius: 16px;
+  background: #ffffff;
+  border: 1px solid var(--card-border);
+  border-radius: var(--card-radius);
   padding: 28px;
-  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.08);
 }
 
 .eyebrow {
@@ -233,28 +492,6 @@ p {
   display: flex;
   gap: 10px;
   margin-bottom: 18px;
-}
-
-.hero-actions.p-button {
-  border-radius: 12px;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-
-.hero-actions.p-button:not(.p-button-outlined) {
-  background: #1f2937;
-  border-color: #1f2937;
-  box-shadow: 0 10px 25px rgba(31, 41, 55, 0.2);
-}
-
-.hero-actions :deep(.p-button-outlined) {
-  color: #1f2937;
-  border-color: #d1d5db;
-}
-
-.hero-actions :deep(.p-button:hover) {
-  transform: translateY(-1px);
 }
 
 .hero-meta {
@@ -287,12 +524,15 @@ p {
   gap: 12px;
 }
 
+.stats-grid {
+  margin-top: 2px;
+}
+
 .stat-card {
   background: #ffffff;
-  border: 1px solid #e4e7ec;
-  border-radius: 12px;
+  border: 1px solid var(--card-border);
+  border-radius: var(--card-radius);
   padding: 16px;
-  box-shadow: 0 16px 30px rgba(15, 23, 42, 0.06);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -321,21 +561,21 @@ p {
 }
 
 .stat-tag.is-indigo {
-  background: #eef2ff;
-  color: #4338ca;
-  border-color: #c7d2fe;
+  background: var(--vtix-primary-100);
+  color: var(--vtix-primary-700);
+  border-color: var(--vtix-primary-200);
 }
 
 .stat-tag.is-emerald {
-  background: #ecfdf3;
-  color: #047857;
-  border-color: #6ee7b7;
+  background: var(--vtix-primary-100);
+  color: var(--vtix-primary-700);
+  border-color: var(--vtix-primary-200);
 }
 
 .stat-tag.is-amber {
-  background: #fff7ed;
-  color: #b45309;
-  border-color: #fed7aa;
+  background: var(--vtix-primary-100);
+  color: var(--vtix-primary-700);
+  border-color: var(--vtix-primary-200);
 }
 
 .stat-value {
@@ -349,46 +589,33 @@ p {
   font-size: 12px;
 }
 
-.stat-bar {
-  width: 100%;
-  height: 6px;
-  border-radius: 999px;
-  background: #f1f5f9;
-  overflow: hidden;
-  border: 1px solid #e5e7eb;
-}
-
-.stat-bar span {
-  display: block;
-  height: 100%;
-  background: #94a3b8;
-  border-radius: inherit;
-}
-
-.stat-bar span.is-indigo {
-  background: linear-gradient(90deg, #818cf8, #4338ca);
-}
-
-.stat-bar span.is-emerald {
-  background: linear-gradient(90deg, #34d399, #059669);
-}
-
-.stat-bar span.is-amber {
-  background: linear-gradient(90deg, #fbbf24, #d97706);
-}
-
 .panel-row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 12px;
 }
 
+.notice-spotlight {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  height: 100%;
+}
+
+.panel.notice-panel {
+  background: #ffffff;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  height: var(--banner-height, auto);
+  min-height: 0;
+}
+
 .panel {
   background: #ffffff;
-  border: 1px solid #e4e7ec;
-  border-radius: 12px;
+  border: 1px solid var(--card-border);
+  border-radius: var(--card-radius);
   padding: 18px;
-  box-shadow: 0 18px 28px rgba(15, 23, 42, 0.06);
 }
 
 .panel-head {
@@ -420,10 +647,17 @@ p {
 .panel-link {
   border: none;
   background: transparent;
-  color: #2563eb;
+  color: var(--vtix-primary-600);
   font-weight: 700;
   cursor: pointer;
   padding: 0;
+  text-decoration: none;
+}
+
+.panel-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .record-preview {
@@ -442,14 +676,14 @@ p {
   justify-content: space-between;
   gap: 12px;
   background: #f7f8fa;
-  border: 1px dashed #e4e7ec;
-  border-radius: 10px;
+  border: 1px dashed var(--card-border);
+  border-radius: var(--card-radius);
   padding: 12px;
 }
 
 .record-row:hover {
-  border-color: #cbd5f5;
-  background: #f1f5ff;
+  border-color: var(--vtix-primary-200);
+  background: var(--vtix-primary-50);
 }
 
 .record-title {
@@ -472,6 +706,10 @@ p {
   text-align: right;
 }
 
+.record-stats span {
+  white-space: nowrap;
+}
+
 .record-empty {
   color: #9aa2b2;
   text-align: center;
@@ -486,13 +724,15 @@ p {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  max-height: 360px;
+  overflow-y: auto;
 }
 
 .timeline-item {
   padding: 12px;
-  border-radius: 10px;
+  border-radius: var(--card-radius);
   background: #f7f8fa;
-  border: 1px dashed #e4e7ec;
+  border: 1px dashed var(--card-border);
 }
 
 .timeline-link {
@@ -514,7 +754,108 @@ p {
   font-size: 13px;
 }
 
+.notice-table-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.notice-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+}
+
+.notice-table th {
+  text-align: left;
+  font-size: 12px;
+  color: #9aa2b2;
+  font-weight: 600;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--card-border);
+  background: #f8fafc;
+  position: sticky;
+  top: 0;
+}
+
+.notice-table td {
+  padding: 10px;
+  border-bottom: 1px dashed var(--card-border);
+  vertical-align: middle;
+}
+
+.notice-table tr.is-pinned td {
+  background: #f8fbff;
+}
+
+.notice-table tr:hover td {
+  background: var(--vtix-primary-50);
+}
+
+.notice-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+  color: inherit;
+  font-weight: 600;
+}
+
+.notice-link :deep(.p-tag) {
+  font-size: 11px;
+}
+
+.notice-title {
+  color: #111827;
+  font-weight: 700;
+}
+
+.notice-meta {
+  color: #64748b;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.notice-time {
+  color: #6b7280;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.notice-empty {
+  color: #9aa2b2;
+  text-align: center;
+  font-size: 13px;
+  padding: 12px 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.notice-more {
+  color: var(--vtix-primary-600);
+  text-decoration: none;
+  font-weight: 600;
+}
+
 @media (max-width: 768px) {
+  .top-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .hero-card,
+  .panel.notice-panel {
+    height: auto;
+  }
+
+  .notice-table th,
+  .notice-table td {
+    padding: 8px;
+  }
+
   .hero-meta {
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   }
@@ -530,6 +871,15 @@ p {
 
   .record-stats {
     text-align: left;
+  }
+
+  .notice-link {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .notice-time {
+    margin-left: 0;
   }
 }
 </style>

@@ -7,6 +7,15 @@
   font-weight: 400;
   color: #111827;
   background-color: #f2f4f7;
+  --vtix-primary-50: #f0f9ff;
+  --vtix-primary-100: #e0f2fe;
+  --vtix-primary-200: #bae6fd;
+  --vtix-primary-300: #7dd3fc;
+  --vtix-primary-400: #38bdf8;
+  --vtix-primary-500: #0ea5e9;
+  --vtix-primary-600: #0284c7;
+  --vtix-primary-700: #0369a1;
+  --vtix-primary-800: #075985;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -29,4 +38,12 @@ a {
 ::selection {
   background: #111827;
   color: #ffffff;
+}
+
+.p-toast {
+  max-width: calc(100vw - 24px);
+}
+
+.p-toast-message {
+  word-break: break-word;
 }

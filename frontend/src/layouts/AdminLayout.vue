@@ -19,17 +19,27 @@ let mediaHandler: (() => void) | null = null
 const MANAGE_QUESTION_BANK_OWN = 1 << 9
 const MANAGE_QUESTION_BANK_ALL = 1 << 10
 const MANAGE_USERS = 1 << 11
+const MANAGE_NOTICES = 1 << 12
 
 const canManageQuestionBanks = computed(() => {
   const permissions = userStore.user?.permissions ?? 0
   return (
     (permissions & MANAGE_QUESTION_BANK_ALL) === MANAGE_QUESTION_BANK_ALL ||
-    (permissions & MANAGE_QUESTION_BANK_OWN) === MANAGE_QUESTION_BANK_OWN ||
-    (permissions & MANAGE_USERS) === MANAGE_USERS
+    (permissions & MANAGE_QUESTION_BANK_OWN) === MANAGE_QUESTION_BANK_OWN
   )
 })
 
 const canManageUsers = computed(() => {
+  const permissions = userStore.user?.permissions ?? 0
+  return (permissions & MANAGE_USERS) === MANAGE_USERS
+})
+
+const canManageNotices = computed(() => {
+  const permissions = userStore.user?.permissions ?? 0
+  return (permissions & MANAGE_NOTICES) === MANAGE_NOTICES
+})
+
+const canViewDashboard = computed(() => {
   const permissions = userStore.user?.permissions ?? 0
   return (permissions & MANAGE_USERS) === MANAGE_USERS
 })
@@ -80,19 +90,22 @@ watch(
       </div>
 
       <nav class="nav-groups">
-        <div class="nav-group">
+        <div v-if="canViewDashboard" class="nav-group">
           <div class="nav-title">统计相关</div>
           <div class="nav-links">
             <RouterLink :to="{ name: 'admin-home' }" :class="['nav-link', { active: activeName === 'admin-home' }]">
               <span class="nav-icon pi pi-chart-bar" aria-hidden="true" />
               <span>数据概览</span>
             </RouterLink>
-            <RouterLink
-              :to="{ name: 'admin-trends' }"
-              :class="['nav-link', { active: activeName === 'admin-trends' }]"
-            >
-              <span class="nav-icon pi pi-chart-line" aria-hidden="true" />
-              <span>趋势分析</span>
+          </div>
+        </div>
+
+        <div v-if="canManageNotices" class="nav-group">
+          <div class="nav-title">内容管理</div>
+          <div class="nav-links">
+            <RouterLink :to="{ name: 'admin-notices' }" :class="['nav-link', { active: activeName === 'admin-notices' }]">
+              <span class="nav-icon pi pi-megaphone" aria-hidden="true" />
+              <span>通知公告</span>
             </RouterLink>
           </div>
         </div>
@@ -153,7 +166,9 @@ watch(
       </div>
     </aside>
 
-    <div v-if="isMobile && isDrawerOpen" class="drawer-backdrop" @click="isDrawerOpen = false" />
+    <transition name="backdrop-fade">
+      <div v-if="isMobile && isDrawerOpen" class="drawer-backdrop" @click="isDrawerOpen = false" />
+    </transition>
 
     <div class="admin-main">
       <header class="admin-topbar">
@@ -165,7 +180,11 @@ watch(
           @click="isDrawerOpen = !isDrawerOpen" />
       </header>
       <main class="admin-content">
-        <RouterView />
+        <RouterView v-slot="{ Component }">
+          <transition name="fade" mode="out-in">
+            <component :is="Component" />
+          </transition>
+        </RouterView>
       </main>
     </div>
   </div>
@@ -237,7 +256,7 @@ watch(
   font-size: 14px;
   border: 1px solid transparent;
   background: transparent;
-  transition: background 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
+  transition: background 0.3s ease, box-shadow 0.3s ease, color 0.3s ease;
   text-decoration: none;
 }
 
@@ -247,10 +266,15 @@ watch(
   text-align: left;
 }
 
-.nav-link:hover,
-.nav-link.active {
+.nav-link:hover {
   background: #f1f5f9;
   box-shadow: 0 6px 14px rgba(15, 23, 42, 0.08);
+}
+
+.nav-link.active {
+  background: var(--vtix-primary-100);
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.08);
+  border-color: var(--vtix-primary-100);
 }
 
 
@@ -329,16 +353,21 @@ watch(
     height: 100vh;
     z-index: 30;
     transform: translateX(-100%);
-    transition: transform 0.25s ease;
+    opacity: 0;
+    transition: transform 0.3s ease, opacity 0.3s ease;
     box-shadow: 12px 0 30px rgba(15, 23, 42, 0.12);
+    pointer-events: none;
   }
 
   .sidebar.open {
     transform: translateX(0);
+    opacity: 1;
+    pointer-events: auto;
   }
 
   .admin-content {
     padding: 20px 16px 32px;
   }
 }
+
 </style>

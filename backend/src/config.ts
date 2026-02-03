@@ -6,6 +6,9 @@ type FileConfig = {
   databaseUrl?: string;
   mysqlUrl?: string;
   sqlitePath?: string;
+  adminName?: string;
+  adminEmail?: string;
+  adminPassword?: string;
 };
 
 function loadFileConfig(): FileConfig {
@@ -34,4 +37,13 @@ export const appConfig = {
   ).trim(),
   mysqlUrl: String(process.env.MYSQL_URL ?? fileConfig.mysqlUrl ?? "").trim(),
   sqlitePath: String(fileConfig.sqlitePath ?? "data/vtix.db").trim(),
+  adminName: String(
+    process.env.ADMIN_NAME ?? fileConfig.adminName ?? "Admin"
+  ).trim(),
+  adminEmail: String(
+    process.env.ADMIN_EMAIL ?? fileConfig.adminEmail ?? "admin@vtix.dev"
+  ).trim(),
+  adminPassword: String(
+    process.env.ADMIN_PASSWORD ?? fileConfig.adminPassword ?? "admin1234"
+  ),
 };
