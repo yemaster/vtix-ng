@@ -20,23 +20,11 @@ const router = createRouter({
                     component: () => import('./pages/question-bank/QuestionBankView.vue'),
                     meta: { title: '题库' }
                 },
-                // {
-                //     path: 'question-bank/create',
-                //     name: 'question-bank-create',
-                //     component: () => import('./pages/question-bank/CreateQuestionBankView.vue'),
-                //     meta: { title: '新建题库' }
-                // },
-                // {
-                //     path: 'question-bank/:code/edit',
-                //     name: 'question-bank-edit',
-                //     component: () => import('./pages/question-bank/EditQuestionBankView.vue'),
-                //     meta: { title: '编辑题库' }
-                // },
                 {
-                    path: 'my-question-bank',
-                    name: 'my-question-bank',
-                    component: () => import('./pages/question-bank/MyQuestionBankView.vue'),
-                    meta: { title: '我的题库' }
+                    path: 'question-bank/plaza',
+                    name: 'question-bank-plaza',
+                    component: () => import('./pages/question-bank/QuestionBankPlazaView.vue'),
+                    meta: { title: '题库广场' }
                 },
                 {
                     path: 'records',
@@ -87,6 +75,12 @@ const router = createRouter({
                     meta: { title: '错题本' }
                 },
                 {
+                    path: 'messages',
+                    name: 'messages',
+                    component: () => import('./pages/messages/MessageListView.vue'),
+                    meta: { title: '我的消息' }
+                },
+                {
                     path: '/t/:id',
                     name: 'test',
                     component: () => import('./pages/test/TestView.vue'),
@@ -128,6 +122,12 @@ const router = createRouter({
                     name: 'admin-question-banks',
                     component: () => import('./pages/admin/QuestionBankManageView.vue'),
                     meta: { title: '题库管理' }
+                },
+                {
+                    path: 'question-banks/review',
+                    name: 'admin-question-bank-review',
+                    component: () => import('./pages/admin/QuestionBankReviewView.vue'),
+                    meta: { title: '审核题库' }
                 },
                 {
                     path: 'question-banks/create',

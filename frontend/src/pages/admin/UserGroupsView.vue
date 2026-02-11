@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import Button from 'primevue/button'
 import Checkbox from 'primevue/checkbox'
+import InputNumber from 'primevue/inputnumber'
 import InputText from 'primevue/inputtext'
 import Textarea from 'primevue/textarea'
 import Tag from 'primevue/tag'
@@ -12,6 +13,7 @@ type UserGroup = {
   name: string
   description: string
   permissions: number
+  privateProblemSetLimit: number
 }
 
 const apiBase = import.meta.env.VITE_API_BASE ?? 'http://localhost:3000'
@@ -26,7 +28,8 @@ const form = ref({
   id: '',
   name: '',
   description: '',
-  permissions: 0
+  permissions: 0,
+  privateProblemSetLimit: -1
 })
 
 const permissionOptions = [
@@ -64,7 +67,8 @@ function resetForm() {
     id: '',
     name: '',
     description: '',
-    permissions: 0
+    permissions: 0,
+    privateProblemSetLimit: -1
   }
 }
 
@@ -73,7 +77,9 @@ function startEdit(group: UserGroup) {
     id: group.id,
     name: group.name,
     description: group.description ?? '',
-    permissions: group.permissions ?? 0
+    permissions: group.permissions ?? 0,
+    privateProblemSetLimit:
+      Number.isFinite(group.privateProblemSetLimit) ? group.privateProblemSetLimit : -1
   }
 }
 
@@ -107,7 +113,8 @@ async function saveGroup() {
     const payload = {
       name: form.value.name.trim(),
       description: form.value.description.trim(),
-      permissions: form.value.permissions
+      permissions: form.value.permissions,
+      privateProblemSetLimit: Number(form.value.privateProblemSetLimit)
     }
     if (!payload.name) {
       toast.add({
@@ -195,6 +202,10 @@ onMounted(() => {
               <div class="group-main">
                 <div class="group-name">{{ group.name }}</div>
                 <div class="group-desc">{{ group.description || '暂无描述' }}</div>
+                <div class="group-limit">
+                  非公开题库上限：
+                  <span>{{ group.privateProblemSetLimit === -1 ? '不限' : group.privateProblemSetLimit }}</span>
+                </div>
                 <div class="group-tags">
                   <Tag v-for="item in formatPermissionTags(group.permissions)" :key="item.value" :value="item.label" />
                 </div>
@@ -227,6 +238,16 @@ onMounted(() => {
           <label class="field">
             <span>描述</span>
             <Textarea v-model="form.description" rows="3" autoResize placeholder="填写用户组说明" />
+          </label>
+          <label class="field">
+            <span>非公开题库上限（-1 表示无限制）</span>
+            <InputNumber
+              v-model="form.privateProblemSetLimit"
+              :useGrouping="false"
+              :min="-1"
+              :step="1"
+              placeholder="例如：-1 或 5"
+            />
           </label>
           <div class="field">
             <span>权限配置</span>
@@ -273,19 +294,19 @@ onMounted(() => {
 .page-head h1 {
   margin: 8px 0 6px;
   font-size: 30px;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .page-head p {
   margin: 0;
-  color: #6b7280;
+  color: var(--vtix-text-muted);
 }
 
 .eyebrow {
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #9aa2b2;
+  color: var(--vtix-text-subtle);
 }
 
 .head-actions {
@@ -308,8 +329,8 @@ onMounted(() => {
 
 .group-card {
   border-radius: 14px;
-  border: 1px solid #e2e8f0;
-  background: #f8fafc;
+  border: 1px solid var(--vtix-border-strong);
+  background: var(--vtix-surface-2);
   padding: 12px 14px;
   display: flex;
   justify-content: space-between;
@@ -322,13 +343,24 @@ onMounted(() => {
 
 .group-name {
   font-weight: 700;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .group-desc {
   font-size: 12px;
-  color: #64748b;
+  color: var(--vtix-text-muted);
   margin-top: 4px;
+}
+
+.group-limit {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--vtix-text-subtle);
+}
+
+.group-limit span {
+  color: var(--vtix-text);
+  font-weight: 600;
 }
 
 .group-tags {
@@ -348,7 +380,7 @@ onMounted(() => {
   flex-direction: column;
   gap: 8px;
   font-size: 13px;
-  color: #475569;
+  color: var(--vtix-text-muted);
   font-weight: 600;
 }
 
@@ -364,9 +396,9 @@ onMounted(() => {
   gap: 8px;
   padding: 8px 10px;
   border-radius: 12px;
-  border: 1px solid #e2e8f0;
-  background: #f8fafc;
-  color: #0f172a;
+  border: 1px solid var(--vtix-border-strong);
+  background: var(--vtix-surface-2);
+  color: var(--vtix-text-strong);
   font-weight: 600;
 }
 
@@ -377,9 +409,9 @@ onMounted(() => {
 }
 
 .status {
-  border: 1px solid #fecaca;
-  background: #fff1f2;
-  color: #991b1b;
+  border: 1px solid var(--vtix-danger-border);
+  background: var(--vtix-danger-bg);
+  color: var(--vtix-danger-text);
   padding: 14px 16px;
   border-radius: 14px;
   display: flex;
@@ -396,13 +428,13 @@ onMounted(() => {
 }
 
 .empty {
-  color: #94a3b8;
+  color: var(--vtix-text-subtle);
 }
 
 .skeleton-line {
   height: 14px;
   border-radius: 999px;
-  background: linear-gradient(90deg, #e2e8f0, #f8fafc, #e2e8f0);
+  background: linear-gradient(90deg, var(--vtix-border-strong), var(--vtix-surface-2), var(--vtix-border-strong));
   background-size: 200% 100%;
   animation: shimmer 1.6s infinite;
 }
@@ -425,7 +457,7 @@ onMounted(() => {
   width: 48px;
   height: 18px;
   border-radius: 999px;
-  background: linear-gradient(90deg, #e2e8f0, #f8fafc, #e2e8f0);
+  background: linear-gradient(90deg, var(--vtix-border-strong), var(--vtix-surface-2), var(--vtix-border-strong));
   background-size: 200% 100%;
   animation: shimmer 1.6s infinite;
 }

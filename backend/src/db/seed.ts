@@ -10,6 +10,7 @@ const DEFAULT_GROUPS = [
     name: USER_GROUPS.user.name,
     description: "Default user group.",
     permissions: USER_GROUPS.user.permissions,
+    privateProblemSetLimit: USER_GROUPS.user.privateProblemSetLimit,
     builtIn: true,
   },
   {
@@ -17,6 +18,7 @@ const DEFAULT_GROUPS = [
     name: USER_GROUPS.manager.name,
     description: "Question bank manager group.",
     permissions: USER_GROUPS.manager.permissions,
+    privateProblemSetLimit: USER_GROUPS.manager.privateProblemSetLimit,
     builtIn: true,
   },
   {
@@ -24,6 +26,7 @@ const DEFAULT_GROUPS = [
     name: USER_GROUPS.admin.name,
     description: "System administrator group.",
     permissions: USER_GROUPS.admin.permissions,
+    privateProblemSetLimit: USER_GROUPS.admin.privateProblemSetLimit,
     builtIn: true,
   },
 ];

@@ -353,19 +353,19 @@ watch(totalPages, (value) => {
 .page-head h1 {
   margin: 8px 0 6px;
   font-size: 30px;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .page-head p {
   margin: 0;
-  color: #6b7280;
+  color: var(--vtix-text-muted);
 }
 
 .eyebrow {
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #9aa2b2;
+  color: var(--vtix-text-subtle);
 }
 
 .head-actions {
@@ -390,7 +390,7 @@ watch(totalPages, (value) => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: #475569;
+  color: var(--vtix-text-muted);
   font-size: 13px;
   font-weight: 600;
 }
@@ -424,16 +424,16 @@ watch(totalPages, (value) => {
 .user-table td {
   text-align: left;
   padding: 12px;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--vtix-border);
   font-size: 14px;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .user-table th {
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #94a3b8;
+  color: var(--vtix-text-subtle);
 }
 
 .pagination {
@@ -468,14 +468,14 @@ watch(totalPages, (value) => {
 .pagination :deep(.p-select-label),
 .pagination :deep(.p-dropdown-label) {
   font-size: 12px;
-  color: #374151;
+  color: var(--vtix-text-muted);
   padding: 4px 8px;
 }
 
 .status {
-  border: 1px solid #fecaca;
-  background: #fff1f2;
-  color: #991b1b;
+  border: 1px solid var(--vtix-danger-border);
+  background: var(--vtix-danger-bg);
+  color: var(--vtix-danger-text);
   padding: 14px 16px;
   border-radius: 14px;
   display: flex;
@@ -492,7 +492,7 @@ watch(totalPages, (value) => {
 }
 
 .empty {
-  color: #94a3b8;
+  color: var(--vtix-text-subtle);
 }
 
 .field {
@@ -500,7 +500,7 @@ watch(totalPages, (value) => {
   flex-direction: column;
   gap: 8px;
   font-size: 13px;
-  color: #475569;
+  color: var(--vtix-text-muted);
   font-weight: 600;
 }
 
@@ -524,7 +524,7 @@ watch(totalPages, (value) => {
 .skeleton-line {
   height: 14px;
   border-radius: 999px;
-  background: linear-gradient(90deg, #e2e8f0, #f8fafc, #e2e8f0);
+  background: linear-gradient(90deg, var(--vtix-border-strong), var(--vtix-surface-2), var(--vtix-border-strong));
   background-size: 200% 100%;
   animation: shimmer 1.6s infinite;
 }
@@ -540,7 +540,7 @@ watch(totalPages, (value) => {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.4);
+  background: var(--vtix-backdrop);
   display: grid;
   place-items: center;
   z-index: 40;
@@ -549,10 +549,10 @@ watch(totalPages, (value) => {
 
 .modal-card {
   width: min(520px, 100%);
-  background: #ffffff;
+  background: var(--vtix-surface);
   border-radius: 16px;
-  border: 1px solid #e5e7eb;
-  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.2);
+  border: 1px solid var(--vtix-border);
+  box-shadow: 0 20px 40px var(--vtix-shadow-heavy);
   padding: 18px;
   display: flex;
   flex-direction: column;
@@ -568,7 +568,7 @@ watch(totalPages, (value) => {
 .modal-title {
   font-size: 18px;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .modal-body {

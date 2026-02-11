@@ -1,0 +1,243 @@
+:root {
+  --vtix-primary-50: #f0f9ff;
+  --vtix-primary-100: #e0f2fe;
+  --vtix-primary-200: #bae6fd;
+  --vtix-primary-300: #7dd3fc;
+  --vtix-primary-400: #38bdf8;
+  --vtix-primary-500: #0ea5e9;
+  --vtix-primary-600: #0284c7;
+  --vtix-primary-700: #0369a1;
+  --vtix-primary-800: #075985;
+  --vtix-transition-fast: 180ms;
+  --vtix-bg: #f2f4f7;
+  --vtix-surface: #ffffff;
+  --vtix-surface-2: #f8fafc;
+  --vtix-surface-3: #f1f5f9;
+  --vtix-surface-4: #f7f8fa;
+  --vtix-surface-5: #f3f4f6;
+  --vtix-border: #e5e7eb;
+  --vtix-border-strong: #e2e8f0;
+  --vtix-input-border: #d1d5db;
+  --vtix-text: #111827;
+  --vtix-text-strong: #0f172a;
+  --vtix-text-muted: #64748b;
+  --vtix-text-subtle: #94a3b8;
+  --vtix-inverse-text: #ffffff;
+  --vtix-ink: #0f172a;
+  --vtix-brand-dot-start: #1f2937;
+  --vtix-brand-dot-end: #4b5563;
+  --vtix-active-bg: var(--vtix-primary-100);
+  --vtix-active-border: var(--vtix-primary-200);
+  --vtix-active-text: var(--vtix-text-strong);
+  --vtix-info-text: #0369a1;
+  --vtix-info-bg: #e0f2fe;
+  --vtix-info-border: #7dd3fc;
+  --vtix-info-solid: #3b82f6;
+  --vtix-success-text: #15803d;
+  --vtix-success-bg: #e8f8ef;
+  --vtix-success-border: #86efac;
+  --vtix-success-solid: #22c55e;
+  --vtix-warning-text: #b45309;
+  --vtix-warning-bg: #fff6d6;
+  --vtix-warning-border: #fcd34d;
+  --vtix-warning-solid: #f59e0b;
+  --vtix-danger-text: #b91c1c;
+  --vtix-danger-bg: #fff1f2;
+  --vtix-danger-border: #fca5a5;
+  --vtix-danger-solid: #ef4444;
+  --vtix-auth-bg-warm: linear-gradient(135deg, #fffdf7 0%, #f2f3f5 70%);
+  --vtix-auth-bg-cool: linear-gradient(135deg, #f7fbff 0%, #f2f3f5 70%);
+  --vtix-auth-spot-warm: radial-gradient(circle at 60% 70%, #fffdf7 0%, #ffeebd 25%, transparent 75%);
+  --vtix-auth-spot-cool: radial-gradient(circle at 60% 70%, #f7fbff 0%, #d4e6ff 25%, transparent 75%);
+  --vtix-auth-accent-warm: #c38f1a;
+  --vtix-auth-accent-cool: #2563eb;
+  --vtix-auth-focus-warm: #f4c76a;
+  --vtix-auth-focus-cool: #7eb3ff;
+  --vtix-auth-focus-ring-warm: rgba(244, 199, 106, 0.25);
+  --vtix-auth-focus-ring-cool: rgba(126, 179, 255, 0.25);
+  --vtix-shadow-soft: rgba(15, 23, 42, 0.06);
+  --vtix-shadow: rgba(15, 23, 42, 0.08);
+  --vtix-shadow-strong: rgba(15, 23, 42, 0.12);
+  --vtix-shadow-heavy: rgba(15, 23, 42, 0.2);
+  --vtix-shadow-accent: rgba(14, 165, 233, 0.18);
+  --vtix-shadow-accent-strong: rgba(14, 165, 233, 0.22);
+  --vtix-overlay-soft: rgba(0, 0, 0, 0.12);
+  --vtix-surface-fade: linear-gradient(180deg, rgba(255, 255, 255, 0.6) 0%, var(--vtix-surface) 40%);
+  --vtix-glow-primary-soft: rgba(14, 165, 233, 0.08);
+  --vtix-glow-primary-strong: rgba(56, 189, 248, 0.12);
+  --vtix-backdrop: rgba(15, 23, 42, 0.35);
+  --vtix-topbar-bg: rgba(255, 255, 255, 0.92);
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  --vtix-primary-50: #071a2a;
+  --vtix-primary-100: #0b2436;
+  --vtix-primary-200: #0f3147;
+  --vtix-primary-300: #13475f;
+  --vtix-primary-400: #1b5f7c;
+  --vtix-primary-500: #257aa0;
+  --vtix-primary-600: #3aa7d7;
+  --vtix-primary-700: #7dd3fc;
+  --vtix-primary-800: #bae6fd;
+  --vtix-bg: #0b1220;
+  --vtix-surface: #111827;
+  --vtix-surface-2: #0f172a;
+  --vtix-surface-3: #1f2937;
+  --vtix-surface-4: #111a2b;
+  --vtix-surface-5: #1f2937;
+  --vtix-border: #1f2937;
+  --vtix-border-strong: #334155;
+  --vtix-input-border: #334155;
+  --vtix-text: #e2e8f0;
+  --vtix-text-strong: #f8fafc;
+  --vtix-text-muted: #94a3b8;
+  --vtix-text-subtle: #64748b;
+  --vtix-inverse-text: #f8fafc;
+  --vtix-ink: #1f2937;
+  --vtix-brand-dot-start: #38bdf8;
+  --vtix-brand-dot-end: #0ea5e9;
+  --vtix-active-bg: rgba(56, 189, 248, 0.16);
+  --vtix-active-border: #38bdf8;
+  --vtix-active-text: var(--vtix-text-strong);
+  --vtix-info-text: #7dd3fc;
+  --vtix-info-bg: #0b2a3f;
+  --vtix-info-border: #38bdf8;
+  --vtix-info-solid: #3b82f6;
+  --vtix-success-text: #86efac;
+  --vtix-success-bg: #0f2a1c;
+  --vtix-success-border: #22c55e;
+  --vtix-success-solid: #22c55e;
+  --vtix-warning-text: #fcd34d;
+  --vtix-warning-bg: #33240b;
+  --vtix-warning-border: #f59e0b;
+  --vtix-warning-solid: #f59e0b;
+  --vtix-danger-text: #fecaca;
+  --vtix-danger-bg: #331016;
+  --vtix-danger-border: #ef4444;
+  --vtix-danger-solid: #ef4444;
+  --vtix-auth-bg-warm: linear-gradient(135deg, #0b1220 0%, #0f172a 70%);
+  --vtix-auth-bg-cool: linear-gradient(135deg, #0b1220 0%, #0f172a 70%);
+  --vtix-auth-spot-warm: radial-gradient(circle at 60% 70%, #1f2937 0%, #3b2f1b 25%, transparent 75%);
+  --vtix-auth-spot-cool: radial-gradient(circle at 60% 70%, #0f172a 0%, #1e3a5f 25%, transparent 75%);
+  --vtix-auth-accent-warm: #fcd34d;
+  --vtix-auth-accent-cool: #7dd3fc;
+  --vtix-auth-focus-warm: #f59e0b;
+  --vtix-auth-focus-cool: #60a5fa;
+  --vtix-auth-focus-ring-warm: rgba(245, 158, 11, 0.25);
+  --vtix-auth-focus-ring-cool: rgba(96, 165, 250, 0.25);
+  --vtix-shadow-soft: rgba(0, 0, 0, 0.25);
+  --vtix-shadow: rgba(0, 0, 0, 0.35);
+  --vtix-shadow-strong: rgba(0, 0, 0, 0.5);
+  --vtix-shadow-heavy: rgba(0, 0, 0, 0.6);
+  --vtix-shadow-accent: rgba(56, 189, 248, 0.25);
+  --vtix-shadow-accent-strong: rgba(56, 189, 248, 0.35);
+  --vtix-overlay-soft: rgba(255, 255, 255, 0.12);
+  --vtix-surface-fade: linear-gradient(180deg, rgba(15, 23, 42, 0.65) 0%, var(--vtix-surface) 40%);
+  --vtix-glow-primary-soft: rgba(56, 189, 248, 0.12);
+  --vtix-glow-primary-strong: rgba(56, 189, 248, 0.2);
+  --vtix-backdrop: rgba(2, 6, 23, 0.6);
+  --vtix-topbar-bg: rgba(15, 23, 42, 0.9);
+  color-scheme: dark;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root.theme-animate * {
+    transition: none !important;
+  }
+}
+
+:root.theme-animate body,
+:root.theme-animate .app-shell,
+:root.theme-animate .admin-shell,
+:root.theme-animate .topbar,
+:root.theme-animate .sidebar,
+:root.theme-animate .mobile-drawer,
+:root.theme-animate .auth-page,
+:root.theme-animate .auth-card,
+:root.theme-animate .vtix-panel,
+:root.theme-animate .panel,
+:root.theme-animate .card,
+:root.theme-animate .p-component {
+  transition:
+    background-color var(--vtix-transition-fast) ease,
+    color var(--vtix-transition-fast) ease,
+    border-color var(--vtix-transition-fast) ease;
+}
+
+:root.theme-animate .list-panel,
+:root.theme-animate .list-panel * {
+  transition: none !important;
+}
+
+:root.theme-animate .theme-panel,
+:root.theme-animate .theme-panel * {
+  transition:
+    background-color var(--vtix-transition-fast) ease,
+    border-color var(--vtix-transition-fast) ease;
+}
+
+:root[data-theme-style='paper'][data-theme='light'] {
+  --vtix-bg: #ffffff;
+  --vtix-surface: #ffffff;
+  --vtix-surface-2: #ffffff;
+  --vtix-surface-3: #f8fafc;
+  --vtix-surface-4: #ffffff;
+  --vtix-surface-5: #f3f4f6;
+  --vtix-border: #e5e7eb;
+  --vtix-border-strong: #e2e8f0;
+  --vtix-input-border: #d1d5db;
+  --vtix-text: #111827;
+  --vtix-text-strong: #0f172a;
+  --vtix-text-muted: #64748b;
+  --vtix-text-subtle: #94a3b8;
+  --vtix-inverse-text: #ffffff;
+  --vtix-ink: #0f172a;
+  --vtix-brand-dot-start: #1f2937;
+  --vtix-brand-dot-end: #4b5563;
+  --vtix-active-bg: var(--vtix-primary-100);
+  --vtix-active-border: var(--vtix-primary-200);
+  --vtix-active-text: var(--vtix-text-strong);
+  --vtix-info-text: #0369a1;
+  --vtix-info-bg: #e0f2fe;
+  --vtix-info-border: #7dd3fc;
+  --vtix-info-solid: #3b82f6;
+  --vtix-success-text: #15803d;
+  --vtix-success-bg: #e8f8ef;
+  --vtix-success-border: #86efac;
+  --vtix-success-solid: #22c55e;
+  --vtix-warning-text: #b45309;
+  --vtix-warning-bg: #fff6d6;
+  --vtix-warning-border: #fcd34d;
+  --vtix-warning-solid: #f59e0b;
+  --vtix-danger-text: #b91c1c;
+  --vtix-danger-bg: #fff1f2;
+  --vtix-danger-border: #fca5a5;
+  --vtix-danger-solid: #ef4444;
+  --vtix-auth-bg-warm: #ffffff;
+  --vtix-auth-bg-cool: #ffffff;
+  --vtix-auth-spot-warm: radial-gradient(circle at 60% 70%, #ffffff 0%, #ffffff 25%, transparent 75%);
+  --vtix-auth-spot-cool: radial-gradient(circle at 60% 70%, #ffffff 0%, #ffffff 25%, transparent 75%);
+  --vtix-auth-accent-warm: #c38f1a;
+  --vtix-auth-accent-cool: #2563eb;
+  --vtix-auth-focus-warm: #f4c76a;
+  --vtix-auth-focus-cool: #7eb3ff;
+  --vtix-auth-focus-ring-warm: rgba(244, 199, 106, 0.25);
+  --vtix-auth-focus-ring-cool: rgba(126, 179, 255, 0.25);
+  --vtix-shadow-soft: transparent;
+  --vtix-shadow: transparent;
+  --vtix-shadow-strong: transparent;
+  --vtix-shadow-heavy: transparent;
+  --vtix-shadow-accent: transparent;
+  --vtix-shadow-accent-strong: transparent;
+  --vtix-overlay-soft: rgba(0, 0, 0, 0.08);
+  --vtix-surface-fade: linear-gradient(180deg, rgba(255, 255, 255, 0.9) 0%, var(--vtix-surface) 40%);
+  --vtix-glow-primary-soft: rgba(14, 165, 233, 0.08);
+  --vtix-glow-primary-strong: rgba(56, 189, 248, 0.12);
+  --vtix-topbar-bg: #ffffff;
+  color-scheme: light;
+}
+
+:root[data-theme-style='paper'] * {
+  box-shadow: none !important;
+}

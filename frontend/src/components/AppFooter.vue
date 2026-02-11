@@ -7,11 +7,13 @@ import { RouterLink } from 'vue-router'
     <div class="footer-inner">
       <div class="footer-left">Made by yemaster with ❤</div>
       <div class="footer-right">
-        <a href="https://github.com/yemaster/vtix-ng" target="_blank">Github</a>
-        <span class="divider">·</span>
         <RouterLink :to="{ name: 'about' }">关于</RouterLink>
         <span class="divider">·</span>
         <RouterLink :to="{ name: 'help' }">帮助</RouterLink>
+        <span class="divider">·</span>
+        <a href="https://qm.qq.com/q/PqwEed4eo8" target="_blank">交流QQ群</a>
+        <span class="divider">·</span>
+        <a href="https://github.com/yemaster/vtix-ng" target="_blank">Github</a>
       </div>
     </div>
   </footer>
@@ -19,8 +21,8 @@ import { RouterLink } from 'vue-router'
 
 <style scoped>
 .site-footer {
-  border-top: 1px solid #e5e7eb;
-  background: #ffffff;
+  border-top: 1px solid var(--vtix-border);
+  background: var(--vtix-surface);
   margin-top: auto;
 }
 
@@ -32,12 +34,12 @@ import { RouterLink } from 'vue-router'
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  color: #6b7280;
+  color: var(--vtix-text-muted);
   font-size: 13px;
 }
 
 .footer-left {
-  color: #0f172a;
+  color: var(--vtix-text-strong);
   font-weight: 600;
 }
 
@@ -48,17 +50,17 @@ import { RouterLink } from 'vue-router'
 }
 
 .footer-right a {
-  color: #4b5563;
+  color: var(--vtix-text-muted);
   font-weight: 600;
   text-decoration: none;
 }
 
 .footer-right a:hover {
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .divider {
-  color: #cbd5f5;
+  color: var(--vtix-border-strong);
 }
 
 @media (max-width: 768px) {

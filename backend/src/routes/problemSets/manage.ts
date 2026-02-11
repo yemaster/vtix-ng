@@ -1,16 +1,19 @@
 import { randomBytes } from "crypto";
 import { Elysia } from "elysia";
+import { and, eq, sql } from "drizzle-orm";
 import {
   createProblemSet,
   loadProblemSetDetail,
   updateProblemSet,
   type TestConfigItem,
 } from "../../services/problemSets";
-import { PERMISSIONS, hasPermission } from "../../utils/permissions";
+import { db, problemSets, userGroups } from "../../db";
+import { PERMISSIONS, USER_GROUPS, hasPermission } from "../../utils/permissions";
 import { getSessionUser } from "../../utils/session";
 import { normalizeProblems } from "./normalize";
 
 const DEFAULT_TEST_SCORES = [0, 1, 2, 1, 1];
+const MAX_QUESTION_COUNT = 4096;
 
 function toSafeNumber(value: unknown, fallback = 0) {
   const parsed = Number(value);
@@ -96,7 +99,6 @@ export const registerProblemSetManageRoutes = (app: Elysia) =>
         title?: string;
         year?: number;
         categories?: string[];
-        isPublic?: boolean;
         inviteCode?: string | null;
         problems?: unknown;
         test?: unknown;
@@ -128,12 +130,38 @@ export const registerProblemSetManageRoutes = (app: Elysia) =>
         set.status = 400;
         return { error: "至少需要一题。" };
       }
-      const isPublic = canManageAll ? Boolean(payload.isPublic) : false;
+      if (problems.length > MAX_QUESTION_COUNT) {
+        set.status = 400;
+        return { error: `题目数量超过上限（${MAX_QUESTION_COUNT}）。` };
+      }
+      const isPublic = false;
+      const isPending = true;
       const inviteCode = isPublic
         ? null
         : payload.inviteCode
           ? String(payload.inviteCode).trim() || null
           : null;
+      if (!isPublic) {
+        const [group] = await db
+          .select({ privateProblemSetLimit: userGroups.privateProblemSetLimit })
+          .from(userGroups)
+          .where(eq(userGroups.id, user.groupId))
+          .limit(1);
+        const limitRaw =
+          group?.privateProblemSetLimit ?? USER_GROUPS.user.privateProblemSetLimit;
+        const privateLimit = Number.isFinite(Number(limitRaw)) ? Number(limitRaw) : -1;
+        if (privateLimit !== -1) {
+          const [countRow] = await db
+            .select({ count: sql<number>`count(*)` })
+            .from(problemSets)
+            .where(and(eq(problemSets.creatorId, user.id), eq(problemSets.isPublic, false)));
+          const existingCount = Number(countRow?.count ?? 0);
+          if (existingCount >= privateLimit) {
+            set.status = 400;
+            return { error: "非公开题库数量已达到上限。" };
+          }
+        }
+      }
       const testMeta = normalizeTestConfig(payload.test, payload.score, counts);
       // Use a random long string for the code to avoid leaking title info.
       const code = randomBytes(16).toString("hex");
@@ -143,7 +171,8 @@ export const registerProblemSetManageRoutes = (app: Elysia) =>
         title,
         year,
         categories,
-        isNew: true,
+        isNew: false,
+        isPending,
         recommendedRank: null,
         questionCount: problems.length,
         creatorId: user.id,
@@ -183,7 +212,6 @@ export const registerProblemSetManageRoutes = (app: Elysia) =>
         title?: string;
         year?: number;
         categories?: string[];
-        isPublic?: boolean;
         inviteCode?: string | null;
         problems?: unknown;
         test?: unknown;
@@ -205,9 +233,12 @@ export const registerProblemSetManageRoutes = (app: Elysia) =>
         set.status = 400;
         return { error: "至少需要一题。" };
       }
-      const nextIsPublic = canManageAll
-        ? Boolean(payload.isPublic ?? existing.isPublic)
-        : Boolean(existing.isPublic);
+      if (problems.length > MAX_QUESTION_COUNT) {
+        set.status = 400;
+        return { error: `题目数量超过上限（${MAX_QUESTION_COUNT}）。` };
+      }
+      const nextIsPublic = false;
+      const nextIsPending = existing.isPublic ? true : Boolean(existing.isPending);
       const inviteCode = nextIsPublic
         ? null
         : canManageAll
@@ -227,6 +258,7 @@ export const registerProblemSetManageRoutes = (app: Elysia) =>
         categories,
         questionCount: problems.length,
         isPublic: nextIsPublic,
+        isPending: nextIsPending,
         inviteCode,
         test: testMeta,
         problems,

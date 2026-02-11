@@ -13,6 +13,7 @@ import './styles/transitions.css'
 import './styles/panel-common.css'
 import 'primeicons/primeicons.css'
 import { useUserStore } from './stores/user'
+import { useThemeStore } from './stores/theme'
 
 const apiBase = import.meta.env.VITE_API_BASE ?? 'http://localhost:3000'
 const BACKEND_TIMEOUT_MS = 3500
@@ -45,13 +46,19 @@ app.use(pinia)
 app.use(PrimeVue, {
     ripple: true,
     theme: {
-        preset: SkyAura
+        preset: SkyAura,
+        options: {
+            darkModeSelector: '[data-theme="dark"]'
+        }
     }
 })
 app.use(ToastService)
 app.directive('ripple', Ripple)
 app.directive('tooltip', Tooltip)
 app.use(router)
+
+const themeStore = useThemeStore(pinia)
+themeStore.init()
 
 async function checkBackendAvailability() {
     const controller = new AbortController()

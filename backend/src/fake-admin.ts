@@ -6,6 +6,7 @@ export type AdminUserGroup = {
   name: string;
   description: string;
   permissions: number;
+  privateProblemSetLimit: number;
   builtIn?: boolean;
 };
 
@@ -24,6 +25,7 @@ const userGroups: AdminUserGroup[] = [
     name: USER_GROUPS.user.name,
     description: "Default user group.",
     permissions: USER_GROUPS.user.permissions,
+    privateProblemSetLimit: USER_GROUPS.user.privateProblemSetLimit,
     builtIn: true,
   },
   {
@@ -31,6 +33,7 @@ const userGroups: AdminUserGroup[] = [
     name: USER_GROUPS.manager.name,
     description: "Question bank manager group.",
     permissions: USER_GROUPS.manager.permissions,
+    privateProblemSetLimit: USER_GROUPS.manager.privateProblemSetLimit,
     builtIn: true,
   },
   {
@@ -38,6 +41,7 @@ const userGroups: AdminUserGroup[] = [
     name: USER_GROUPS.admin.name,
     description: "System administrator group.",
     permissions: USER_GROUPS.admin.permissions,
+    privateProblemSetLimit: USER_GROUPS.admin.privateProblemSetLimit,
     builtIn: true,
   },
 ];
@@ -89,6 +93,7 @@ export function createUserGroup(payload: {
   name?: string;
   description?: string;
   permissions?: number;
+  privateProblemSetLimit?: number;
 }) {
   const name = String(payload.name ?? "").trim();
   if (!name) {
@@ -101,6 +106,7 @@ export function createUserGroup(payload: {
     name,
     description,
     permissions,
+    privateProblemSetLimit: Number(payload.privateProblemSetLimit ?? -1),
   };
   userGroups.push(group);
   return group;
@@ -108,7 +114,12 @@ export function createUserGroup(payload: {
 
 export function updateUserGroup(
   id: string,
-  payload: { name?: string; description?: string; permissions?: number }
+  payload: {
+    name?: string;
+    description?: string;
+    permissions?: number;
+    privateProblemSetLimit?: number;
+  }
 ) {
   const group = resolveGroup(id);
   if (!group) {
@@ -122,6 +133,9 @@ export function updateUserGroup(
   group.description = String(payload.description ?? group.description ?? "").trim();
   if (payload.permissions !== undefined) {
     group.permissions = Number(payload.permissions);
+  }
+  if (payload.privateProblemSetLimit !== undefined) {
+    group.privateProblemSetLimit = Number(payload.privateProblemSetLimit);
   }
   syncUsersForGroup(group);
   return group;

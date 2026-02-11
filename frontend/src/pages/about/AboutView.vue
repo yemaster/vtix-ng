@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { BUILD_ID, BUILD_TIME } from '../../build-info'
 
 type BackendVersion = {
   name?: string
@@ -11,8 +12,11 @@ const apiBase = import.meta.env.VITE_API_BASE ?? 'http://localhost:3000'
 
 const frontendBuildInfo = computed(() => {
   const info = import.meta.env.VITE_BUILD_INFO ?? import.meta.env.VITE_BUILD_TIME ?? ''
-  return info || '未提供'
+  const parts = [BUILD_ID ? `build:${BUILD_ID}` : '', info]
+    .filter(Boolean)
+  return parts.length ? parts.join(' · ') : '未提供'
 })
+const frontendBuildTime = computed(() => (BUILD_TIME ? `构建时间: ${BUILD_TIME}` : ''))
 const frontendMode = import.meta.env.MODE ?? 'unknown'
 
 const backendVersion = ref<BackendVersion>({})
@@ -105,7 +109,7 @@ onMounted(() => {
           <div class="build-title">系统信息</div>
           <div class="build-item">
             <span>前端构建</span>
-            <span class="build-value">{{ frontendBuildInfo }}</span>
+            <span class="build-value" v-tooltip.bottom="frontendBuildTime">{{ frontendBuildInfo }}</span>
           </div>
           <div class="build-item">
             <span>运行模式</span>
@@ -128,6 +132,21 @@ onMounted(() => {
 
         <div class="changelog-list">
           <article class="changelog-item">
+            <div class="changelog-date">2026-02-10 更新</div>
+            <ul>
+              <li>优化了部分UI的样式</li>
+              <li>优化了主题切换的性能</li>
+              <li>新增题库广场，可以展示用户发布的题库</li>
+            </ul>
+          </article>
+          <article class="changelog-item">
+            <div class="changelog-date">2026-02-04 更新</div>
+            <ul>
+              <li>新增暗黑模式主题，可选择主题样式</li>
+              <li>新增纸张主题</li>
+            </ul>
+          </article>
+          <article class="changelog-item">
             <div class="changelog-date">2026-01-30 更新</div>
             <ul>
               <li>新增上传 xlsx 文件导入题库</li>
@@ -146,7 +165,7 @@ onMounted(() => {
           <article class="changelog-item">
             <div class="changelog-date">2026-01-26 更新</div>
             <ul>
-              <li style="color: #db2828">vtix-ng 版本启动，采用 PrimeVue + Elysia.js 完全重写</li>
+              <li style="color: var(--vtix-danger-text)">vtix-ng 版本启动，采用 PrimeVue + Elysia.js 完全重写</li>
               <li>UI 更新</li>
             </ul>
           </article>
@@ -226,25 +245,19 @@ onMounted(() => {
 .intro-block h1 {
   margin: 8px 0 6px;
   font-size: 30px;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .intro-block p {
   margin: 0;
-  color: #6b7280;
+  color: var(--vtix-text-muted);
 }
 
 .eyebrow {
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #9aa2b2;
-}
-
-.intro-block {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  color: var(--vtix-text-subtle);
 }
 
 .intro-text {
@@ -258,12 +271,12 @@ onMounted(() => {
   display: grid;
   gap: 6px;
   font-size: 12px;
-  color: #64748b;
+  color: var(--vtix-text-muted);
 }
 
 .about-block {
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
+  background: var(--vtix-surface);
+  border: 1px solid var(--vtix-border);
   border-radius: 18px;
   padding: 18px;
   display: flex;
@@ -272,15 +285,15 @@ onMounted(() => {
 }
 
 .about-block.intro-card {
-  background: #f8fafc;
-  border-color: #dbeafe;
+  background: var(--vtix-surface-2);
+  border-color: var(--vtix-info-border);
   position: relative;
   padding-left: 22px;
 }
 
 .about-block.intro-card p {
   margin: 0;
-  color: #334155;
+  color: var(--vtix-text-muted);
   font-size: 14px;
   line-height: 1.8;
 }
@@ -293,17 +306,17 @@ onMounted(() => {
 }
 
 .build-card {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--vtix-border);
   border-radius: 16px;
   padding: 16px;
-  background: #f8fafc;
+  background: var(--vtix-surface-2);
   display: grid;
   gap: 10px;
 }
 
 .build-title {
   font-weight: 700;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
   font-size: 15px;
 }
 
@@ -312,29 +325,29 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  color: #475569;
+  color: var(--vtix-text-muted);
   font-size: 13px;
 }
 
 .build-value {
-  color: #0f172a;
+  color: var(--vtix-text-strong);
   font-weight: 600;
 }
 
 .build-note {
-  color: #b91c1c;
+  color: var(--vtix-danger-text);
   font-size: 12px;
 }
 
 .section-head h2 {
   margin: 0;
   font-size: 18px;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .section-head p {
   margin: 6px 0 0;
-  color: #64748b;
+  color: var(--vtix-text-muted);
   font-size: 13px;
 }
 
@@ -345,33 +358,33 @@ onMounted(() => {
 }
 
 .people-card {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--vtix-border);
   border-radius: 16px;
   padding: 16px;
-  background: #ffffff;
+  background: var(--vtix-surface);
   display: grid;
   gap: 10px;
 }
 
 .people-card.primary {
-  border: 1px solid #dbeafe;
-  background: linear-gradient(135deg, #eff6ff 0%, #ffffff 80%);
+  border: 1px solid var(--vtix-info-border);
+  background: linear-gradient(135deg, var(--vtix-info-bg) 0%, var(--vtix-surface) 80%);
 }
 
 .people-avatar {
   width: 38px;
   height: 38px;
   border-radius: 12px;
-  background: #0f172a;
-  color: #ffffff;
+  background: var(--vtix-ink);
+  color: var(--vtix-inverse-text);
   font-weight: 700;
   display: grid;
   place-items: center;
 }
 
 .people-avatar.muted {
-  background: #e2e8f0;
-  color: #475569;
+  background: var(--vtix-border-strong);
+  color: var(--vtix-text-muted);
 }
 
 .people-main {
@@ -382,20 +395,20 @@ onMounted(() => {
 
 .people-name {
   font-weight: 700;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
   font-size: 16px;
 }
 
 .people-role {
   font-size: 12px;
-  color: #64748b;
+  color: var(--vtix-text-muted);
 }
 
 .people-meta {
   display: grid;
   gap: 6px;
   font-size: 13px;
-  color: #475569;
+  color: var(--vtix-text-muted);
 }
 
 .changelog-list {
@@ -404,15 +417,15 @@ onMounted(() => {
 }
 
 .changelog-item {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--vtix-border);
   border-radius: 14px;
   padding: 12px 14px;
-  background: #ffffff;
+  background: var(--vtix-surface);
 }
 
 .changelog-date {
   font-weight: 700;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
   font-size: 13px;
   margin-bottom: 6px;
 }
@@ -420,7 +433,7 @@ onMounted(() => {
 .changelog-item ul {
   margin: 0;
   padding-left: 18px;
-  color: #475569;
+  color: var(--vtix-text-muted);
   font-size: 13px;
   display: grid;
   gap: 6px;
@@ -428,7 +441,7 @@ onMounted(() => {
 
 .changelog-note {
   font-size: 12px;
-  color: #94a3b8;
+  color: var(--vtix-text-subtle);
   margin: 4px 0 2px;
 }
 

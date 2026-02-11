@@ -122,7 +122,7 @@ async function handleSubmit() {
   justify-content: center;
   align-items: center;
   padding: 24px;
-  background: linear-gradient(135deg, #f7fbff 0%, #f2f3f5 70%);
+  background: var(--vtix-auth-bg-cool);
   overflow: hidden;
   transition: background 0.5s ease;
 }
@@ -134,7 +134,7 @@ async function handleSubmit() {
   height: 200vmax;
   bottom: -120vmax;
   right: -120vmax;
-  background: radial-gradient(circle at 60% 70%, #f7fbff 0%, #d4e6ff 25%, transparent 75%);
+  background: var(--vtix-auth-spot-cool);
   transform: scale(0);
   transform-origin: 100% 100%;
   transition: transform 0.6s ease;
@@ -156,23 +156,23 @@ async function handleSubmit() {
 }
 
 .auth-intro {
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .auth-intro h1 {
   font-size: 36px;
   margin: 8px 0 12px;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .auth-intro .brand {
   font-weight: 600;
   letter-spacing: 1px;
-  color: #2563eb;
+  color: var(--vtix-auth-accent-cool);
 }
 
 .auth-intro .subtitle {
-  color: #0f172a;
+  color: var(--vtix-text-strong);
   opacity: 0.7;
   line-height: 1.6;
 }
@@ -180,9 +180,9 @@ async function handleSubmit() {
 .auth-card {
   position: relative;
   width: 100%;
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.14);
+  background: var(--vtix-surface);
+  border: 1px solid var(--vtix-border);
+  box-shadow: 0 24px 60px var(--vtix-shadow-strong);
   border-radius: 18px;
   padding: 30px;
 }
@@ -191,11 +191,11 @@ async function handleSubmit() {
   display: block;
   font-size: 20px;
   font-weight: 700;
-  color: #111827;
+  color: var(--vtix-text);
 }
 
 .card-title small {
-  color: #6b7280;
+  color: var(--vtix-text-muted);
 }
 
 .form {
@@ -210,7 +210,7 @@ async function handleSubmit() {
   flex-direction: column;
   gap: 8px;
   font-weight: 700;
-  color: #1f2937;
+  color: var(--vtix-text-strong);
   letter-spacing: 0.01em;
 }
 
@@ -222,29 +222,29 @@ async function handleSubmit() {
 
 .field :deep(.p-inputtext),
 .field :deep(.p-password-input) {
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--vtix-input-border);
   border-radius: 12px;
   padding: 12px 14px;
-  background: #f7f7f8;
-  color: #111827;
+  background: var(--vtix-surface-4);
+  color: var(--vtix-text);
   transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.25s ease;
 }
 
 .field :deep(.p-inputtext:focus),
 .field :deep(.p-password-input:focus) {
   outline: none;
-  border-color: #7eb3ff;
-  background: #ffffff;
-  color: #0f172a;
-  box-shadow: 0 0 0 3px rgba(126, 179, 255, 0.25);
+  border-color: var(--vtix-auth-focus-cool);
+  background: var(--vtix-surface);
+  color: var(--vtix-text-strong);
+  box-shadow: 0 0 0 3px var(--vtix-auth-focus-ring-cool);
 }
 
 .form :deep(.action.p-button) {
   width: 100%;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--vtix-input-border);
   border-radius: 12px;
-  background: #e5e7eb;
-  color: #111827;
+  background: var(--vtix-border);
+  color: var(--vtix-text);
   padding: 12px;
   font-weight: 800;
   letter-spacing: 0.02em;
@@ -253,16 +253,16 @@ async function handleSubmit() {
 }
 
 .form :deep(.action.primary.p-button:hover) {
-  background: #dfe3e8;
+  background: var(--vtix-surface-3);
   transform: translateY(-1px);
-  box-shadow: 0 12px 26px rgba(15, 23, 42, 0.12);
+  box-shadow: 0 12px 26px var(--vtix-shadow-strong);
 }
 
 .form :deep(.action.p-button:focus-visible) {
   outline: none;
-  background: #dfe3e8;
-  color: #0f172a;
-  box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.35);
+  background: var(--vtix-surface-3);
+  color: var(--vtix-text-strong);
+  box-shadow: 0 0 0 3px var(--vtix-auth-focus-ring-cool);
 }
 
 @media (max-width: 768px) {
@@ -279,18 +279,18 @@ async function handleSubmit() {
 
 .hint {
   text-align: center;
-  color: #6b7280;
+  color: var(--vtix-text-muted);
   font-size: 14px;
 }
 
 .hint a {
-  color: #111827;
+  color: var(--vtix-text);
   font-weight: 700;
 }
 
 .hint.subtle {
   margin-top: 6px;
   font-size: 13px;
-  color: #9ca3af;
+  color: var(--vtix-text-subtle);
 }
 </style>

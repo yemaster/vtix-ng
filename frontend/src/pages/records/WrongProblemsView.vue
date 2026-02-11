@@ -369,19 +369,19 @@ function formatUserAnswer(problem: ProblemType, answer: (number | string)[] | nu
 .page-head h1 {
   margin: 8px 0 6px;
   font-size: 28px;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .page-head p {
   margin: 0;
-  color: #6b7280;
+  color: var(--vtix-text-muted);
 }
 
 .eyebrow {
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #9aa2b2;
+  color: var(--vtix-text-subtle);
 }
 
 .filters {
@@ -407,7 +407,7 @@ function formatUserAnswer(problem: ProblemType, answer: (number | string)[] | nu
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  color: #64748b;
+  color: var(--vtix-text-muted);
   font-size: 13px;
 }
 
@@ -436,15 +436,15 @@ function formatUserAnswer(problem: ProblemType, answer: (number | string)[] | nu
 }
 
 .selected-count {
-  color: #94a3b8;
+  color: var(--vtix-text-subtle);
 }
 
 .wrong-card {
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
+  background: var(--vtix-surface);
+  border: 1px solid var(--vtix-border);
   border-radius: 16px;
   padding: 14px 18px;
-  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 12px 24px var(--vtix-shadow);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -470,15 +470,15 @@ function formatUserAnswer(problem: ProblemType, answer: (number | string)[] | nu
 
 .title-main {
   font-weight: 700;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
   display: inline-flex;
   align-items: center;
   gap: 8px;
 }
 
 .type-badge {
-  background: #f1f5f9;
-  color: #475569;
+  background: var(--vtix-surface-3);
+  color: var(--vtix-text-muted);
   border-radius: 999px;
   padding: 2px 8px;
   font-size: 12px;
@@ -488,7 +488,7 @@ function formatUserAnswer(problem: ProblemType, answer: (number | string)[] | nu
 
 .title-meta {
   font-size: 12px;
-  color: #94a3b8;
+  color: var(--vtix-text-subtle);
 }
 
 .wrong-body {
@@ -498,7 +498,7 @@ function formatUserAnswer(problem: ProblemType, answer: (number | string)[] | nu
 }
 
 .wrong-content {
-  color: #0f172a;
+  color: var(--vtix-text-strong);
   font-size: 14px;
   white-space: pre-wrap;
 }
@@ -507,13 +507,13 @@ function formatUserAnswer(problem: ProblemType, answer: (number | string)[] | nu
   display: flex;
   flex-direction: column;
   gap: 4px;
-  color: #475569;
+  color: var(--vtix-text-muted);
   font-size: 13px;
 }
 
 .answer-label {
   font-weight: 700;
-  color: #1f2937;
+  color: var(--vtix-text-strong);
 }
 
 .delete-btn {
@@ -521,7 +521,7 @@ function formatUserAnswer(problem: ProblemType, answer: (number | string)[] | nu
 }
 
 .empty {
-  color: #9aa2b2;
+  color: var(--vtix-text-subtle);
   text-align: center;
 }
 

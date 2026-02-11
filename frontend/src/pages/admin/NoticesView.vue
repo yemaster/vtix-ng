@@ -341,19 +341,19 @@ onMounted(() => {
 .page-head h1 {
   margin: 8px 0 6px;
   font-size: 30px;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .page-head p {
   margin: 0;
-  color: #6b7280;
+  color: var(--vtix-text-muted);
 }
 
 .eyebrow {
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #9aa2b2;
+  color: var(--vtix-text-subtle);
 }
 
 .head-actions {
@@ -376,8 +376,8 @@ onMounted(() => {
 
 .notice-card {
   border-radius: 14px;
-  border: 1px solid #e2e8f0;
-  background: #f8fafc;
+  border: 1px solid var(--vtix-border-strong);
+  background: var(--vtix-surface-2);
   padding: 12px 14px;
   display: flex;
   justify-content: space-between;
@@ -393,20 +393,20 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .notice-meta {
   display: flex;
   gap: 10px;
   font-size: 12px;
-  color: #64748b;
+  color: var(--vtix-text-muted);
   margin-top: 4px;
 }
 
 .notice-desc {
   font-size: 12px;
-  color: #475569;
+  color: var(--vtix-text-muted);
   margin-top: 6px;
 }
 
@@ -421,7 +421,7 @@ onMounted(() => {
   flex-direction: column;
   gap: 8px;
   font-size: 13px;
-  color: #475569;
+  color: var(--vtix-text-muted);
   font-weight: 600;
 }
 
@@ -432,9 +432,9 @@ onMounted(() => {
 }
 
 .status {
-  border: 1px solid #fecaca;
-  background: #fff1f2;
-  color: #991b1b;
+  border: 1px solid var(--vtix-danger-border);
+  background: var(--vtix-danger-bg);
+  color: var(--vtix-danger-text);
   padding: 14px 16px;
   border-radius: 14px;
   display: flex;
@@ -451,13 +451,13 @@ onMounted(() => {
 }
 
 .empty {
-  color: #94a3b8;
+  color: var(--vtix-text-subtle);
 }
 
 .skeleton-line {
   height: 14px;
   border-radius: 999px;
-  background: linear-gradient(90deg, #e2e8f0, #f8fafc, #e2e8f0);
+  background: linear-gradient(90deg, var(--vtix-border-strong), var(--vtix-surface-2), var(--vtix-border-strong));
   background-size: 200% 100%;
   animation: shimmer 1.6s infinite;
 }

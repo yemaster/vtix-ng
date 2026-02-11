@@ -15,6 +15,7 @@ type QuestionBankItem = {
   title: string
   year: number
   isNew: boolean
+  isPending: boolean
   recommendedRank: number | null
   categories: string[]
   questionCount: number
@@ -39,6 +40,7 @@ const confirmCode = ref<string | null>(null)
 const statusError = ref('')
 const recommendError = ref('')
 const recommendingCode = ref<string | null>(null)
+const requestingCode = ref<string | null>(null)
 const importError = ref('')
 const exportError = ref('')
 const actionMessage = ref('')
@@ -50,11 +52,14 @@ const selectedCodes = ref<string[]>([])
 const bulkAction = ref('')
 
 const search = ref('')
+const debouncedSearch = ref('')
+let searchTimer: number | null = null
 const selectedCategory = ref('all')
 const selectedCreator = ref('all')
 const pageSize = ref(8)
 const currentPage = ref(1)
 const pageSizeOptions = [8, 16, 32]
+const totalRecords = ref(0)
 
 const canManageAll = computed(
   () => Boolean(userStore.user?.permissions && (userStore.user.permissions & MANAGE_QUESTION_BANK_ALL))
@@ -62,6 +67,7 @@ const canManageAll = computed(
 const canManageOwn = computed(
   () => Boolean(userStore.user?.permissions && (userStore.user.permissions & MANAGE_QUESTION_BANK_OWN))
 )
+const canRequestPublic = computed(() => canManageOwn.value && !canManageAll.value)
 
 const bulkActionOptions = computed(() => {
   if (canManageAll.value) {
@@ -84,6 +90,9 @@ const bulkActionOptions = computed(() => {
 
 const categoryOptions = computed(() => {
   const set = new Set(items.value.flatMap((item) => item.categories))
+  if (selectedCategory.value !== 'all') {
+    set.add(selectedCategory.value)
+  }
   return [{ label: '全部', value: 'all' }, ...Array.from(set).map((item) => ({ label: item, value: item }))]
 })
 
@@ -92,36 +101,15 @@ const creatorOptions = computed(() => {
   for (const item of items.value) {
     map.set(item.creatorId, item.creatorName || item.creatorId)
   }
+  if (selectedCreator.value !== 'all') {
+    map.set(selectedCreator.value, selectedCreator.value)
+  }
   const options = Array.from(map.entries()).map(([value, label]) => ({ label, value }))
   return [{ label: '全部', value: 'all' }, ...options]
 })
 
-const filteredItems = computed(() => {
-  const keyword = search.value.trim().toLowerCase()
-  return items.value.filter((item) => {
-    const matchKeyword =
-      !keyword ||
-      item.title.toLowerCase().includes(keyword) ||
-      item.code.toLowerCase().includes(keyword) ||
-      String(item.year).includes(keyword)
-    const matchCategory =
-      selectedCategory.value === 'all' || item.categories.includes(selectedCategory.value)
-    const matchCreator = selectedCreator.value === 'all' || item.creatorId === selectedCreator.value
-    return matchKeyword && matchCategory && matchCreator
-  })
-})
-
-const totalPages = computed(() =>
-  Math.max(1, Math.ceil(filteredItems.value.length / pageSize.value))
-)
-
-const pagedItems = computed(() => {
-  const start = (currentPage.value - 1) * pageSize.value
-  return filteredItems.value.slice(start, start + pageSize.value)
-})
-
 const selectedCount = computed(() => selectedCodes.value.length)
-const pageCodes = computed(() => pagedItems.value.map((item) => item.code))
+const pageCodes = computed(() => items.value.map((item) => item.code))
 const isPageAllSelected = computed(
   () => pageCodes.value.length > 0 && pageCodes.value.every((code) => selectedCodes.value.includes(code))
 )
@@ -135,12 +123,21 @@ async function loadItems() {
   isLoading.value = true
   loadError.value = ''
   try {
-    const response = await fetch(`${apiBase}/api/admin/problem-sets`, {
+    const params = new URLSearchParams({
+      page: String(currentPage.value),
+      pageSize: String(pageSize.value),
+      ...(debouncedSearch.value ? { q: debouncedSearch.value } : {}),
+      ...(selectedCategory.value !== 'all' ? { category: selectedCategory.value } : {}),
+      ...(selectedCreator.value !== 'all' ? { creator: selectedCreator.value } : {})
+    })
+    const response = await fetch(`${apiBase}/api/admin/problem-sets?${params.toString()}`, {
       credentials: 'include'
     })
     if (!response.ok) {
       throw new Error(`加载失败: ${response.status}`)
     }
+    const total = Number(response.headers.get('x-total-count') ?? 0)
+    totalRecords.value = Number.isFinite(total) ? total : 0
     const data = (await response.json()) as QuestionBankItem[]
     items.value = Array.isArray(data)
       ? data.map((item) => ({
@@ -148,12 +145,14 @@ async function loadItems() {
           categories: Array.isArray(item.categories) ? item.categories : [],
           questionCount: Number.isFinite(item.questionCount) ? item.questionCount : 0,
           isNew: Boolean(item.isNew),
-          isPublic: Boolean(item.isPublic)
+          isPublic: Boolean(item.isPublic),
+          isPending: Boolean(item.isPending)
         }))
       : []
   } catch (error) {
     loadError.value = error instanceof Error ? error.message : '加载失败'
     items.value = []
+    totalRecords.value = 0
   } finally {
     isLoading.value = false
   }
@@ -229,6 +228,30 @@ async function handleExport() {
     exportError.value = error instanceof Error ? error.message : '导出失败'
   } finally {
     exportLoading.value = false
+  }
+}
+
+async function requestPublic(code: string) {
+  requestingCode.value = code
+  statusError.value = ''
+  actionMessage.value = ''
+  try {
+    const response = await fetch(`${apiBase}/api/my-problem-sets/${code}/publish-request`, {
+      method: 'POST',
+      credentials: 'include'
+    })
+    const data = (await response.json().catch(() => null)) as { error?: string } | null
+    if (!response.ok) {
+      throw new Error(data?.error || `操作失败: ${response.status}`)
+    }
+    actionMessage.value = '已提交审核申请'
+    await loadItems()
+  } catch (error) {
+    statusError.value = error instanceof Error ? error.message : '操作失败'
+  } finally {
+    if (requestingCode.value === code) {
+      requestingCode.value = null
+    }
   }
 }
 
@@ -459,14 +482,32 @@ function toggleSelectCode(code: string) {
   }
 }
 
-watch([search, selectedCategory, selectedCreator], () => {
-  currentPage.value = 1
+watch([currentPage, pageSize], () => {
+  void loadItems()
 })
 
-watch(totalPages, (value) => {
-  if (currentPage.value > value) {
-    currentPage.value = value
+watch(search, (value) => {
+  if (searchTimer !== null) {
+    window.clearTimeout(searchTimer)
   }
+  isLoading.value = true
+  loadError.value = ''
+  searchTimer = window.setTimeout(() => {
+    debouncedSearch.value = value.trim()
+    if (currentPage.value !== 1) {
+      currentPage.value = 1
+      return
+    }
+    void loadItems()
+  }, 300)
+})
+
+watch([selectedCategory, selectedCreator], () => {
+  if (currentPage.value !== 1) {
+    currentPage.value = 1
+    return
+  }
+  void loadItems()
 })
 
 watch(items, (value) => {
@@ -627,7 +668,7 @@ onMounted(() => {
             <span class="skeleton-line sm"></span>
           </div>
         </div>
-        <div v-else-if="filteredItems.length === 0" class="empty">暂无题库</div>
+        <div v-else-if="items.length === 0" class="empty">暂无题库</div>
         <div v-else class="table-wrap">
           <table class="bank-table">
             <thead>
@@ -652,7 +693,7 @@ onMounted(() => {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="item in pagedItems" :key="item.code">
+              <tr v-for="item in items" :key="item.code">
                 <td class="select-col">
                   <input
                     type="checkbox"
@@ -717,22 +758,28 @@ onMounted(() => {
                   />
                 </td>
                 <td>
+                  <Tag
+                    v-if="item.isPending"
+                    value="审核中"
+                    severity="warning"
+                    rounded
+                  />
                   <button
-                    v-if="canManageAll"
+                    v-else-if="canManageAll"
                     type="button"
                     class="tag-button"
                     @click="toggleIsPublic(item)"
                   >
                     <Tag
                       :value="item.isPublic ? '公开' : '私有'"
-                      :severity="item.isPublic ? 'success' : 'warning'"
+                      :severity="item.isPublic ? 'success' : 'secondary'"
                       rounded
                     />
                   </button>
                   <Tag
                     v-else
                     :value="item.isPublic ? '公开' : '私有'"
-                    :severity="item.isPublic ? 'success' : 'warning'"
+                    :severity="item.isPublic ? 'success' : 'secondary'"
                     rounded
                   />
                 </td>
@@ -740,6 +787,15 @@ onMounted(() => {
                 <td>
                   <div class="action-group">
                     <Button label="编辑" size="small" text severity="secondary" @click="startEdit(item.code)" />
+                    <Button
+                      v-if="canRequestPublic && !item.isPublic && !item.isPending"
+                      label="申请公开"
+                      size="small"
+                      text
+                      severity="secondary"
+                      :loading="requestingCode === item.code"
+                      @click="requestPublic(item.code)"
+                    />
                     <div class="delete-popover">
                       <Button
                         label="删除"
@@ -772,7 +828,7 @@ onMounted(() => {
           <Paginator
             :first="(currentPage - 1) * pageSize"
             :rows="pageSize"
-            :totalRecords="filteredItems.length"
+            :totalRecords="totalRecords"
             :rowsPerPageOptions="pageSizeOptions"
             template="PrevPageLink PageLinks NextPageLink RowsPerPageSelect"
             @page="handlePage"
@@ -800,19 +856,19 @@ onMounted(() => {
 .page-head h1 {
   margin: 8px 0 6px;
   font-size: 30px;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .page-head p {
   margin: 0;
-  color: #6b7280;
+  color: var(--vtix-text-muted);
 }
 
 .eyebrow {
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #9aa2b2;
+  color: var(--vtix-text-subtle);
 }
 
 .filters {
@@ -831,7 +887,7 @@ onMounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: #475569;
+  color: var(--vtix-text-muted);
   font-size: 13px;
   font-weight: 600;
 }
@@ -851,9 +907,9 @@ onMounted(() => {
   gap: 12px;
   flex-wrap: wrap;
   padding: 10px 12px;
-  border: 1px dashed #e5e7eb;
+  border: 1px dashed var(--vtix-border);
   border-radius: 12px;
-  background: #f8fafc;
+  background: var(--vtix-surface-2);
 }
 
 .bulk-left {
@@ -861,14 +917,14 @@ onMounted(() => {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
-  color: #475569;
+  color: var(--vtix-text-muted);
   font-size: 13px;
   font-weight: 600;
 }
 
 .bulk-count {
   font-weight: 800;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .bulk-actions {
@@ -903,9 +959,9 @@ onMounted(() => {
 .bank-table td {
   text-align: left;
   padding: 12px;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--vtix-border);
   font-size: 14px;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .bank-table th.select-col,
@@ -926,7 +982,7 @@ onMounted(() => {
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #94a3b8;
+  color: var(--vtix-text-subtle);
 }
 
 .title-cell {
@@ -941,7 +997,7 @@ onMounted(() => {
 
 .title-link {
   font-weight: 600;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
   text-decoration: none;
   display: inline-flex;
   align-items: center;
@@ -955,7 +1011,7 @@ onMounted(() => {
 
 .subtitle {
   font-size: 12px;
-  color: #64748b;
+  color: var(--vtix-text-muted);
 }
 
 .tag-list {
@@ -968,7 +1024,7 @@ onMounted(() => {
   font-family: 'SFMono-Regular', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
     'Courier New', monospace;
   font-size: 12px;
-  color: #475569;
+  color: var(--vtix-text-muted);
 }
 
 .action-group {
@@ -998,10 +1054,10 @@ onMounted(() => {
   top: 32px;
   right: 0;
   width: 200px;
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
+  background: var(--vtix-surface);
+  border: 1px solid var(--vtix-border);
   border-radius: 12px;
-  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.12);
+  box-shadow: 0 12px 24px var(--vtix-shadow-strong);
   padding: 10px;
   z-index: 10;
   display: flex;
@@ -1011,7 +1067,7 @@ onMounted(() => {
 
 .popover-title {
   font-size: 13px;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .popover-actions {
@@ -1052,7 +1108,7 @@ onMounted(() => {
 .pagination :deep(.p-select-label),
 .pagination :deep(.p-dropdown-label) {
   font-size: 12px;
-  color: #374151;
+  color: var(--vtix-text-muted);
   padding: 4px 8px;
 }
 
@@ -1071,7 +1127,7 @@ onMounted(() => {
 .skeleton-line {
   height: 14px;
   border-radius: 999px;
-  background: linear-gradient(90deg, #e2e8f0, #f8fafc, #e2e8f0);
+  background: linear-gradient(90deg, var(--vtix-border-strong), var(--vtix-surface-2), var(--vtix-border-strong));
   background-size: 200% 100%;
   animation: shimmer 1.6s infinite;
 }
@@ -1085,9 +1141,9 @@ onMounted(() => {
 }
 
 .status {
-  border: 1px solid #fecaca;
-  background: #fff1f2;
-  color: #991b1b;
+  border: 1px solid var(--vtix-danger-border);
+  background: var(--vtix-danger-bg);
+  color: var(--vtix-danger-text);
   padding: 14px 16px;
   border-radius: 14px;
   display: flex;
@@ -1096,14 +1152,14 @@ onMounted(() => {
 }
 
 .status.success {
-  border-color: #86efac;
-  background: #ecfdf3;
-  color: #166534;
+  border-color: var(--vtix-success-border);
+  background: var(--vtix-success-bg);
+  color: var(--vtix-success-text);
 }
 
 .status.danger {
-  border-color: #fca5a5;
-  background: #fef2f2;
+  border-color: var(--vtix-danger-border);
+  background: var(--vtix-danger-bg);
 }
 
 .status-title {
@@ -1127,7 +1183,7 @@ onMounted(() => {
 }
 
 .empty {
-  color: #94a3b8;
+  color: var(--vtix-text-subtle);
 }
 
 @keyframes shimmer {

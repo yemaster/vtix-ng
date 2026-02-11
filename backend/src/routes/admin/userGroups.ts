@@ -36,6 +36,7 @@ export const registerAdminUserGroupRoutes = (app: Elysia) =>
           name?: string;
           description?: string;
           permissions?: number;
+          privateProblemSetLimit?: number;
         };
         return await createUserGroupDb(payload);
       } catch (error) {
@@ -58,6 +59,7 @@ export const registerAdminUserGroupRoutes = (app: Elysia) =>
           name?: string;
           description?: string;
           permissions?: number;
+          privateProblemSetLimit?: number;
         };
         return await updateUserGroupDb(params.id, payload);
       } catch (error) {

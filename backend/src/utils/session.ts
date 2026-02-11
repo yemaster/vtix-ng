@@ -5,6 +5,7 @@ export type User = {
   groupId: string;
   groupName: string;
   permissions: number;
+  privateProblemSetLimit: number;
 };
 
 const sessions = new Map<string, User>();

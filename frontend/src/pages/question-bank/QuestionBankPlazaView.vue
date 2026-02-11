@@ -1,16 +1,17 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { reactive, ref, watch } from 'vue'
 import { format, formatDistanceToNow } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import Paginator from 'primevue/paginator'
 import type { PageState } from 'primevue/paginator'
+import Select from 'primevue/select'
 import Tag from 'primevue/tag'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../../stores/user'
 
-type QuestionBankItem = {
+type PlazaItem = {
   createdAt: number | undefined
   id: number | string
   code: string
@@ -23,28 +24,36 @@ type QuestionBankItem = {
   recommendedRank: number | null
   categories: string[]
   questionCount: number
+  viewCount: number
+  likeCount: number
+  dislikeCount: number
+  reaction?: number
 }
 
 const apiBase = import.meta.env.VITE_API_BASE ?? 'http://localhost:3000'
 const router = useRouter()
 const userStore = useUserStore()
 
+const MANAGE_QUESTION_BANK_OWN = 1 << 9
 const MANAGE_QUESTION_BANK_ALL = 1 << 10
 
-const items = ref<QuestionBankItem[]>([])
+const items = ref<PlazaItem[]>([])
 const isLoading = ref(false)
 const loadError = ref('')
 const totalRecords = ref(0)
+const reacting = reactive<Record<string, boolean>>({})
 
 const search = ref('')
 const debouncedSearch = ref('')
 let searchTimer: number | null = null
-const selectedCategory = ref('全部')
 const pageSize = ref(6)
 const currentPage = ref(1)
-const pageSizeOptions = [
-  6,
-  12
+const pageSizeOptions = [6, 12]
+const sortValue = ref('time')
+const sortOptions = [
+  { label: '按时间降序', value: 'time' },
+  { label: '按热度降序', value: 'hot' },
+  { label: '按喜爱降序', value: 'love' }
 ]
 
 function formatFullTime(timestamp: number) {
@@ -64,10 +73,6 @@ function formatRelativeTime(timestamp: number) {
   })
 }
 
-const canManageAll = computed(
-  () => Boolean(userStore.user?.permissions && (userStore.user.permissions & MANAGE_QUESTION_BANK_ALL))
-)
-
 async function loadItems() {
   isLoading.value = true
   loadError.value = ''
@@ -76,22 +81,28 @@ async function loadItems() {
       page: String(currentPage.value),
       pageSize: String(pageSize.value),
       ...(debouncedSearch.value ? { q: debouncedSearch.value } : {}),
-      ...(selectedCategory.value !== '全部' ? { category: selectedCategory.value } : {})
+      order: sortValue.value
     })
-    const response = await fetch(`${apiBase}/api/problem-sets?${params.toString()}`)
+    const response = await fetch(`${apiBase}/api/problem-sets/plaza?${params.toString()}`, {
+      credentials: 'include'
+    })
     if (!response.ok) {
       throw new Error(`加载失败: ${response.status}`)
     }
     const total = Number(response.headers.get('x-total-count') ?? 0)
     totalRecords.value = Number.isFinite(total) ? total : 0
-    const data = (await response.json()) as QuestionBankItem[]
+    const data = (await response.json()) as PlazaItem[]
     items.value = Array.isArray(data)
       ? data.map((item) => ({
           ...item,
           creatorId: typeof item.creatorId === 'string' ? item.creatorId : String(item.creatorId ?? ''),
           categories: Array.isArray(item.categories) ? item.categories : [],
           questionCount: Number.isFinite(item.questionCount) ? item.questionCount : 0,
-          updatedAt: Number(item.updatedAt ?? item.createdAt ?? 0)
+          updatedAt: Number(item.updatedAt ?? item.createdAt ?? 0),
+          viewCount: Number.isFinite(item.viewCount) ? item.viewCount : 0,
+          likeCount: Number.isFinite(item.likeCount) ? item.likeCount : 0,
+          dislikeCount: Number.isFinite(item.dislikeCount) ? item.dislikeCount : 0,
+          reaction: Number(item.reaction ?? 0)
         }))
       : []
   } catch (error) {
@@ -102,11 +113,6 @@ async function loadItems() {
     isLoading.value = false
   }
 }
-
-const categories = computed(() => {
-  const set = new Set(items.value.flatMap((item) => item.categories))
-  return ['全部', ...Array.from(set)]
-})
 
 function handlePage(event: PageState) {
   if (typeof event.rows === 'number') {
@@ -127,17 +133,92 @@ function handleCardClick(event: MouseEvent, code: string) {
   }, 80)
 }
 
-function handleManageClick() {
-  router.push({ name: 'admin-question-banks' })
+function handleCreateClick() {
+  if (!userStore.user) {
+    router.push({ name: 'login' })
+    return
+  }
+  router.push({ name: 'admin-question-bank-create' })
 }
 
-onMounted(() => {
-  void loadItems()
-})
+function handlePracticeClick(event: MouseEvent, code: string) {
+  event.preventDefault()
+  event.stopPropagation()
+  router.push(`/t/${code}`)
+}
+
+async function handleReactionClick(event: MouseEvent, item: PlazaItem, value: number) {
+  event.preventDefault()
+  event.stopPropagation()
+  if (!userStore.user) {
+    router.push({ name: 'login' })
+    return
+  }
+  if (reacting[item.code]) return
+  reacting[item.code] = true
+  loadError.value = ''
+  try {
+    const response = await fetch(`${apiBase}/api/problem-sets/${item.code}/reaction`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value })
+    })
+    const data = (await response.json().catch(() => null)) as
+      | { reaction?: number; likeCount?: number; dislikeCount?: number; error?: string }
+      | null
+    if (!response.ok) {
+      throw new Error(data?.error || `操作失败: ${response.status}`)
+    }
+    item.reaction = Number(data?.reaction ?? 0)
+    item.likeCount = Number(data?.likeCount ?? item.likeCount ?? 0)
+    item.dislikeCount = Number(data?.dislikeCount ?? item.dislikeCount ?? 0)
+  } catch (error) {
+    loadError.value = error instanceof Error ? error.message : '操作失败'
+  } finally {
+    reacting[item.code] = false
+  }
+}
+
+function canManageItem(item: PlazaItem) {
+  if (!userStore.user) return false
+  const permissions = userStore.user.permissions ?? 0
+  const canManageAll = (permissions & MANAGE_QUESTION_BANK_ALL) === MANAGE_QUESTION_BANK_ALL
+  if (canManageAll) return true
+  const canManageOwn = (permissions & MANAGE_QUESTION_BANK_OWN) === MANAGE_QUESTION_BANK_OWN
+  if (!canManageOwn) return false
+  return String(item.creatorId ?? '') === String(userStore.user.id ?? '')
+}
+
+function handleEditClick(event: MouseEvent, code: string) {
+  event.preventDefault()
+  event.stopPropagation()
+  router.push({ name: 'admin-question-bank-edit', params: { code } })
+}
+
+async function handleDeleteClick(event: MouseEvent, code: string) {
+  event.preventDefault()
+  event.stopPropagation()
+  if (!window.confirm('确认删除该题库？')) return
+  loadError.value = ''
+  try {
+    const response = await fetch(`${apiBase}/api/admin/problem-sets/${code}`, {
+      method: 'DELETE',
+      credentials: 'include'
+    })
+    const data = (await response.json().catch(() => null)) as { error?: string } | null
+    if (!response.ok) {
+      throw new Error(data?.error || `删除失败: ${response.status}`)
+    }
+    await loadItems()
+  } catch (error) {
+    loadError.value = error instanceof Error ? error.message : '删除失败'
+  }
+}
 
 watch([currentPage, pageSize], () => {
   void loadItems()
-})
+}, { immediate: true })
 
 watch(search, (value) => {
   if (searchTimer !== null) {
@@ -152,10 +233,10 @@ watch(search, (value) => {
       return
     }
     void loadItems()
-  }, 300)
+  }, 800)
 })
 
-watch(selectedCategory, () => {
+watch(sortValue, () => {
   if (currentPage.value !== 1) {
     currentPage.value = 1
     return
@@ -168,16 +249,17 @@ watch(selectedCategory, () => {
   <section class="page">
     <header class="page-head">
       <div>
-        <div class="eyebrow">题库管理</div>
-        <h1>题库列表</h1>
+        <div class="eyebrow">展示和发布你的题库</div>
+        <h1>题库广场</h1>
       </div>
       <div class="page-actions">
         <Button
-          v-if="canManageAll"
-          label="管理题库"
+          v-if="userStore.user"
+          text
+          label="新建题库"
           size="small"
-          severity="secondary"
-          @click="handleManageClick"
+          class="action-btn primary"
+          @click="handleCreateClick"
         />
         <Button
           label="刷新"
@@ -194,17 +276,13 @@ watch(selectedCategory, () => {
       <div class="search">
         <InputText v-model="search" placeholder="搜索标题、编号或年份" />
       </div>
-      <div class="tags">
-        <Button
-          v-for="category in categories"
-          :key="category"
-          type="button"
-          :label="category"
-          :severity="selectedCategory === category ? 'primary' : 'secondary'"
-          :outlined="selectedCategory !== category"
+      <div class="sort">
+        <Select
+          v-model="sortValue"
+          :options="sortOptions"
+          optionLabel="label"
+          optionValue="value"
           size="small"
-          class="tag-btn"
-          @click="selectedCategory = category"
         />
       </div>
     </div>
@@ -252,6 +330,65 @@ watch(selectedCategory, () => {
                   </span>
                 </div>
               </div>
+              <div class="card-meta-secondary">
+                <span class="meta-views">
+                  <span class="pi pi-eye" aria-hidden="true"></span>
+                  <span>{{ item.viewCount }}</span>
+                </span>
+                <button
+                  v-if="item.reaction !== -1"
+                  type="button"
+                  :disabled="reacting[item.code]"
+                  :class="['react-link', { active: item.reaction === 1 }]"
+                  @click="handleReactionClick($event, item, 1)"
+                  @pointerdown.stop
+                >
+                  <span class="pi pi-thumbs-up" aria-hidden="true"></span>
+                  <span>{{ item.likeCount }}</span>
+                </button>
+                <button
+                  v-if="item.reaction !== 1"
+                  type="button"
+                  :disabled="reacting[item.code]"
+                  :class="['react-link', 'dislike', { active: item.reaction === -1 }]"
+                  @click="handleReactionClick($event, item, -1)"
+                  @pointerdown.stop
+                >
+                  <span class="pi pi-thumbs-down" aria-hidden="true"></span>
+                  <span>{{ item.dislikeCount }}</span>
+                </button>
+              </div>
+            </div>
+            <div class="card-actions">
+              <Button
+                label="练习"
+                text
+                severity="secondary"
+                size="small"
+                class="practice-btn"
+                @click="handlePracticeClick($event, item.code)"
+                @pointerdown.stop
+              />
+              <Button
+                v-if="canManageItem(item)"
+                label="编辑"
+                text
+                severity="secondary"
+                size="small"
+                class="edit-btn"
+                @click="handleEditClick($event, item.code)"
+                @pointerdown.stop
+              />
+              <Button
+                v-if="canManageItem(item)"
+                label="删除"
+                text
+                severity="danger"
+                size="small"
+                class="delete-btn"
+                @click="handleDeleteClick($event, item.code)"
+                @pointerdown.stop
+              />
             </div>
           </div>
           <div class="count">
@@ -262,7 +399,7 @@ watch(selectedCategory, () => {
         <div v-if="item.isNew" class="corner-badge" aria-hidden="true"></div>
       </div>
     </div>
-    <div v-if="!isLoading && items.length === 0" class="empty">暂无匹配题库</div>
+    <div v-if="!isLoading && items.length === 0" class="empty">暂无非公开题库</div>
 
     <div class="pagination">
       <Paginator
@@ -296,7 +433,6 @@ watch(selectedCategory, () => {
   align-items: center;
   gap: 12px;
 }
-
 
 .page-head h1 {
   margin: 8px 0 6px;
@@ -352,22 +488,26 @@ watch(selectedCategory, () => {
 
 .filters {
   display: flex;
-  flex-direction: column;
   gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
 }
 
 .search :deep(.p-inputtext) {
   width: 100%;
 }
 
-.tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+.search {
+  flex: 1;
+  min-width: 220px;
 }
 
-.tag-btn :deep(.p-button) {
-  border-radius: 999px;
+.sort {
+  flex: 0 0 200px;
+}
+
+.sort :deep(.p-select) {
+  width: 100%;
 }
 
 .cards {
@@ -482,7 +622,7 @@ watch(selectedCategory, () => {
   margin-top: auto;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   padding-top: 12px;
 }
 
@@ -493,12 +633,48 @@ watch(selectedCategory, () => {
   gap: 10px 12px;
 }
 
+.react-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--vtix-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.react-link:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.react-link.active {
+  color: var(--vtix-primary-500);
+}
+
+.react-link.dislike.active {
+  color: var(--vtix-danger-text);
+}
+
 .card-meta {
   color: var(--vtix-text-subtle);
   font-size: 12px;
   display: flex;
   gap: 8px;
   align-items: center;
+  line-height: 1.5;
+  flex-wrap: wrap;
+}
+
+.card-meta-secondary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 12px;
   line-height: 1.5;
 }
 
@@ -515,6 +691,13 @@ watch(selectedCategory, () => {
   color: var(--vtix-text-muted);
 }
 
+.meta-views {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--vtix-text-muted);
+}
+
 .pill-group {
   display: flex;
   flex-wrap: wrap;
@@ -525,6 +708,16 @@ watch(selectedCategory, () => {
   font-size: 12px;
 }
 
+.card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.practice-btn :deep(.p-button) {
+  padding-left: 0;
+}
 
 .corner-badge {
   position: absolute;
@@ -617,11 +810,20 @@ watch(selectedCategory, () => {
   .cards {
     column-count: 2;
   }
+
+  .sort {
+    flex: 1;
+    min-width: 180px;
+  }
 }
 
 @media (max-width: 648px) {
   .cards {
     column-count: 1;
+  }
+
+  .sort {
+    flex: 1 1 100%;
   }
 }
 </style>

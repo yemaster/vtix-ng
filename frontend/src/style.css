@@ -1,21 +1,11 @@
 @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap');
+@import './styles/theme.css';
 @import './styles/layout-common.css';
 
 :root {
   font-family: 'Manrope', 'Segoe UI', sans-serif;
   line-height: 1.6;
   font-weight: 400;
-  color: #111827;
-  background-color: #f2f4f7;
-  --vtix-primary-50: #f0f9ff;
-  --vtix-primary-100: #e0f2fe;
-  --vtix-primary-200: #bae6fd;
-  --vtix-primary-300: #7dd3fc;
-  --vtix-primary-400: #38bdf8;
-  --vtix-primary-500: #0ea5e9;
-  --vtix-primary-600: #0284c7;
-  --vtix-primary-700: #0369a1;
-  --vtix-primary-800: #075985;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -28,7 +18,8 @@
 
 body {
   margin: 0;
-  background: #f2f4f7;
+  background: var(--vtix-bg);
+  color: var(--vtix-text);
 }
 
 a {
@@ -36,8 +27,20 @@ a {
 }
 
 ::selection {
-  background: #111827;
-  color: #ffffff;
+  background: var(--vtix-text-strong);
+  color: var(--vtix-inverse-text);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .p-toast {

@@ -85,8 +85,8 @@ const modes = [
   { label: '顺序练习', value: 0 },
   { label: '乱序练习', value: 1 },
   { label: '自定义练习', value: 2 },
-  { label: '错题回顾', value: 4 },
-  { label: '模拟考试', value: 5 }
+  { label: '模拟考试', value: 5 },
+  { label: '错题回顾', value: 4 }
 ]
 
 const practiceMode = ref(0)
@@ -1294,7 +1294,14 @@ async function loadProblem() {
   } catch (error) {
     loading.value = false
     loadError.value = error instanceof Error ? error.message : '加载失败'
-    router.push('/notfound')
+    router.replace({
+      name: 'error',
+      query: {
+        code: '404',
+        reason: '题库不存在',
+        message: `未找到题库：${testId}`
+      }
+    })
   }
 }
 
@@ -1432,57 +1439,71 @@ watch(nowProblemId, () => {
       </div>
     </header>
 
-    <section v-if="needInvite" class="invite-panel">
-      <div class="invite-card">
-        <div class="invite-title">该题库需要邀请码</div>
-        <p class="invite-desc">请输入创建人提供的邀请码后继续查看题目内容。</p>
-        <div class="invite-input">
-          <InputText v-model="inviteCode" placeholder="输入邀请码" />
-          <Button label="验证并进入" :loading="inviteSubmitting" @click="submitInvite" />
+    <div v-if="loading" class="loading-panel" aria-live="polite" aria-busy="true">
+      <div class="loading-card">
+        <div class="loading-spinner" aria-hidden="true"></div>
+        <div class="loading-title">正在加载题库…</div>
+        <div class="loading-sub">请稍候，题目内容即将呈现</div>
+        <div class="loading-skeleton">
+          <span class="loading-line wide"></span>
+          <span class="loading-line"></span>
+          <span class="loading-line"></span>
         </div>
-        <div v-if="inviteError" class="invite-error">{{ inviteError }}</div>
       </div>
-    </section>
+    </div>
 
     <template v-else>
-      <div class="mode-tabs" v-show="!isMobile || (viewMode === 'menu' && !showRecords)">
-        <div v-show="!isMobile">
-          <TabMenu :model="tabItems" :activeIndex="activeTabIndex" @tab-change="handleTabChange" />
-        </div>
-        <div v-show="isMobile">
-          <Menu :model="menuItems" class="mobile-mode-menu" />
-        </div>
-      </div>
-
-      <section v-if="showRecords" class="record-panel">
-        <div class="record-head">
-          <span>做题记录</span>
-          <div class="record-tools">
-            <Button size="small" label="导出" severity="secondary" text @click="exportRecords" />
-            <Button size="small" label="导入" severity="secondary" text @click="triggerImport" />
-            <input ref="importInput" type="file" accept="application/json" class="record-file" @change="handleImport" />
+      <section v-if="needInvite" class="invite-panel">
+        <div class="invite-card">
+          <div class="invite-title">该题库需要邀请码</div>
+          <p class="invite-desc">请输入创建人提供的邀请码后继续查看题目内容。</p>
+          <div class="invite-input">
+            <InputText v-model="inviteCode" placeholder="输入邀请码" />
+            <Button label="验证并进入" :loading="inviteSubmitting" @click="submitInvite" />
           </div>
-        </div>
-        <div v-if="matchingRecords.length === 0" class="record-empty">暂无记录</div>
-        <div v-else class="record-list">
-          <div v-for="record in matchingRecords" :key="record.id" class="record-item">
-            <div class="record-info">
-              <div class="record-title">{{ getModeLabel(record.practiceMode) }}</div>
-              <div class="record-meta">
-                {{ formatTimestamp(record.updatedAt) }} ·
-                {{ formatDuration(record.progress.timeSpentSeconds ?? 0) }} ·
-                {{ getRecordAnsweredCount(record) }}/{{ record.progress.problemList.length }}
-              </div>
-            </div>
-            <div class="record-actions">
-              <Button size="small" label="继续" @click="loadRecord(record.id)" />
-              <Button size="small" label="删除" severity="danger" text @click="deleteRecord(record.id)" />
-            </div>
-          </div>
+          <div v-if="inviteError" class="invite-error">{{ inviteError }}</div>
         </div>
       </section>
 
-    <div class="main-grid" v-show="!showRecords">
+      <template v-else>
+        <div class="mode-tabs" v-show="!isMobile || (viewMode === 'menu' && !showRecords)">
+          <div v-show="!isMobile">
+            <TabMenu :model="tabItems" :activeIndex="activeTabIndex" @tab-change="handleTabChange" />
+          </div>
+          <div v-show="isMobile">
+            <Menu :model="menuItems" class="mobile-mode-menu" />
+          </div>
+        </div>
+
+        <section v-if="showRecords" class="record-panel">
+          <div class="record-head">
+            <span>做题记录</span>
+            <div class="record-tools">
+              <Button size="small" label="导出" severity="secondary" text @click="exportRecords" />
+              <Button size="small" label="导入" severity="secondary" text @click="triggerImport" />
+              <input ref="importInput" type="file" accept="application/json" class="record-file" @change="handleImport" />
+            </div>
+          </div>
+          <div v-if="matchingRecords.length === 0" class="record-empty">暂无记录</div>
+          <div v-else class="record-list">
+            <div v-for="record in matchingRecords" :key="record.id" class="record-item">
+              <div class="record-info">
+                <div class="record-title">{{ getModeLabel(record.practiceMode) }}</div>
+                <div class="record-meta">
+                  {{ formatTimestamp(record.updatedAt) }} ·
+                  {{ formatDuration(record.progress.timeSpentSeconds ?? 0) }} ·
+                  {{ getRecordAnsweredCount(record) }}/{{ record.progress.problemList.length }}
+                </div>
+              </div>
+              <div class="record-actions">
+                <Button size="small" label="继续" @click="loadRecord(record.id)" />
+                <Button size="small" label="删除" severity="danger" text @click="deleteRecord(record.id)" />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div class="main-grid" v-show="!showRecords">
       <section class="custom-panel" v-if="showCustomConfig" v-show="!isMobile || viewMode === 'question'">
         <div class="custom-head">
           <span class="custom-title">自定义练习</span>
@@ -1641,9 +1662,9 @@ watch(nowProblemId, () => {
           </div>
         </div>
       </aside>
-    </div>
+        </div>
 
-    <nav class="mobile-menu">
+        <nav class="mobile-menu">
       <button v-for="item in mobileMenuItems" :key="item.value" type="button"
         :class="['dock-item', 'p-ripple', { active: item.value === 'records' ? showRecords : (!showRecords && viewMode === item.value) }]"
         v-ripple @click="
@@ -1665,7 +1686,8 @@ watch(nowProblemId, () => {
         <span v-else-if="item.value === 'list'" class="dock-sub is-progress">{{ progressText }}</span>
         <span v-else-if="item.value === 'records'" class="dock-sub">{{ syncAgoText }}</span>
       </button>
-    </nav>
+        </nav>
+      </template>
     </template>
   </section>
 </template>
@@ -1677,10 +1699,67 @@ watch(nowProblemId, () => {
   gap: 18px;
 }
 
+.loading-panel {
+  padding: 18px 0 10px;
+  display: flex;
+  justify-content: center;
+}
+
+.loading-card {
+  width: min(520px, 100%);
+  background: var(--vtix-surface);
+  border: 1px solid var(--vtix-border);
+  border-radius: 18px;
+  padding: 24px;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  box-shadow: 0 16px 30px var(--vtix-shadow);
+}
+
+.loading-spinner {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 3px solid var(--vtix-border);
+  border-top-color: var(--vtix-primary-500);
+  animation: spin 0.8s linear infinite;
+}
+
+.loading-title {
+  font-weight: 700;
+  color: var(--vtix-text-strong);
+  font-size: 16px;
+}
+
+.loading-sub {
+  color: var(--vtix-text-muted);
+  font-size: 13px;
+}
+
+.loading-skeleton {
+  width: 100%;
+  display: grid;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.loading-line {
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--vtix-border-strong), var(--vtix-surface-2), var(--vtix-border-strong));
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease infinite;
+}
+
+.loading-line.wide {
+  height: 12px;
+}
+
 .page-head h1 {
   margin: 8px 0 6px;
   font-size: 32px;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
   max-width: 100%;
   white-space: nowrap;
   overflow: hidden;
@@ -1689,14 +1768,14 @@ watch(nowProblemId, () => {
 
 .page-head p {
   margin: 0;
-  color: #6b7280;
+  color: var(--vtix-text-muted);
 }
 
 .eyebrow {
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #9aa2b2;
+  color: var(--vtix-text-subtle);
 }
 
 .page-title {
@@ -1718,7 +1797,7 @@ watch(nowProblemId, () => {
   align-items: center;
   gap: 4px;
   font-size: 14px;
-  color: #5f6672;
+  color: var(--vtix-text-muted);
   line-height: 1;
 }
 
@@ -1728,7 +1807,7 @@ watch(nowProblemId, () => {
   justify-content: center;
   width: 28px;
   height: 28px;
-  color: #111827;
+  color: var(--vtix-text);
   cursor: pointer;
 }
 
@@ -1743,6 +1822,10 @@ watch(nowProblemId, () => {
   gap: 10px;
 }
 
+.mode-tabs :deep(.p-tabmenu-tablist) {
+  background: transparent;
+}
+
 .mode-tabs :deep(.p-tabmenuitem) {
   margin-right: 0;
 }
@@ -1750,22 +1833,22 @@ watch(nowProblemId, () => {
 .mode-tabs :deep(.p-tabmenuitem-link) {
   border-radius: 10px;
   border: 1px solid transparent;
-  color: #6b7280;
+  color: var(--vtix-text-muted);
   font-weight: 700;
   padding: 8px 14px;
 }
 
 .mode-tabs :deep(.p-tabmenuitem.p-highlight .p-tabmenuitem-link) {
-  background: #f1f3f6;
-  color: #0f172a;
-  border-color: #e5e7eb;
+  background: var(--vtix-surface-5);
+  color: var(--vtix-text-strong);
+  border-color: var(--vtix-border);
 }
 
 .mode-tabs :deep(.mobile-mode-menu.p-menu) {
   width: 100%;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--vtix-border);
   border-radius: 12px;
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 10px 24px var(--vtix-shadow);
 }
 
 .mode-tabs :deep(.mobile-mode-menu .p-menu-list) {
@@ -1775,19 +1858,19 @@ watch(nowProblemId, () => {
 .mode-tabs :deep(.mobile-mode-menu .p-menu-item-link) {
   border-radius: 10px;
   padding: 14px 16px;
-  color: #111827;
+  color: var(--vtix-text);
 }
 
 .mode-tabs :deep(.mobile-mode-menu .p-menu-item-link:hover) {
-  background: #f3f4f6;
+  background: var(--vtix-surface-5);
 }
 
 .record-panel {
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
+  background: var(--vtix-surface);
+  border: 1px solid var(--vtix-border);
   border-radius: 16px;
   padding: 14px 18px;
-  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 12px 24px var(--vtix-shadow);
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -1801,10 +1884,10 @@ watch(nowProblemId, () => {
 
 .invite-card {
   width: min(520px, 100%);
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--vtix-border);
   border-radius: 16px;
   padding: 18px;
-  background: #ffffff;
+  background: var(--vtix-surface);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -1812,13 +1895,13 @@ watch(nowProblemId, () => {
 
 .invite-title {
   font-weight: 700;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
   font-size: 16px;
 }
 
 .invite-desc {
   margin: 0;
-  color: #64748b;
+  color: var(--vtix-text-muted);
   font-size: 13px;
 }
 
@@ -1832,7 +1915,7 @@ watch(nowProblemId, () => {
 }
 
 .invite-error {
-  color: #b91c1c;
+  color: var(--vtix-danger-text);
   font-size: 12px;
 }
 
@@ -1841,7 +1924,7 @@ watch(nowProblemId, () => {
   align-items: center;
   justify-content: space-between;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .record-tools {
@@ -1855,7 +1938,7 @@ watch(nowProblemId, () => {
 }
 
 .record-empty {
-  color: #9aa2b2;
+  color: var(--vtix-text-subtle);
   font-size: 13px;
 }
 
@@ -1870,8 +1953,8 @@ watch(nowProblemId, () => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
+  background: var(--vtix-surface-2);
+  border: 1px solid var(--vtix-border-strong);
   border-radius: 12px;
   padding: 10px 12px;
 }
@@ -1884,12 +1967,12 @@ watch(nowProblemId, () => {
 
 .record-title {
   font-weight: 700;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .record-meta {
   font-size: 12px;
-  color: #64748b;
+  color: var(--vtix-text-muted);
 }
 
 .record-actions {
@@ -1906,11 +1989,11 @@ watch(nowProblemId, () => {
 .question-panel,
 .list-panel,
 .custom-panel {
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
+  background: var(--vtix-surface);
+  border: 1px solid var(--vtix-border);
   border-radius: 16px;
   padding: 18px;
-  box-shadow: 0 16px 30px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 16px 30px var(--vtix-shadow);
 }
 
 .question-header {
@@ -1921,8 +2004,8 @@ watch(nowProblemId, () => {
 }
 
 .question-type {
-  background: #0f172a;
-  color: #ffffff;
+  background: var(--vtix-ink);
+  color: var(--vtix-inverse-text);
   padding: 6px 12px;
   border-radius: 999px;
   font-size: 12px;
@@ -1930,13 +2013,13 @@ watch(nowProblemId, () => {
 }
 
 .question-index {
-  color: #6b7280;
+  color: var(--vtix-text-muted);
   font-size: 13px;
   font-weight: 600;
 }
 
 .question-content {
-  color: #0f172a;
+  color: var(--vtix-text-strong);
   font-size: 18px;
   line-height: 1.6;
   margin-bottom: 14px;
@@ -1946,7 +2029,7 @@ watch(nowProblemId, () => {
 
 .question-no {
   margin-right: 6px;
-  color: #64748b;
+  color: var(--vtix-text-muted);
   font-weight: 600;
 }
 
@@ -1971,12 +2054,12 @@ watch(nowProblemId, () => {
 .custom-title {
   font-size: 18px;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .custom-head p {
   margin: 0;
-  color: #6b7280;
+  color: var(--vtix-text-muted);
   font-size: 13px;
 }
 
@@ -1988,7 +2071,7 @@ watch(nowProblemId, () => {
 
 .custom-label {
   font-weight: 700;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
   font-size: 14px;
 }
 
@@ -2004,9 +2087,9 @@ watch(nowProblemId, () => {
   gap: 8px;
   padding: 8px 10px;
   border-radius: 12px;
-  border: 1px solid #e2e8f0;
-  background: #f8fafc;
-  color: #0f172a;
+  border: 1px solid var(--vtix-border-strong);
+  background: var(--vtix-surface-2);
+  color: var(--vtix-text-strong);
   font-weight: 600;
 }
 
@@ -2016,8 +2099,8 @@ watch(nowProblemId, () => {
 }
 
 .fill-input {
-  border: 1px solid #e2e8f0;
-  background: #ffffff;
+  border: 1px solid var(--vtix-border-strong);
+  background: var(--vtix-surface);
   padding: 10px 12px;
   border-radius: 12px;
   font-size: 16px;
@@ -2027,9 +2110,9 @@ watch(nowProblemId, () => {
   margin-top: 8px;
   padding: 10px 12px;
   border-radius: 12px;
-  border: 1px solid #fde68a;
-  background: #fef9c3;
-  color: #92400e;
+  border: 1px solid var(--vtix-warning-border);
+  background: var(--vtix-warning-bg);
+  color: var(--vtix-warning-text);
   font-size: 13px;
   display: inline-flex;
   flex-wrap: wrap;
@@ -2037,13 +2120,13 @@ watch(nowProblemId, () => {
 }
 
 .placeholder {
-  color: #9aa2b2;
+  color: var(--vtix-text-subtle);
   font-size: 14px;
 }
 
 .choice-row {
-  border: 1px solid #e2e8f0;
-  background: #ffffff;
+  border: 1px solid var(--vtix-border-strong);
+  background: var(--vtix-surface);
   padding: 10px 12px;
   border-radius: 12px;
   display: flex;
@@ -2051,14 +2134,14 @@ watch(nowProblemId, () => {
   gap: 10px;
   cursor: pointer;
   font-weight: 400;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
   font-size: 16px;
   transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
 
 .choice-row:hover {
-  background: #f3f4f6;
-  border-color: #e5e7eb;
+  background: var(--vtix-surface-5);
+  border-color: var(--vtix-border);
 }
 
 .choice-label {
@@ -2069,27 +2152,28 @@ watch(nowProblemId, () => {
 }
 
 .choice-row.chosen {
-  background: #eef2f7;
-  border-color: #1780db;
+  background: var(--vtix-surface-4);
+  border-color: var(--vtix-info-solid);
 }
 
 .choice-row.correct {
-  background: #e8f8ef;
-  border-color: #22c55e;
+  background: var(--vtix-success-bg);
+  border-color: var(--vtix-success-solid);
 }
 
 .choice-row.wrong {
-  background: #ffffff;
-  border-color: #ef4444;
+  background: var(--vtix-surface);
+  border-color: var(--vtix-danger-solid);
 }
 
 .choice-row.missed {
-  background: #fff6d6;
-  border-color: #f59e0b;
+  background: var(--vtix-warning-bg);
+  border-color: var(--vtix-warning-solid);
 }
 
 .choice-row.incorrect .choice-label {
-  color: #94a3b8;
+  color: var(--vtix-text-subtle);
+  opacity: 0.5;
 }
 
 .submit-row {
@@ -2119,7 +2203,7 @@ watch(nowProblemId, () => {
 
 .list-title {
   font-weight: 700;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
   margin-bottom: 12px;
 }
 
@@ -2135,7 +2219,7 @@ watch(nowProblemId, () => {
   flex-direction: column;
   gap: 6px;
   margin-bottom: 12px;
-  color: #475569;
+  color: var(--vtix-text-muted);
   font-size: 13px;
 }
 
@@ -2148,31 +2232,31 @@ watch(nowProblemId, () => {
 
 .exam-index {
   font-weight: 700;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .exam-meta {
-  color: #94a3b8;
+  color: var(--vtix-text-subtle);
 }
 
 .exam-result {
   padding: 10px 12px;
   border-radius: 12px;
-  border: 1px solid #cbd5f5;
-  background: #eef2ff;
-  color: #1e1b4b;
+  border: 1px solid var(--vtix-info-border);
+  background: var(--vtix-info-bg);
+  color: var(--vtix-info-text);
   font-size: 13px;
   margin-bottom: 12px;
 }
 
 .exam-score {
   font-weight: 800;
-  color: #1e1b4b;
+  color: var(--vtix-info-text);
 }
 
 .exam-score-sub {
   margin-top: 4px;
-  color: #4c51bf;
+  color: var(--vtix-info-text);
 }
 
 .summary-tag {
@@ -2183,39 +2267,39 @@ watch(nowProblemId, () => {
   border-radius: 999px;
   font-size: 12px;
   font-weight: 700;
-  background: #f1f5f9;
-  color: #475569;
-  border: 1px solid #e2e8f0;
+  background: var(--vtix-surface-3);
+  color: var(--vtix-text-muted);
+  border: 1px solid var(--vtix-border-strong);
 }
 
 .summary-tag.is-correct {
-  background: #e8f8ef;
-  color: #15803d;
-  border-color: #86efac;
+  background: var(--vtix-success-bg);
+  color: var(--vtix-success-text);
+  border-color: var(--vtix-success-border);
 }
 
 .summary-tag.is-total {
-  background: #eef2ff;
-  color: #4338ca;
-  border-color: #c7d2fe;
+  background: var(--vtix-info-bg);
+  color: var(--vtix-info-text);
+  border-color: var(--vtix-info-border);
 }
 
 .summary-tag.is-rate {
-  background: #fff6d6;
-  color: #b45309;
-  border-color: #fcd34d;
+  background: var(--vtix-warning-bg);
+  color: var(--vtix-warning-text);
+  border-color: var(--vtix-warning-border);
 }
 
 .summary-tag.is-answered {
-  background: #e0f2fe;
-  color: #0369a1;
-  border-color: #7dd3fc;
+  background: var(--vtix-info-bg);
+  color: var(--vtix-info-text);
+  border-color: var(--vtix-info-border);
 }
 
 .summary-tag.is-time {
-  background: #ede9fe;
-  color: #6d28d9;
-  border-color: #c4b5fd;
+  background: var(--vtix-info-bg);
+  color: var(--vtix-info-text);
+  border-color: var(--vtix-info-border);
 }
 
 .exam-number-groups {
@@ -2232,7 +2316,7 @@ watch(nowProblemId, () => {
 
 .exam-number-title {
   font-weight: 700;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
   font-size: 13px;
 }
 
@@ -2243,70 +2327,70 @@ watch(nowProblemId, () => {
 }
 
 .number-btn {
-  background: #ffffff;
+  background: var(--vtix-surface);
   border-radius: 8px;
   width: 36px;
   height: 32px;
   padding: 0;
   font-weight: 700;
   cursor: pointer;
-  color: #475569;
+  color: var(--vtix-text-muted);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border: 1px solid transparent;
   user-select: none;
-  box-shadow: 0 8px 10px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 8px 10px var(--vtix-shadow);
   transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
 
 .number-btn:hover {
-  background: #f3f4f6;
+  background: var(--vtix-surface-5);
 }
 
 .number-btn.active {
-    border-color: #0f172a !important;
-    background: #0f172a !important;
-    color: #ffffff !important;
+    border-color: var(--vtix-text-strong) !important;
+    background: var(--vtix-ink) !important;
+    color: var(--vtix-inverse-text) !important;
   }
 
   .number-btn.answered {
-    border-color: #3b82f6 !important;
-    color: #3b82f6 !important;
+    border-color: var(--vtix-info-solid) !important;
+    color: var(--vtix-info-solid) !important;
 }
 
 .number-btn.correct {
-  border-color: #22c55e !important;
-  color: #22c55e !important;
+  border-color: var(--vtix-success-solid) !important;
+  color: var(--vtix-success-solid) !important;
 }
 
   .number-btn.wrong {
-    border-color: #ef4444 !important;
-    color: #ef4444 !important;
+    border-color: var(--vtix-danger-solid) !important;
+    color: var(--vtix-danger-solid) !important;
   }
 
   .number-btn.active.answered {
-    border-color: #3b82f6 !important;
-    background: #3b82f6 !important;
-    color: #ffffff !important;
+    border-color: var(--vtix-info-solid) !important;
+    background: var(--vtix-info-solid) !important;
+    color: var(--vtix-inverse-text) !important;
   }
 
   .number-btn.active.correct {
-    border-color: #22c55e !important;
-    background: #22c55e !important;
-    color: #ffffff !important;
+    border-color: var(--vtix-success-solid) !important;
+    background: var(--vtix-success-solid) !important;
+    color: var(--vtix-inverse-text) !important;
   }
 
   .number-btn.active.wrong {
-    border-color: #ef4444 !important;
-    background: #ef4444 !important;
-    color: #ffffff !important;
+    border-color: var(--vtix-danger-solid) !important;
+    background: var(--vtix-danger-solid) !important;
+    color: var(--vtix-inverse-text) !important;
   }
 
   .number-btn.answered:hover,
   .number-btn.correct:hover,
   .number-btn.wrong:hover {
-    background: #f3f4f6;
+    background: var(--vtix-surface-5);
     border-color: currentColor;
   }
 
@@ -2383,18 +2467,18 @@ watch(nowProblemId, () => {
     grid-template-columns: repeat(4, 1fr);
     gap: 8px;
     padding: 0;
-    background: #ffffff;
-    box-shadow: 0 -12px 24px rgba(15, 23, 42, 0.12);
+    background: var(--vtix-surface);
+    box-shadow: 0 -12px 24px var(--vtix-shadow-strong);
   }
 
   .dock-item {
     border: none;
-    background: #ffffff;
+    background: var(--vtix-surface);
     border-radius: 0;
     padding: 6px 6px 4px;
     height: 100%;
     font-weight: 700;
-    color: #6b7280;
+    color: var(--vtix-text-muted);
     position: relative;
     overflow: hidden;
     display: flex;
@@ -2405,8 +2489,8 @@ watch(nowProblemId, () => {
   }
 
   .dock-item.active {
-    background: #f3f4f6;
-    color: #111827;
+    background: var(--vtix-surface-5);
+    color: var(--vtix-text);
   }
 
   .dock-title {
@@ -2418,7 +2502,7 @@ watch(nowProblemId, () => {
     font-size: 11px;
     font-weight: 600;
     line-height: 1.1;
-    color: #94a3b8;
+    color: var(--vtix-text-subtle);
   }
 
   .dock-sub.is-accent {
@@ -2430,7 +2514,7 @@ watch(nowProblemId, () => {
   }
 
   .dock-item.active .dock-sub {
-    color: #475569;
+    color: var(--vtix-text-muted);
   }
 
   .dock-item.active .dock-sub.is-accent {
@@ -2442,11 +2526,26 @@ watch(nowProblemId, () => {
   }
 
   .dock-item :deep(.p-ink) {
-    background: rgba(0, 0, 0, 0.12);
+    background: var(--vtix-overlay-soft);
   }
 
   .mode-tabs {
     padding-bottom: calc(var(--mobile-menu-height) + 30px);
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
   }
 }
 </style>

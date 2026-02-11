@@ -11,6 +11,7 @@ export type AdminUserGroup = {
   name: string;
   description: string | null;
   permissions: number;
+  privateProblemSetLimit: number;
   builtIn?: boolean;
 };
 
@@ -59,6 +60,7 @@ export async function listUserGroupsDb() {
     name: group.name,
     description: group.description ?? "",
     permissions: group.permissions,
+    privateProblemSetLimit: Number(group.privateProblemSetLimit ?? -1),
     builtIn: Boolean(group.builtIn),
   }));
 }
@@ -67,6 +69,7 @@ export async function createUserGroupDb(payload: {
   name?: string;
   description?: string;
   permissions?: number;
+  privateProblemSetLimit?: number;
 }) {
   const name = String(payload.name ?? "").trim();
   if (!name) {
@@ -74,6 +77,8 @@ export async function createUserGroupDb(payload: {
   }
   const description = String(payload.description ?? "").trim();
   const permissions = Number(payload.permissions ?? 0);
+  const limitRaw = Number(payload.privateProblemSetLimit ?? -1);
+  const privateProblemSetLimit = Number.isFinite(limitRaw) ? Math.floor(limitRaw) : -1;
   const { groups } = await loadGroupMap();
   const id = makeGroupId(name, new Set(groups.map((group) => group.id)));
   const group: AdminUserGroup = {
@@ -81,6 +86,7 @@ export async function createUserGroupDb(payload: {
     name,
     description,
     permissions,
+    privateProblemSetLimit,
     builtIn: false,
   };
   await db.insert(userGroups).values(group);
@@ -89,7 +95,12 @@ export async function createUserGroupDb(payload: {
 
 export async function updateUserGroupDb(
   id: string,
-  payload: { name?: string; description?: string; permissions?: number }
+  payload: {
+    name?: string;
+    description?: string;
+    permissions?: number;
+    privateProblemSetLimit?: number;
+  }
 ) {
   const [existing] = await db
     .select()
@@ -108,12 +119,18 @@ export async function updateUserGroupDb(
     payload.permissions !== undefined
       ? Number(payload.permissions)
       : Number(existing.permissions);
+  const limitRaw =
+    payload.privateProblemSetLimit !== undefined
+      ? Number(payload.privateProblemSetLimit)
+      : Number(existing.privateProblemSetLimit ?? -1);
+  const privateProblemSetLimit = Number.isFinite(limitRaw) ? Math.floor(limitRaw) : -1;
   await db
     .update(userGroups)
     .set({
       name,
       description,
       permissions,
+      privateProblemSetLimit,
     })
     .where(eq(userGroups.id, id));
   return {
@@ -121,6 +138,7 @@ export async function updateUserGroupDb(
     name,
     description,
     permissions,
+    privateProblemSetLimit,
     builtIn: Boolean(existing.builtIn),
   };
 }

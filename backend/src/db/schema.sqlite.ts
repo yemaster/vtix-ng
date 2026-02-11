@@ -9,11 +9,17 @@ export const problemSets = sqliteTable("problem_sets", {
   title: text("title").notNull(),
   year: integer("year").notNull(),
   isNew: integer("is_new", { mode: "boolean" }).notNull().default(false),
+  isPending: integer("is_pending", { mode: "boolean" }).notNull().default(false),
+  viewCount: integer("view_count").notNull().default(0),
+  likeCount: integer("like_count").notNull().default(0),
+  dislikeCount: integer("dislike_count").notNull().default(0),
   recommendedRank: integer("recommended_rank"),
   creatorId: text("creator_id").notNull(),
   creatorName: text("creator_name").notNull(),
   isPublic: integer("is_public", { mode: "boolean" }).notNull().default(false),
   inviteCode: text("invite_code"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
   testMeta: text("test_meta", { mode: "json" })
     .$type<TestMeta>()
     .default(null),
@@ -72,11 +78,30 @@ export const problemSetProblems = sqliteTable(
   })
 );
 
+export const problemSetReactions = sqliteTable(
+  "problem_set_reactions",
+  {
+    problemSetId: integer("problem_set_id")
+      .notNull()
+      .references(() => problemSets.id, { onDelete: "cascade" }),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    value: integer("value").notNull(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.problemSetId, table.userId] }),
+  })
+);
+
 export const userGroups = sqliteTable("user_groups", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   description: text("description"),
   permissions: integer("permissions").notNull(),
+  privateProblemSetLimit: integer("private_problem_set_limit").notNull().default(-1),
   builtIn: integer("built_in", { mode: "boolean" }).notNull().default(false),
 });
 
@@ -122,4 +147,17 @@ export const notices = sqliteTable("notices", {
   authorName: text("author_name").notNull(),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
+});
+
+export const messages = sqliteTable("messages", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  senderId: integer("sender_id").notNull(),
+  senderName: text("sender_name").notNull(),
+  receiverId: integer("receiver_id").notNull(),
+  receiverName: text("receiver_name").notNull(),
+  content: text("content").notNull(),
+  type: integer("type").notNull(),
+  link: text("link"),
+  isRead: integer("is_read", { mode: "boolean" }).notNull().default(false),
+  createdAt: integer("created_at").notNull(),
 });

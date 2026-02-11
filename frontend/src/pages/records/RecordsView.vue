@@ -393,18 +393,18 @@ onMounted(() => {
 .page-head h1 {
   margin: 8px 0 6px;
   font-size: 28px;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .eyebrow {
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #9aa2b2;
+  color: var(--vtix-text-subtle);
 }
 
 .summary {
-  color: #64748b;
+  color: var(--vtix-text-muted);
   font-size: 13px;
 }
 
@@ -415,11 +415,11 @@ onMounted(() => {
 }
 
 .record-card {
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
+  background: var(--vtix-surface);
+  border: 1px solid var(--vtix-border);
   border-radius: 16px;
   padding: 14px 18px;
-  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 12px 24px var(--vtix-shadow);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -434,12 +434,12 @@ onMounted(() => {
 
 .record-title {
   font-weight: 700;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .record-meta {
   font-size: 12px;
-  color: #64748b;
+  color: var(--vtix-text-muted);
 }
 
 .record-actions {
@@ -458,8 +458,8 @@ onMounted(() => {
   max-width: 45vw;
   height: 4px;
   border-radius: 999px;
-  background: #f1f5f9;
-  border: 1px solid #e5e7eb;
+  background: var(--vtix-surface-3);
+  border: 1px solid var(--vtix-border);
   overflow: hidden;
 }
 
@@ -473,13 +473,13 @@ onMounted(() => {
 
 .record-progress-text {
   font-size: 11px;
-  color: #64748b;
+  color: var(--vtix-text-muted);
   min-width: 70px;
   text-align: right;
 }
 
 .empty {
-  color: #9aa2b2;
+  color: var(--vtix-text-subtle);
   text-align: center;
 }
 

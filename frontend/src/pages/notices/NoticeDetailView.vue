@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Button from 'primevue/button'
 
@@ -21,6 +21,106 @@ const loadError = ref('')
 const notice = ref<NoticeDetail | null>(null)
 
 const createdTimeText = computed(() => formatFullTime(notice.value?.createdAt ?? 0))
+const metaText = computed(() => {
+  const author = notice.value?.authorName ?? '--'
+  const created = createdTimeText.value || '--'
+  return `发布人：${author} · 发布时间：${created}`
+})
+const markdownHtml = computed(() => renderMarkdown(notice.value?.content ?? ''))
+
+function escapeHtml(input: string) {
+  return input.replace(/[&<>"']/g, (char) => {
+    switch (char) {
+      case '&':
+        return '&amp;'
+      case '<':
+        return '&lt;'
+      case '>':
+        return '&gt;'
+      case '"':
+        return '&quot;'
+      case "'":
+        return '&#39;'
+      default:
+        return char
+    }
+  })
+}
+
+function escapeAttribute(input: string) {
+  return input.replace(/[&<>"']/g, (char) => {
+    switch (char) {
+      case '&':
+        return '&amp;'
+      case '<':
+        return '&lt;'
+      case '>':
+        return '&gt;'
+      case '"':
+        return '&quot;'
+      case "'":
+        return '&#39;'
+      default:
+        return char
+    }
+  })
+}
+
+function sanitizeUrl(raw: string) {
+  const url = raw.trim()
+  const lower = url.toLowerCase()
+  const isSafe =
+    lower.startsWith('http://') ||
+    lower.startsWith('https://') ||
+    lower.startsWith('mailto:') ||
+    lower.startsWith('/') ||
+    lower.startsWith('./') ||
+    lower.startsWith('../')
+  return isSafe ? url : '#'
+}
+
+function renderInline(input: string) {
+  const links: Array<{ placeholder: string; html: string }> = []
+  let text = input.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, rawUrl) => {
+    const url = sanitizeUrl(rawUrl)
+    const isExternal = /^https?:\/\//i.test(url)
+    const attrs = isExternal ? ' target="_blank" rel="noopener noreferrer"' : ''
+    const html = `<a href="${escapeAttribute(url)}"${attrs}>${escapeHtml(label)}</a>`
+    const placeholder = `@@LINK${links.length}@@`
+    links.push({ placeholder, html })
+    return placeholder
+  })
+  text = escapeHtml(text)
+  text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+  text = text.replace(/__(.+?)__/g, '<strong>$1</strong>')
+  text = text.replace(/~~(.+?)~~/g, '<del>$1</del>')
+  text = text.replace(/\*(?!\s)([^*]+?)\*(?!\*)/g, '<em>$1</em>')
+  text = text.replace(/_(?!\s)([^_]+?)_(?!_)/g, '<em>$1</em>')
+  for (const { placeholder, html } of links) {
+    text = text.split(placeholder).join(html)
+  }
+  return text
+}
+
+function renderMarkdown(input: string) {
+  const lines = input.split(/\r?\n/)
+  return lines
+    .map((line) => {
+      const headingMatch = line.match(/^(#{1,3})\s+(.*)$/)
+      if (headingMatch) {
+        const hashes = headingMatch[1] ?? ''
+        const title = headingMatch[2] ?? ''
+        const level = hashes.length
+        const tag = level === 1 ? 'h2' : level === 2 ? 'h3' : 'h4'
+        return `<${tag}>${renderInline(title)}</${tag}>`
+      }
+      if (!line.trim()) {
+        return '<br />'
+      }
+      return `<p>${renderInline(line)}</p>`
+    })
+    .join('\n')
+}
 
 function formatFullTime(timestamp: number) {
   if (!Number.isFinite(timestamp) || timestamp <= 0) {
@@ -72,6 +172,12 @@ async function loadNotice() {
 onMounted(() => {
   void loadNotice()
 })
+
+watch(notice, (current) => {
+  if (current?.title) {
+    document.title = current.title
+  }
+})
 </script>
 
 <template>
@@ -79,8 +185,8 @@ onMounted(() => {
     <header class="page-head">
       <div>
         <div class="eyebrow">通知公告</div>
-        <h1>公告详情</h1>
-        <p>查看公告内容与发布信息。</p>
+        <h1>{{ notice?.title || (loading ? '加载中' : '公告详情') }}</h1>
+        <p>{{ metaText }}</p>
       </div>
       <div class="head-actions">
         <Button label="返回" severity="secondary" outlined @click="router.back()" />
@@ -100,12 +206,7 @@ onMounted(() => {
         <div class="skeleton-block short"></div>
       </div>
       <div v-else-if="notice" class="notice-content">
-        <h2>{{ notice.title }}</h2>
-        <div class="notice-meta">
-          <span>发布人：{{ notice.authorName }}</span>
-          <span>发布时间：{{ createdTimeText }}</span>
-        </div>
-        <div class="notice-body">{{ notice.content }}</div>
+        <div class="notice-body p-typography" v-html="markdownHtml"></div>
       </div>
       <div v-else class="empty">暂无公告</div>
     </section>
@@ -129,19 +230,19 @@ onMounted(() => {
 .page-head h1 {
   margin: 8px 0 6px;
   font-size: 30px;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .page-head p {
   margin: 0;
-  color: #6b7280;
+  color: var(--vtix-text-muted);
 }
 
 .eyebrow {
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #9aa2b2;
+  color: var(--vtix-text-subtle);
 }
 
 .head-actions {
@@ -151,39 +252,45 @@ onMounted(() => {
 }
 
 .notice-card {
-  background: #ffffff;
-  border: 1px solid #e4e7ec;
+  background: var(--vtix-surface);
+  border: 1px solid var(--vtix-border);
   border-radius: 16px;
   padding: 24px;
-  box-shadow: 0 20px 30px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 20px 30px var(--vtix-shadow);
   min-height: 220px;
 }
 
-.notice-content h2 {
-  margin: 0 0 12px;
-  font-size: 24px;
-  color: #0f172a;
-}
-
-.notice-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  font-size: 13px;
-  color: #6b7280;
-  margin-bottom: 18px;
-}
-
 .notice-body {
-  white-space: pre-wrap;
   line-height: 1.7;
-  color: #1f2937;
+  color: var(--vtix-text-strong);
+}
+
+:deep(.notice-body h2),
+:deep(.notice-body h3),
+:deep(.notice-body h4) {
+  margin: 16px 0 10px;
+  font-weight: 700;
+  color: var(--vtix-text-strong);
+}
+
+:deep(.notice-body p) {
+  margin: 0 0 10px;
+}
+
+:deep(.notice-body a) {
+  color: var(--vtix-primary-600);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+:deep(.notice-body del) {
+  color: var(--vtix-text-muted);
 }
 
 .status {
-  border: 1px solid #fecaca;
-  background: #fff1f2;
-  color: #991b1b;
+  border: 1px solid var(--vtix-danger-border);
+  background: var(--vtix-danger-bg);
+  color: var(--vtix-danger-text);
   padding: 14px 16px;
   border-radius: 14px;
   display: flex;
@@ -208,7 +315,7 @@ onMounted(() => {
 .skeleton-line {
   height: 14px;
   border-radius: 999px;
-  background: linear-gradient(90deg, #e2e8f0, #f8fafc, #e2e8f0);
+  background: linear-gradient(90deg, var(--vtix-border-strong), var(--vtix-surface-2), var(--vtix-border-strong));
   background-size: 200% 100%;
   animation: shimmer 1.6s infinite;
 }
@@ -225,7 +332,7 @@ onMounted(() => {
 .skeleton-block {
   height: 120px;
   border-radius: 12px;
-  background: linear-gradient(90deg, #e2e8f0, #f8fafc, #e2e8f0);
+  background: linear-gradient(90deg, var(--vtix-border-strong), var(--vtix-surface-2), var(--vtix-border-strong));
   background-size: 200% 100%;
   animation: shimmer 1.6s infinite;
 }
@@ -235,7 +342,7 @@ onMounted(() => {
 }
 
 .empty {
-  color: #9aa2b2;
+  color: var(--vtix-text-subtle);
   text-align: center;
   font-size: 13px;
   padding: 12px 0;

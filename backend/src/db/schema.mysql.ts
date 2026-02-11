@@ -19,11 +19,17 @@ export const problemSets = mysqlTable("problem_sets", {
   title: varchar("title", { length: 255 }).notNull(),
   year: int("year").notNull(),
   isNew: boolean("is_new").notNull().default(false),
+  isPending: boolean("is_pending").notNull().default(false),
+  viewCount: int("view_count").notNull().default(0),
+  likeCount: int("like_count").notNull().default(0),
+  dislikeCount: int("dislike_count").notNull().default(0),
   recommendedRank: int("recommended_rank"),
   creatorId: varchar("creator_id", { length: VARCHAR_ID }).notNull(),
   creatorName: varchar("creator_name", { length: 255 }).notNull(),
   isPublic: boolean("is_public").notNull().default(false),
   inviteCode: varchar("invite_code", { length: 255 }),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
   testMeta: json("test_meta").$type<TestMeta>(),
   scoreMeta: json("score_meta").$type<number[] | null>(),
   questionCount: int("question_count").notNull().default(0),
@@ -39,6 +45,7 @@ export const userGroups = mysqlTable("user_groups", {
   name: varchar("name", { length: 128 }).notNull(),
   description: text("description"),
   permissions: int("permissions").notNull(),
+  privateProblemSetLimit: int("private_problem_set_limit").notNull().default(-1),
   builtIn: boolean("built_in").notNull().default(false),
 });
 
@@ -82,6 +89,24 @@ export const problemSetProblems = mysqlTable(
   })
 );
 
+export const problemSetReactions = mysqlTable(
+  "problem_set_reactions",
+  {
+    problemSetId: int("problem_set_id")
+      .notNull()
+      .references(() => problemSets.id, { onDelete: "cascade" }),
+    userId: int("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    value: int("value").notNull(),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.problemSetId, table.userId] }),
+  })
+);
+
 export const users = mysqlTable("users", {
   id: int("id").autoincrement().primaryKey(),
   name: varchar("name", { length: VARCHAR_ID }).notNull().unique(),
@@ -122,4 +147,17 @@ export const notices = mysqlTable("notices", {
   authorName: varchar("author_name", { length: 255 }).notNull(),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+});
+
+export const messages = mysqlTable("messages", {
+  id: int("id").autoincrement().primaryKey(),
+  senderId: int("sender_id").notNull(),
+  senderName: varchar("sender_name", { length: 255 }).notNull(),
+  receiverId: int("receiver_id").notNull(),
+  receiverName: varchar("receiver_name", { length: 255 }).notNull(),
+  content: text("content").notNull(),
+  type: int("type").notNull(),
+  link: varchar("link", { length: 512 }),
+  isRead: boolean("is_read").notNull().default(false),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
 });

@@ -2,8 +2,8 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Button from 'primevue/button'
-import Checkbox from 'primevue/checkbox'
 import Select from 'primevue/select'
+import Checkbox from 'primevue/checkbox'
 import InputNumber from 'primevue/inputnumber'
 import InputText from 'primevue/inputtext'
 import RadioButton from 'primevue/radiobutton'
@@ -103,6 +103,7 @@ const testTypeOptions = [
   { label: '判断题', value: 4 }
 ]
 const DEFAULT_TEST_SCORES = [0, 1, 2, 1, 1]
+const MAX_QUESTION_COUNT = 4096
 const testConfig = ref<TestConfigItem[]>([])
 
 function createId() {
@@ -124,6 +125,15 @@ function createProblem(type = 1): ProblemDraft {
 }
 
 function addProblem(type = 1) {
+  if (problems.value.length >= MAX_QUESTION_COUNT) {
+    toast.add({
+      severity: 'warn',
+      summary: '达到上限',
+      detail: `最多只能创建 ${MAX_QUESTION_COUNT} 道题目。`,
+      life: 3000
+    })
+    return
+  }
   const item = createProblem(type)
   problems.value.push(item)
   selectedProblemId.value = item.id
@@ -453,14 +463,22 @@ async function handleParseJson() {
     const items = extractJsonItems(raw)
     const parsed: ProblemDraft[] = []
     let skipped = 0
-    items.forEach((item) => {
-      const problem = createProblemDraftFromResult(item)
+    let trimmed = 0
+    for (let i = 0; i < items.length; i += 1) {
+      if (parsed.length >= MAX_QUESTION_COUNT) {
+        trimmed = items.length - i
+        break
+      }
+      const problem = createProblemDraftFromResult(items[i])
       if (problem) {
         parsed.push(problem)
       } else {
         skipped += 1
       }
-    })
+    }
+    if (trimmed > 0) {
+      skipped += trimmed
+    }
     jsonStats.value = { total: items.length, parsed: parsed.length, skipped }
     if (!parsed.length) {
       jsonError.value = '未解析出有效题目，请检查 JSON 格式。'
@@ -479,6 +497,14 @@ async function handleParseJson() {
     problems.value = parsed
     selectedProblemId.value = parsed[0]?.id ?? null
     activeEditorTab.value = 'manual'
+    if (trimmed > 0) {
+      toast.add({
+        severity: 'warn',
+        summary: '已截断题目',
+        detail: `最多解析 ${MAX_QUESTION_COUNT} 条，剩余 ${trimmed} 条已跳过。`,
+        life: 3500
+      })
+    }
     toast.add({
       severity: 'success',
       summary: '解析完成',
@@ -552,9 +578,12 @@ const stats = computed(() => {
   return counts
 })
 
+const isOverQuestionLimit = computed(() => problems.value.length > MAX_QUESTION_COUNT)
+
 const isFormValid = computed(() => {
   if (!title.value.trim()) return false
   if (!problems.value.length) return false
+  if (isOverQuestionLimit.value) return false
   return problems.value.every((problem) => Boolean(buildProblemPayload(problem)))
 })
 
@@ -599,6 +628,15 @@ async function loadDetail() {
 async function handleSubmit() {
   if (!userStore.user) {
     router.push({ name: 'login' })
+    return
+  }
+  if (isOverQuestionLimit.value) {
+    toast.add({
+      severity: 'warn',
+      summary: '无法保存',
+      detail: `题目数量超过上限（${MAX_QUESTION_COUNT}）。`,
+      life: 3000
+    })
     return
   }
   submitLoading.value = true
@@ -916,6 +954,9 @@ onBeforeUnmount(() => {
         </section>
 
         <div class="footer-actions">
+          <div v-if="isOverQuestionLimit" class="limit-warning">
+            题目数量已超过 {{ MAX_QUESTION_COUNT }} 题
+          </div>
           <Button label="保存修改" :loading="submitLoading" :disabled="!isFormValid" @click="handleSubmit" />
         </div>
       </template>
@@ -946,12 +987,12 @@ onBeforeUnmount(() => {
 .page-head h1 {
   margin: 8px 0 6px;
   font-size: 30px;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .page-head p {
   margin: 0;
-  color: #6b7280;
+  color: var(--vtix-text-muted);
 }
 
 .section-heading {
@@ -964,8 +1005,8 @@ onBeforeUnmount(() => {
   width: 28px;
   height: 28px;
   border-radius: 10px;
-  background: #0f172a;
-  color: #ffffff;
+  background: var(--vtix-ink);
+  color: var(--vtix-inverse-text);
   font-weight: 800;
   display: grid;
   place-items: center;
@@ -973,12 +1014,12 @@ onBeforeUnmount(() => {
 
 .section-title {
   font-weight: 800;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .section-desc {
   font-size: 12px;
-  color: #64748b;
+  color: var(--vtix-text-muted);
   margin-top: 2px;
 }
 
@@ -992,7 +1033,7 @@ onBeforeUnmount(() => {
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #9aa2b2;
+  color: var(--vtix-text-subtle);
 }
 
 .editor-tabs :deep(.p-tabmenu-nav) {
@@ -1004,21 +1045,21 @@ onBeforeUnmount(() => {
 .editor-tabs :deep(.p-tabmenuitem-link) {
   border-radius: 10px;
   border: 1px solid transparent;
-  color: #6b7280;
+  color: var(--vtix-text-muted);
   font-weight: 700;
   padding: 8px 14px;
   transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
 }
 
 .editor-tabs :deep(.p-tabmenuitem.p-highlight .p-tabmenuitem-link) {
-  background: #f1f3f6;
-  color: #0f172a;
-  border-color: #e5e7eb;
+  background: var(--vtix-surface-5);
+  color: var(--vtix-text-strong);
+  border-color: var(--vtix-border);
 }
 
 .editor-tabs :deep(.p-tabmenuitem-link:hover) {
-  background: #f8fafc;
-  color: #0f172a;
+  background: var(--vtix-surface-2);
+  color: var(--vtix-text-strong);
 }
 
 .info-grid {
@@ -1032,7 +1073,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 8px;
   font-size: 13px;
-  color: #475569;
+  color: var(--vtix-text-muted);
   font-weight: 600;
 }
 
@@ -1056,7 +1097,7 @@ onBeforeUnmount(() => {
 
 .toggle-label {
   font-weight: 600;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .info-stats {
@@ -1067,7 +1108,7 @@ onBeforeUnmount(() => {
 }
 
 .test-config-panel {
-  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  background: linear-gradient(180deg, var(--vtix-surface) 0%, var(--vtix-surface-2) 100%);
 }
 
 .test-config-panel :deep(.vtix-panel__content) {
@@ -1092,7 +1133,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 6px;
   font-size: 12px;
-  color: #64748b;
+  color: var(--vtix-text-muted);
   font-weight: 600;
 }
 
@@ -1104,12 +1145,12 @@ onBeforeUnmount(() => {
 .test-config-tip {
   margin-top: 6px;
   font-size: 12px;
-  color: #64748b;
+  color: var(--vtix-text-muted);
 }
 
 .editor-tip {
   font-size: 12px;
-  color: #64748b;
+  color: var(--vtix-text-muted);
   margin-top: -8px;
 }
 
@@ -1120,7 +1161,7 @@ onBeforeUnmount(() => {
 }
 
 .json-panel {
-  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  background: linear-gradient(180deg, var(--vtix-surface) 0%, var(--vtix-surface-2) 100%);
 }
 
 .json-content {
@@ -1131,16 +1172,16 @@ onBeforeUnmount(() => {
 
 .json-tip {
   font-size: 12px;
-  color: #64748b;
+  color: var(--vtix-text-muted);
 }
 
 .json-template {
   margin: 0;
   padding: 10px 12px;
   border-radius: 12px;
-  border: 1px solid #e2e8f0;
-  background: #f8fafc;
-  color: #0f172a;
+  border: 1px solid var(--vtix-border-strong);
+  background: var(--vtix-surface-2);
+  color: var(--vtix-text-strong);
   font-size: 12px;
   white-space: pre-wrap;
 }
@@ -1160,11 +1201,11 @@ onBeforeUnmount(() => {
 
 .json-stats {
   font-size: 12px;
-  color: #64748b;
+  color: var(--vtix-text-muted);
 }
 
 .json-error {
-  color: #b91c1c;
+  color: var(--vtix-danger-text);
   font-size: 13px;
 }
 
@@ -1185,12 +1226,12 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   padding-bottom: 6px;
-  border-bottom: 1px dashed #e2e8f0;
+  border-bottom: 1px dashed var(--vtix-border-strong);
 }
 
 .problem-index {
   font-weight: 700;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .problem-controls {
@@ -1221,7 +1262,7 @@ label.field.choice-content-field {
 
 .choice-title {
   font-weight: 700;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .choice-list {
@@ -1242,7 +1283,7 @@ label.field.choice-content-field {
   align-items: center;
   gap: 4px;
   font-size: 12px;
-  color: #475569;
+  color: var(--vtix-text-muted);
 }
 
 .choice-actions {
@@ -1252,24 +1293,32 @@ label.field.choice-content-field {
 
 .footer-actions {
   display: flex;
+  align-items: center;
   justify-content: flex-start;
+  gap: 12px;
   margin-top: 8px;
   position: sticky;
   bottom: 0;
   padding: 12px 16px 16px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.6) 0%, #ffffff 40%);
-  border-top: 1px dashed #e2e8f0;
+  background: var(--vtix-surface-fade);
+  border-top: 1px dashed var(--vtix-border-strong);
   backdrop-filter: blur(6px);
 }
 
+.limit-warning {
+  color: var(--vtix-danger-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .problem-editor-card {
-  background: linear-gradient(180deg, #ffffff 0%, #f9fafb 100%);
+  background: linear-gradient(180deg, var(--vtix-surface) 0%, var(--vtix-surface-2) 100%);
 }
 
 .status {
-  border: 1px solid #fecaca;
-  background: #fff1f2;
-  color: #991b1b;
+  border: 1px solid var(--vtix-danger-border);
+  background: var(--vtix-danger-bg);
+  color: var(--vtix-danger-text);
   padding: 14px 16px;
   border-radius: 14px;
   display: flex;
@@ -1286,11 +1335,11 @@ label.field.choice-content-field {
 }
 
 .loading {
-  border: 1px dashed #e5e7eb;
+  border: 1px dashed var(--vtix-border);
   border-radius: 16px;
   padding: 20px;
   text-align: center;
-  color: #6b7280;
+  color: var(--vtix-text-muted);
 }
 
 @media (max-width: 900px) {

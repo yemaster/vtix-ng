@@ -29,6 +29,11 @@ const canManageQuestionBanks = computed(() => {
   )
 })
 
+const canManageQuestionBanksAll = computed(() => {
+  const permissions = userStore.user?.permissions ?? 0
+  return (permissions & MANAGE_QUESTION_BANK_ALL) === MANAGE_QUESTION_BANK_ALL
+})
+
 const canManageUsers = computed(() => {
   const permissions = userStore.user?.permissions ?? 0
   return (permissions & MANAGE_USERS) === MANAGE_USERS
@@ -127,6 +132,14 @@ watch(
               <span class="nav-icon pi pi-folder-open" aria-hidden="true" />
               <span>题库管理</span>
             </RouterLink>
+            <RouterLink
+              v-if="canManageQuestionBanksAll"
+              :to="{ name: 'admin-question-bank-review' }"
+              :class="['nav-link', { active: activeName === 'admin-question-bank-review' }]"
+            >
+              <span class="nav-icon pi pi-verified" aria-hidden="true" />
+              <span>审核题库</span>
+            </RouterLink>
           </div>
         </div>
 
@@ -194,14 +207,14 @@ watch(
 .admin-shell {
   height: 100vh;
   display: flex;
-  background: #f2f4f7;
+  background: var(--vtix-bg);
 }
 
 .sidebar {
   width: 260px;
   height: 100vh;
-  background: #ffffff;
-  border-right: 1px solid #e5e7eb;
+  background: var(--vtix-surface);
+  border-right: 1px solid var(--vtix-border);
   padding: 18px 16px 20px;
   display: flex;
   flex-direction: column;
@@ -235,7 +248,7 @@ watch(
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: #94a3b8;
+  color: var(--vtix-text-subtle);
   font-weight: 700;
 }
 
@@ -251,7 +264,7 @@ watch(
   justify-content: space-between;
   padding: 10px 12px;
   border-radius: 12px;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
   font-weight: 500;
   font-size: 14px;
   border: 1px solid transparent;
@@ -267,14 +280,14 @@ watch(
 }
 
 .nav-link:hover {
-  background: #f1f5f9;
-  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.08);
+  background: var(--vtix-surface-3);
+  box-shadow: 0 6px 14px var(--vtix-shadow);
 }
 
 .nav-link.active {
-  background: var(--vtix-primary-100);
-  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.08);
-  border-color: var(--vtix-primary-100);
+  background: var(--vtix-active-bg);
+  box-shadow: 0 6px 14px var(--vtix-shadow);
+  border-color: var(--vtix-active-border);
 }
 
 
@@ -307,18 +320,18 @@ watch(
   width: 32px;
   height: 32px;
   border-radius: 8px;
-  border: 1px solid #e5e7eb;
-  background: #f8fafc;
+  border: 1px solid var(--vtix-border);
+  background: var(--vtix-surface-2);
   font-size: 20px;
   line-height: 1;
   cursor: pointer;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .drawer-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.35);
+  background: var(--vtix-backdrop);
   z-index: 20;
 }
 
@@ -334,8 +347,8 @@ watch(
     justify-content: space-between;
     gap: 12px;
     padding: 14px 16px;
-    background: rgba(255, 255, 255, 0.92);
-    border-bottom: 1px solid #e5e7eb;
+    background: var(--vtix-topbar-bg);
+    border-bottom: 1px solid var(--vtix-border);
     backdrop-filter: blur(10px);
     position: sticky;
     top: 0;
@@ -355,7 +368,7 @@ watch(
     transform: translateX(-100%);
     opacity: 0;
     transition: transform 0.3s ease, opacity 0.3s ease;
-    box-shadow: 12px 0 30px rgba(15, 23, 42, 0.12);
+    box-shadow: 12px 0 30px var(--vtix-shadow-strong);
     pointer-events: none;
   }
 

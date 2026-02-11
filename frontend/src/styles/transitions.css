@@ -44,3 +44,28 @@
     transition: none;
   }
 }
+
+.theme-panel-enter-active,
+.theme-panel-leave-active {
+  transition: opacity 0.22s cubic-bezier(0.42, 0.00, 0.58, 1.00), transform 0.22s cubic-bezier(0.42, 0.00, 0.58, 1.00);
+  will-change: opacity, transform;
+}
+
+.theme-panel-enter-from,
+.theme-panel-leave-to {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+.theme-panel-enter-to,
+.theme-panel-leave-from {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-panel-enter-active,
+  .theme-panel-leave-active {
+    transition: none;
+  }
+}

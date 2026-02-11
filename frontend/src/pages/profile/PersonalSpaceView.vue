@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { format, formatDistanceToNow } from 'date-fns'
+import { zhCN } from 'date-fns/locale'
 import Button from 'primevue/button'
 import TabMenu from 'primevue/tabmenu'
 import Tag from 'primevue/tag'
@@ -28,6 +30,8 @@ type QuestionBankItem = {
   code: string
   title: string
   year: number
+  updatedAt?: number
+  createdAt?: number
   categories: string[]
   questionCount: number
 }
@@ -107,6 +111,23 @@ function formatTimestamp(value?: number | null) {
   const hours = String(date.getHours()).padStart(2, '0')
   const minutes = String(date.getMinutes()).padStart(2, '0')
   return `${year}-${month}-${day} ${hours}:${minutes}`
+}
+
+function formatFullTime(timestamp: number) {
+  if (!Number.isFinite(timestamp) || timestamp <= 0) {
+    return '--'
+  }
+  return format(new Date(timestamp), 'yyyy-MM-dd HH:mm')
+}
+
+function formatRelativeTime(timestamp: number) {
+  if (!Number.isFinite(timestamp) || timestamp <= 0) {
+    return '--'
+  }
+  return formatDistanceToNow(new Date(timestamp), {
+    addSuffix: true,
+    locale: zhCN
+  })
 }
 
 const loginInfoText = computed(() => ({
@@ -262,7 +283,8 @@ async function loadBanks() {
       ? data.map((item) => ({
           ...item,
           categories: Array.isArray(item.categories) ? item.categories : [],
-          questionCount: Number.isFinite(item.questionCount) ? item.questionCount : 0
+          questionCount: Number.isFinite(item.questionCount) ? item.questionCount : 0,
+          updatedAt: Number(item.updatedAt ?? item.createdAt ?? 0)
         }))
       : []
     if (isSelf.value) {
@@ -485,23 +507,26 @@ onMounted(() => {
           <div class="bank-card-top">
             <div class="bank-card-main">
               <div class="bank-title">{{ bank.title }}</div>
-              <div class="bank-meta">
-                <span class="meta-date">{{ bank.year }} 年</span>
-                <span class="meta-owner">编号 {{ bank.code }}</span>
-              </div>
-              <div class="bank-tags">
-                <Tag v-for="tag in bank.categories" :key="tag" :value="tag" rounded />
-                <span v-if="bank.categories.length === 0" class="bank-tag-empty">无标签</span>
-              </div>
-              <div class="bank-actions">
-                <Button
-                  v-if="isSelf"
-                  label="编辑"
-                  size="small"
-                  severity="secondary"
-                  text
-                  @click.stop.prevent="router.push({ name: 'admin-question-bank-edit', params: { code: bank.code } })"
-                />
+              <div class="bank-info">
+                <div class="bank-tags">
+                  <Tag v-for="tag in bank.categories" :key="tag" :value="tag" rounded />
+                  <span v-if="bank.categories.length === 0" class="bank-tag-empty">无标签</span>
+                </div>
+                <div class="bank-meta">
+                  <span class="meta-year">{{ bank.year }} 年</span>
+                  <span class="meta-time" v-tooltip.bottom="formatFullTime(bank.updatedAt ?? 0)">
+                    @{{ formatRelativeTime(bank.updatedAt ?? 0) }}
+                  </span>
+                </div>
+                <div v-if="isSelf" class="bank-actions">
+                  <Button
+                    label="编辑"
+                    size="small"
+                    severity="secondary"
+                    text
+                    @click.stop.prevent="router.push({ name: 'admin-question-bank-edit', params: { code: bank.code } })"
+                  />
+                </div>
               </div>
             </div>
             <div class="bank-count">
@@ -537,11 +562,11 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 16px;
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
+  background: var(--vtix-surface);
+  border: 1px solid var(--vtix-border);
   border-radius: 16px;
   padding: 16px 18px;
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+  box-shadow: 0 10px 24px var(--vtix-shadow-soft);
 }
 
 .profile-avatar {
@@ -577,13 +602,13 @@ onMounted(() => {
   font-size: 11px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: #94a3b8;
+  color: var(--vtix-text-subtle);
 }
 
 .profile-title h1 {
   margin: 4px 0 0;
   font-size: 28px;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
   font-family: 'Space Grotesk', 'SF Pro Display', 'Segoe UI', sans-serif;
 }
 
@@ -599,16 +624,16 @@ onMounted(() => {
   gap: 6px;
   flex-wrap: wrap;
   font-size: 12px;
-  color: #64748b;
+  color: var(--vtix-text-muted);
 }
 
 .profile-email {
   font-weight: 600;
-  color: #475569;
+  color: var(--vtix-text-muted);
 }
 
 .profile-divider {
-  color: #cbd5f5;
+  color: var(--vtix-text-subtle);
 }
 
 .header-actions {
@@ -622,11 +647,11 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 12px;
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
+  background: var(--vtix-surface);
+  border: 1px solid var(--vtix-border);
   border-radius: 16px;
   padding: 12px 14px;
-  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.04);
+  box-shadow: 0 10px 20px var(--vtix-shadow-soft);
 }
 
 .stat-item {
@@ -637,12 +662,12 @@ onMounted(() => {
 
 .stat-label {
   font-size: 12px;
-  color: #94a3b8;
+  color: var(--vtix-text-subtle);
 }
 
 .stat-value {
   font-weight: 800;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .space-tabs :deep(.p-tabmenu-nav) {
@@ -677,7 +702,7 @@ onMounted(() => {
 .space-tabs :deep(.p-tabmenuitem-link) {
   border-radius: 10px;
   border: 1px solid transparent;
-  color: #6b7280;
+  color: var(--vtix-text-muted);
   font-weight: 700;
   padding: 8px 14px;
   white-space: nowrap;
@@ -685,14 +710,14 @@ onMounted(() => {
 }
 
 .space-tabs :deep(.p-tabmenuitem.p-highlight .p-tabmenuitem-link) {
-  background: #f1f3f6;
-  color: #0f172a;
-  border-color: #e5e7eb;
+  background: var(--vtix-surface-5);
+  color: var(--vtix-text-strong);
+  border-color: var(--vtix-border);
 }
 
 .space-tabs :deep(.p-tabmenuitem-link:hover) {
-  background: #f8fafc;
-  color: #0f172a;
+  background: var(--vtix-surface-2);
+  color: var(--vtix-text-strong);
 }
 
 .space-tabs :deep(.p-tabmenu-ink-bar) {
@@ -738,11 +763,11 @@ onMounted(() => {
 }
 
 .panel-card {
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
+  background: var(--vtix-surface);
+  border: 1px solid var(--vtix-border);
   border-radius: 16px;
   padding: 18px;
-  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.05);
+  box-shadow: 0 12px 24px var(--vtix-shadow-soft);
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -764,7 +789,7 @@ onMounted(() => {
 
 .panel-empty {
   text-align: center;
-  color: #64748b;
+  color: var(--vtix-text-muted);
 }
 
 .info-grid {
@@ -774,10 +799,10 @@ onMounted(() => {
 }
 
 .info-item {
-  background: #f8fafc;
+  background: var(--vtix-surface-2);
   border-radius: 12px;
   padding: 10px 12px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--vtix-border-strong);
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -785,12 +810,12 @@ onMounted(() => {
 
 .info-label {
   font-size: 12px;
-  color: #94a3b8;
+  color: var(--vtix-text-subtle);
 }
 
 .info-value {
   font-weight: 700;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .info-list {
@@ -805,10 +830,10 @@ onMounted(() => {
   justify-content: space-between;
   gap: 12px;
   padding: 10px 12px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--vtix-border);
   border-radius: 12px;
-  background: #f8fafc;
-  color: #475569;
+  background: var(--vtix-surface-2);
+  color: var(--vtix-text-muted);
   font-size: 13px;
 }
 
@@ -825,7 +850,7 @@ onMounted(() => {
   align-items: end;
   height: 180px;
   padding: 6px 4px 4px;
-  background: #f8fafc;
+  background: var(--vtix-surface-2);
   border-radius: 12px;
 }
 
@@ -850,12 +875,12 @@ onMounted(() => {
 
 .bar-label {
   font-size: 11px;
-  color: #94a3b8;
+  color: var(--vtix-text-subtle);
 }
 
 .bar-value {
   font-size: 12px;
-  color: #475569;
+  color: var(--vtix-text-muted);
   font-weight: 700;
 }
 
@@ -866,15 +891,15 @@ onMounted(() => {
 }
 
 .bank-card {
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
+  background: var(--vtix-surface);
+  border: 1px solid var(--vtix-border);
   border-radius: 16px;
   padding: 16px;
   display: flex;
   flex-direction: column;
   gap: 14px;
   position: relative;
-  box-shadow: 0 16px 30px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 16px 30px var(--vtix-shadow);
 }
 
 .bank-card-link {
@@ -886,73 +911,87 @@ onMounted(() => {
 
 .bank-card-link:hover {
   transform: translateY(-2px);
-  box-shadow: 0 18px 36px rgba(15, 23, 42, 0.12);
+  box-shadow: 0 18px 36px var(--vtix-shadow-strong);
 }
 
 .bank-card.skeleton {
   position: relative;
   overflow: hidden;
-  background: #f8fafc;
+  background: var(--vtix-surface-2);
 }
 
 .bank-card-top {
   display: flex;
   justify-content: space-between;
   gap: 10px;
+  align-items: stretch;
+  flex: 1;
 }
 
 .bank-card-main {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .bank-title {
   font-weight: 700;
-  color: #111827;
+  color: var(--vtix-text);
   font-size: 20px;
   line-height: 1.3;
-  font-family: 'Space Grotesk', 'SF Pro Display', 'Segoe UI', sans-serif;
+  margin: 0;
+}
+
+.bank-info {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
 }
 
 .bank-meta {
-  margin-top: 6px;
+  color: var(--vtix-text-subtle);
   font-size: 12px;
-  color: #9aa2b2;
   display: flex;
   gap: 8px;
   align-items: center;
   line-height: 1.5;
 }
 
-.meta-date {
-  color: #6b7280;
-}
-
-.meta-owner {
-  color: #9aa2b2;
-}
-
 .bank-tags {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 8px;
 }
 
 .bank-tags :deep(.p-tag) {
   font-size: 12px;
 }
 
+.meta-year,
+.meta-time {
+  font-weight: 400;
+}
+
+.meta-year {
+  color: var(--vtix-text-muted);
+}
+
+.meta-time {
+  color: var(--vtix-text-muted);
+}
+
 .bank-tag-empty {
   font-size: 12px;
-  color: #94a3b8;
-  border: 1px dashed #e2e8f0;
+  color: var(--vtix-text-subtle);
+  border: 1px dashed var(--vtix-border-strong);
   padding: 2px 8px;
   border-radius: 999px;
 }
 
 .bank-actions {
-  margin-top: 10px;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -970,12 +1009,12 @@ onMounted(() => {
 .bank-count-value {
   font-size: 42px;
   font-weight: 800;
-  color: #111827;
+  color: var(--vtix-text);
 }
 
 .bank-count-label {
   font-size: 12px;
-  color: #9aa2b2;
+  color: var(--vtix-text-subtle);
   margin-top: 4px;
 }
 
@@ -983,7 +1022,7 @@ onMounted(() => {
   width: 64px;
   height: 48px;
   border-radius: 12px;
-  background: linear-gradient(90deg, #e2e8f0, #f8fafc, #e2e8f0);
+  background: linear-gradient(90deg, var(--vtix-border-strong), var(--vtix-surface-2), var(--vtix-border-strong));
   background-size: 200% 100%;
   animation: shimmer 1.6s infinite;
 }
@@ -991,7 +1030,7 @@ onMounted(() => {
 .skeleton-line {
   height: 14px;
   border-radius: 999px;
-  background: linear-gradient(90deg, #e2e8f0, #f8fafc, #e2e8f0);
+  background: linear-gradient(90deg, var(--vtix-border-strong), var(--vtix-surface-2), var(--vtix-border-strong));
   background-size: 200% 100%;
   animation: shimmer 1.6s infinite;
 }
@@ -1014,7 +1053,7 @@ onMounted(() => {
   width: 48px;
   height: 18px;
   border-radius: 999px;
-  background: linear-gradient(90deg, #e2e8f0, #f8fafc, #e2e8f0);
+  background: linear-gradient(90deg, var(--vtix-border-strong), var(--vtix-surface-2), var(--vtix-border-strong));
   background-size: 200% 100%;
   animation: shimmer 1.6s infinite;
 }

@@ -120,9 +120,9 @@ function handleBack() {
   justify-content: center;
   padding: 24px;
   background:
-    radial-gradient(circle at top left, rgba(14, 165, 233, 0.08), transparent 55%),
-    radial-gradient(circle at bottom right, rgba(56, 189, 248, 0.12), transparent 50%),
-    linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
+    radial-gradient(circle at top left, var(--vtix-glow-primary-soft), transparent 55%),
+    radial-gradient(circle at bottom right, var(--vtix-glow-primary-strong), transparent 50%),
+    linear-gradient(180deg, var(--vtix-surface-2) 0%, var(--vtix-surface-4) 100%);
   border-radius: 0;
   overflow: auto;
   z-index: 30;
@@ -130,11 +130,11 @@ function handleBack() {
 
 .error-card {
   width: min(900px, 100%);
-  background: #ffffff;
+  background: var(--vtix-surface);
   border-radius: 24px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--vtix-border);
   padding: 26px 26px 24px;
-  box-shadow: 0 24px 48px rgba(15, 23, 42, 0.12);
+  box-shadow: 0 24px 48px var(--vtix-shadow-strong);
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -146,7 +146,7 @@ function handleBack() {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(135deg, rgba(14, 165, 233, 0.08), transparent 45%);
+  background: linear-gradient(135deg, var(--vtix-glow-primary-soft), transparent 45%);
   pointer-events: none;
 }
 
@@ -165,28 +165,28 @@ function handleBack() {
   border-radius: 20px;
   font-size: 42px;
   font-weight: 800;
-  color: #0f172a;
-  background: linear-gradient(135deg, var(--vtix-primary-100), #ffffff);
+  color: var(--vtix-text-strong);
+  background: linear-gradient(135deg, var(--vtix-primary-100), var(--vtix-surface));
   border: 1px solid var(--vtix-primary-200);
-  box-shadow: 0 12px 24px rgba(14, 116, 185, 0.15);
+  box-shadow: 0 12px 24px var(--vtix-shadow-accent);
 }
 
 .error-head h1 {
   margin: 8px 0 6px;
   font-size: 28px;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .error-head p {
   margin: 0;
-  color: #64748b;
+  color: var(--vtix-text-muted);
 }
 
 .eyebrow {
   font-size: 12px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: #94a3b8;
+  color: var(--vtix-text-subtle);
 }
 
 .error-details {
@@ -198,8 +198,8 @@ function handleBack() {
 }
 
 .detail-item {
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
+  background: var(--vtix-surface-2);
+  border: 1px solid var(--vtix-border-strong);
   border-radius: 16px;
   padding: 14px 16px;
   display: flex;
@@ -211,13 +211,13 @@ function handleBack() {
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #94a3b8;
+  color: var(--vtix-text-subtle);
 }
 
 .detail-value {
   font-size: 14px;
   font-weight: 600;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
   white-space: pre-wrap;
 }
 

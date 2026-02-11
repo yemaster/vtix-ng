@@ -1,11 +1,12 @@
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, like, or, sql } from "drizzle-orm";
 import {
   categories,
   db,
   dbDialect,
   problemSetCategories,
+  problemSetReactions,
   problemSetProblems,
   problemSets,
   problems,
@@ -45,12 +46,19 @@ export type ProblemSetItem = {
   year: number;
   categories: string[];
   isNew: boolean;
+  isPending: boolean;
+  viewCount: number;
+  likeCount: number;
+  dislikeCount: number;
+  reaction?: number;
   recommendedRank: number | null;
   questionCount: number;
   creatorId: string;
   creatorName: string;
   isPublic: boolean;
   inviteCode: string | null;
+  createdAt?: number;
+  updatedAt?: number;
   test?: TestConfigItem[];
   problems?: unknown[];
 };
@@ -190,12 +198,17 @@ async function ensureSeeded() {
       const questionCount = rawProblems.length;
       const counts = countProblemTypes(rawProblems);
       const testMeta = normalizeTestMeta(detail?.test, detail?.score, counts);
+      const now = Date.now();
 
       const setId = await insertProblemSetRow(tx, {
         code,
         title: meta.title,
         year: meta.time,
         isNew: meta.new,
+        isPending: false,
+        viewCount: 0,
+        likeCount: 0,
+        dislikeCount: 0,
         recommendedRank: recommendedRank > 0 ? recommendedRank : null,
         testMeta,
         scoreMeta: null,
@@ -204,6 +217,8 @@ async function ensureSeeded() {
         creatorName: "系统",
         isPublic: true,
         inviteCode: null,
+        createdAt: now,
+        updatedAt: now,
       });
 
       const categoryIds = await ensureCategories(tx, meta.categories ?? []);
@@ -322,6 +337,10 @@ async function insertProblemSetRow(
     title: string;
     year: number;
     isNew: boolean;
+    isPending: boolean;
+    viewCount: number;
+    likeCount: number;
+    dislikeCount: number;
     recommendedRank: number | null;
     testMeta: TestConfigItem[] | null;
     scoreMeta: number[] | null;
@@ -330,6 +349,8 @@ async function insertProblemSetRow(
     creatorName: string;
     isPublic: boolean;
     inviteCode: string | null;
+    createdAt: number;
+    updatedAt: number;
   }
 ): Promise<number> {
   if (dbDialect === "mysql") {
@@ -463,6 +484,7 @@ export async function loadProblemSetList(options?: {
   }
   if (options?.onlyPublic) {
     conditions.push(eq(problemSets.isPublic, true));
+    conditions.push(eq(problemSets.isPending, false));
   }
   const rows = (await db
     .select()
@@ -473,6 +495,10 @@ export async function loadProblemSetList(options?: {
     title: string;
     year: number;
     isNew: boolean;
+    isPending: boolean;
+    viewCount: number;
+    likeCount: number;
+    dislikeCount: number;
     recommendedRank: number | null;
     testMeta: TestConfigItem[] | number[] | number | null;
     scoreMeta: number[] | null;
@@ -481,6 +507,8 @@ export async function loadProblemSetList(options?: {
     creatorName: string;
     isPublic: boolean;
     inviteCode: string | null;
+    createdAt: number;
+    updatedAt: number;
   }>;
 
   const categoriesMap = await loadCategoriesMap(rows.map((row) => row.id));
@@ -492,12 +520,18 @@ export async function loadProblemSetList(options?: {
     year: row.year,
     categories: categoriesMap.get(row.id) ?? [],
     isNew: Boolean(row.isNew),
+    isPending: Boolean(row.isPending),
+    viewCount: Number(row.viewCount ?? 0),
+    likeCount: Number(row.likeCount ?? 0),
+    dislikeCount: Number(row.dislikeCount ?? 0),
     recommendedRank: row.recommendedRank ?? null,
     questionCount: Number.isFinite(row.questionCount) ? row.questionCount : 0,
     creatorId: row.creatorId,
     creatorName: row.creatorName,
     isPublic: Boolean(row.isPublic),
     inviteCode: row.inviteCode ?? null,
+    createdAt: Number(row.createdAt ?? 0),
+    updatedAt: Number(row.updatedAt ?? row.createdAt ?? 0),
   }));
 
   return items.sort((a, b) => {
@@ -513,6 +547,530 @@ export async function loadProblemSetList(options?: {
     if (a.year !== b.year) return b.year - a.year;
     return a.title.localeCompare(b.title, "zh-Hans-CN");
   });
+}
+
+export async function loadPublicProblemSetPage(options?: {
+  page?: number;
+  pageSize?: number;
+  keyword?: string;
+  category?: string;
+}) {
+  await ensureSeeded();
+  const pageRaw = Number(options?.page ?? 1);
+  const pageSizeRaw = Number(options?.pageSize ?? 12);
+  const page = Number.isFinite(pageRaw) ? Math.max(pageRaw, 1) : 1;
+  const limit = Number.isFinite(pageSizeRaw)
+    ? Math.min(Math.max(pageSizeRaw, 1), 50)
+    : 12;
+  const offset = (page - 1) * limit;
+
+  const keyword = String(options?.keyword ?? "").trim();
+  const categoryName = String(options?.category ?? "").trim();
+  const conditions = [
+    eq(problemSets.isPublic, true),
+    eq(problemSets.isPending, false),
+  ];
+  if (keyword) {
+    const likeValue = `%${keyword}%`;
+    const matches = [
+      like(problemSets.title, likeValue),
+      like(problemSets.code, likeValue),
+      like(problemSets.creatorName, likeValue),
+    ];
+    const yearValue = Number(keyword);
+    if (Number.isFinite(yearValue)) {
+      matches.push(eq(problemSets.year, Math.floor(yearValue)));
+    }
+    conditions.push(or(...matches));
+  }
+  if (categoryName) {
+    const [categoryRow] = await db
+      .select({ id: categories.id })
+      .from(categories)
+      .where(eq(categories.name, categoryName))
+      .limit(1);
+    if (!categoryRow) {
+      return { items: [], total: 0 };
+    }
+    const ids = await db
+      .select({ problemSetId: problemSetCategories.problemSetId })
+      .from(problemSetCategories)
+      .where(eq(problemSetCategories.categoryId, categoryRow.id));
+    const idList = ids.map((row) => row.problemSetId);
+    if (idList.length === 0) {
+      return { items: [], total: 0 };
+    }
+    conditions.push(inArray(problemSets.id, idList));
+  }
+  const whereClause = conditions.length > 1 ? and(...conditions) : conditions[0];
+
+  const [countRow] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(problemSets)
+    .where(whereClause);
+  const total = Number(countRow?.count ?? 0);
+
+  const rows = (await db
+    .select({
+      id: problemSets.id,
+      code: problemSets.code,
+      title: problemSets.title,
+      year: problemSets.year,
+      isNew: problemSets.isNew,
+      isPending: problemSets.isPending,
+      viewCount: problemSets.viewCount,
+      likeCount: problemSets.likeCount,
+      dislikeCount: problemSets.dislikeCount,
+      recommendedRank: problemSets.recommendedRank,
+      questionCount: problemSets.questionCount,
+      creatorId: problemSets.creatorId,
+      creatorName: problemSets.creatorName,
+      isPublic: problemSets.isPublic,
+      createdAt: problemSets.createdAt,
+      updatedAt: problemSets.updatedAt,
+    })
+    .from(problemSets)
+    .where(whereClause)
+    .orderBy(
+      desc(problemSets.isNew),
+      asc(sql`(${problemSets.recommendedRank} IS NULL)`),
+      asc(problemSets.recommendedRank),
+      desc(problemSets.year),
+      asc(problemSets.title)
+    )
+    .limit(limit)
+    .offset(offset)) as Array<{
+    id: number;
+    code: string;
+    title: string;
+    year: number;
+    isNew: boolean;
+    recommendedRank: number | null;
+    questionCount: number;
+    creatorId: string;
+    creatorName: string;
+    isPublic: boolean;
+    createdAt: number;
+    updatedAt: number;
+  }>;
+
+  const categoriesMap = await loadCategoriesMap(rows.map((row) => row.id));
+
+  const items: ProblemSetItem[] = rows.map((row) => ({
+    id: row.code,
+    code: row.code,
+    title: row.title,
+    year: row.year,
+    categories: categoriesMap.get(row.id) ?? [],
+    isNew: Boolean(row.isNew),
+    isPending: Boolean(row.isPending),
+    viewCount: Number(row.viewCount ?? 0),
+    likeCount: Number(row.likeCount ?? 0),
+    dislikeCount: Number(row.dislikeCount ?? 0),
+    recommendedRank: row.recommendedRank ?? null,
+    questionCount: Number.isFinite(row.questionCount) ? row.questionCount : 0,
+    creatorId: row.creatorId,
+    creatorName: row.creatorName,
+    isPublic: Boolean(row.isPublic),
+    inviteCode: null,
+    createdAt: Number(row.createdAt ?? 0),
+    updatedAt: Number(row.updatedAt ?? row.createdAt ?? 0),
+  }));
+
+  return { items, total };
+}
+
+export async function loadProblemSetPlazaPage(options?: {
+  page?: number;
+  pageSize?: number;
+  keyword?: string;
+  order?: string;
+  userId?: string | number;
+}) {
+  await ensureSeeded();
+  const pageRaw = Number(options?.page ?? 1);
+  const pageSizeRaw = Number(options?.pageSize ?? 12);
+  const page = Number.isFinite(pageRaw) ? Math.max(pageRaw, 1) : 1;
+  const limit = Number.isFinite(pageSizeRaw)
+    ? Math.min(Math.max(pageSizeRaw, 1), 50)
+    : 12;
+  const offset = (page - 1) * limit;
+
+  const keyword = String(options?.keyword ?? "").trim();
+  const conditions = [
+    eq(problemSets.isPublic, false),
+    eq(problemSets.isPending, false),
+  ];
+  if (keyword) {
+    const likeValue = `%${keyword}%`;
+    const matches = [
+      like(problemSets.title, likeValue),
+      like(problemSets.code, likeValue),
+      like(problemSets.creatorName, likeValue),
+    ];
+    const yearValue = Number(keyword);
+    if (Number.isFinite(yearValue)) {
+      matches.push(eq(problemSets.year, Math.floor(yearValue)));
+    }
+    conditions.push(or(...matches));
+  }
+  const whereClause = conditions.length > 1 ? and(...conditions) : conditions[0];
+
+  const [countRow] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(problemSets)
+    .where(whereClause);
+  const total = Number(countRow?.count ?? 0);
+
+  const order = String(options?.order ?? "").trim().toLowerCase();
+  const orderBy =
+    order === "hot"
+      ? [
+          desc(problemSets.viewCount),
+          desc(problemSets.updatedAt),
+          desc(problemSets.createdAt),
+        ]
+      : order === "love"
+        ? [
+            desc(
+              sql`((${problemSets.likeCount} + 1.0) / (${problemSets.dislikeCount} + 1.0))`
+            ),
+            desc(problemSets.likeCount),
+            desc(problemSets.updatedAt),
+          ]
+        : [desc(problemSets.updatedAt), desc(problemSets.createdAt), asc(problemSets.title)];
+
+  const rows = (await db
+    .select({
+      id: problemSets.id,
+      code: problemSets.code,
+      title: problemSets.title,
+      year: problemSets.year,
+      isNew: problemSets.isNew,
+      isPending: problemSets.isPending,
+      viewCount: problemSets.viewCount,
+      likeCount: problemSets.likeCount,
+      dislikeCount: problemSets.dislikeCount,
+      recommendedRank: problemSets.recommendedRank,
+      questionCount: problemSets.questionCount,
+      creatorId: problemSets.creatorId,
+      creatorName: problemSets.creatorName,
+      isPublic: problemSets.isPublic,
+      createdAt: problemSets.createdAt,
+      updatedAt: problemSets.updatedAt,
+    })
+    .from(problemSets)
+    .where(whereClause)
+    .orderBy(...orderBy)
+    .limit(limit)
+    .offset(offset)) as Array<{
+    id: number;
+    code: string;
+    title: string;
+    year: number;
+    isNew: boolean;
+    isPending: boolean;
+    viewCount: number;
+    likeCount: number;
+    dislikeCount: number;
+    recommendedRank: number | null;
+    questionCount: number;
+    creatorId: string;
+    creatorName: string;
+    isPublic: boolean;
+    createdAt: number;
+    updatedAt: number;
+  }>;
+
+  const categoriesMap = await loadCategoriesMap(rows.map((row) => row.id));
+  const userId = Number(options?.userId ?? NaN);
+  let reactionMap: Map<number, number> = new Map();
+  if (Number.isFinite(userId) && rows.length > 0) {
+    const reactionRows = await db
+      .select({
+        problemSetId: problemSetReactions.problemSetId,
+        value: problemSetReactions.value,
+      })
+      .from(problemSetReactions)
+      .where(
+        and(
+          eq(problemSetReactions.userId, userId),
+          inArray(
+            problemSetReactions.problemSetId,
+            rows.map((row) => row.id)
+          )
+        )
+      );
+    reactionMap = new Map(
+      reactionRows.map((row) => [row.problemSetId, Number(row.value ?? 0)])
+    );
+  }
+
+  const items: ProblemSetItem[] = rows.map((row) => ({
+    id: row.code,
+    code: row.code,
+    title: row.title,
+    year: row.year,
+    categories: categoriesMap.get(row.id) ?? [],
+    isNew: Boolean(row.isNew),
+    isPending: Boolean(row.isPending),
+    viewCount: Number(row.viewCount ?? 0),
+    likeCount: Number(row.likeCount ?? 0),
+    dislikeCount: Number(row.dislikeCount ?? 0),
+    reaction: reactionMap.get(row.id) ?? 0,
+    recommendedRank: row.recommendedRank ?? null,
+    questionCount: Number.isFinite(row.questionCount) ? row.questionCount : 0,
+    creatorId: row.creatorId,
+    creatorName: row.creatorName,
+    isPublic: Boolean(row.isPublic),
+    inviteCode: null,
+    createdAt: Number(row.createdAt ?? 0),
+    updatedAt: Number(row.updatedAt ?? row.createdAt ?? 0),
+  }));
+
+  return { items, total };
+}
+
+export async function loadAdminProblemSetPage(options?: {
+  page?: number;
+  pageSize?: number;
+  keyword?: string;
+  category?: string;
+  creatorId?: string;
+  onlyCreatorId?: string;
+}) {
+  await ensureSeeded();
+  const pageRaw = Number(options?.page ?? 1);
+  const pageSizeRaw = Number(options?.pageSize ?? 12);
+  const page = Number.isFinite(pageRaw) ? Math.max(pageRaw, 1) : 1;
+  const limit = Number.isFinite(pageSizeRaw)
+    ? Math.min(Math.max(pageSizeRaw, 1), 50)
+    : 12;
+  const offset = (page - 1) * limit;
+
+  const keyword = String(options?.keyword ?? "").trim();
+  const categoryName = String(options?.category ?? "").trim();
+  const creatorId = String(options?.creatorId ?? "").trim();
+
+  const conditions = [];
+  if (options?.onlyCreatorId) {
+    conditions.push(eq(problemSets.creatorId, options.onlyCreatorId));
+  }
+  if (creatorId) {
+    conditions.push(eq(problemSets.creatorId, creatorId));
+  }
+  if (keyword) {
+    const likeValue = `%${keyword}%`;
+    const matches = [
+      like(problemSets.title, likeValue),
+      like(problemSets.code, likeValue),
+      like(problemSets.creatorName, likeValue),
+    ];
+    const yearValue = Number(keyword);
+    if (Number.isFinite(yearValue)) {
+      matches.push(eq(problemSets.year, Math.floor(yearValue)));
+    }
+    conditions.push(or(...matches));
+  }
+  if (categoryName) {
+    const [categoryRow] = await db
+      .select({ id: categories.id })
+      .from(categories)
+      .where(eq(categories.name, categoryName))
+      .limit(1);
+    if (!categoryRow) {
+      return { items: [], total: 0 };
+    }
+    const ids = await db
+      .select({ problemSetId: problemSetCategories.problemSetId })
+      .from(problemSetCategories)
+      .where(eq(problemSetCategories.categoryId, categoryRow.id));
+    const idList = ids.map((row) => row.problemSetId);
+    if (idList.length === 0) {
+      return { items: [], total: 0 };
+    }
+    conditions.push(inArray(problemSets.id, idList));
+  }
+
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+  const [countRow] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(problemSets)
+    .where(whereClause);
+  const total = Number(countRow?.count ?? 0);
+
+  const rows = (await db
+    .select({
+      id: problemSets.id,
+      code: problemSets.code,
+      title: problemSets.title,
+      year: problemSets.year,
+      isNew: problemSets.isNew,
+      isPending: problemSets.isPending,
+      viewCount: problemSets.viewCount,
+      likeCount: problemSets.likeCount,
+      dislikeCount: problemSets.dislikeCount,
+      recommendedRank: problemSets.recommendedRank,
+      questionCount: problemSets.questionCount,
+      creatorId: problemSets.creatorId,
+      creatorName: problemSets.creatorName,
+      isPublic: problemSets.isPublic,
+      createdAt: problemSets.createdAt,
+      updatedAt: problemSets.updatedAt,
+    })
+    .from(problemSets)
+    .where(whereClause)
+    .orderBy(desc(problemSets.updatedAt), desc(problemSets.createdAt))
+    .limit(limit)
+    .offset(offset)) as Array<{
+    id: number;
+    code: string;
+    title: string;
+    year: number;
+    isNew: boolean;
+    isPending: boolean;
+    viewCount: number;
+    likeCount: number;
+    dislikeCount: number;
+    recommendedRank: number | null;
+    questionCount: number;
+    creatorId: string;
+    creatorName: string;
+    isPublic: boolean;
+    createdAt: number;
+    updatedAt: number;
+  }>;
+
+  const categoriesMap = await loadCategoriesMap(rows.map((row) => row.id));
+
+  const items: ProblemSetItem[] = rows.map((row) => ({
+    id: row.code,
+    code: row.code,
+    title: row.title,
+    year: row.year,
+    categories: categoriesMap.get(row.id) ?? [],
+    isNew: Boolean(row.isNew),
+    isPending: Boolean(row.isPending),
+    viewCount: Number(row.viewCount ?? 0),
+    likeCount: Number(row.likeCount ?? 0),
+    dislikeCount: Number(row.dislikeCount ?? 0),
+    recommendedRank: row.recommendedRank ?? null,
+    questionCount: Number.isFinite(row.questionCount) ? row.questionCount : 0,
+    creatorId: row.creatorId,
+    creatorName: row.creatorName,
+    isPublic: Boolean(row.isPublic),
+    inviteCode: null,
+    createdAt: Number(row.createdAt ?? 0),
+    updatedAt: Number(row.updatedAt ?? row.createdAt ?? 0),
+  }));
+
+  return { items, total };
+}
+
+export async function loadPendingProblemSetPage(options?: {
+  page?: number;
+  pageSize?: number;
+  keyword?: string;
+}) {
+  await ensureSeeded();
+  const pageRaw = Number(options?.page ?? 1);
+  const pageSizeRaw = Number(options?.pageSize ?? 12);
+  const page = Number.isFinite(pageRaw) ? Math.max(pageRaw, 1) : 1;
+  const limit = Number.isFinite(pageSizeRaw)
+    ? Math.min(Math.max(pageSizeRaw, 1), 50)
+    : 12;
+  const offset = (page - 1) * limit;
+
+  const keyword = String(options?.keyword ?? "").trim();
+  const conditions = [eq(problemSets.isPending, true)];
+  if (keyword) {
+    const likeValue = `%${keyword}%`;
+    const matches = [
+      like(problemSets.title, likeValue),
+      like(problemSets.code, likeValue),
+      like(problemSets.creatorName, likeValue),
+    ];
+    const yearValue = Number(keyword);
+    if (Number.isFinite(yearValue)) {
+      matches.push(eq(problemSets.year, Math.floor(yearValue)));
+    }
+    conditions.push(or(...matches));
+  }
+  const whereClause = conditions.length > 1 ? and(...conditions) : conditions[0];
+
+  const [countRow] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(problemSets)
+    .where(whereClause);
+  const total = Number(countRow?.count ?? 0);
+
+  const rows = (await db
+    .select({
+      id: problemSets.id,
+      code: problemSets.code,
+      title: problemSets.title,
+      year: problemSets.year,
+      isNew: problemSets.isNew,
+      isPending: problemSets.isPending,
+      viewCount: problemSets.viewCount,
+      likeCount: problemSets.likeCount,
+      dislikeCount: problemSets.dislikeCount,
+      recommendedRank: problemSets.recommendedRank,
+      questionCount: problemSets.questionCount,
+      creatorId: problemSets.creatorId,
+      creatorName: problemSets.creatorName,
+      isPublic: problemSets.isPublic,
+      createdAt: problemSets.createdAt,
+      updatedAt: problemSets.updatedAt,
+    })
+    .from(problemSets)
+    .where(whereClause)
+    .orderBy(desc(problemSets.updatedAt), desc(problemSets.createdAt))
+    .limit(limit)
+    .offset(offset)) as Array<{
+    id: number;
+    code: string;
+    title: string;
+    year: number;
+    isNew: boolean;
+    isPending: boolean;
+    viewCount: number;
+    likeCount: number;
+    dislikeCount: number;
+    recommendedRank: number | null;
+    questionCount: number;
+    creatorId: string;
+    creatorName: string;
+    isPublic: boolean;
+    createdAt: number;
+    updatedAt: number;
+  }>;
+
+  const categoriesMap = await loadCategoriesMap(rows.map((row) => row.id));
+
+  const items: ProblemSetItem[] = rows.map((row) => ({
+    id: row.code,
+    code: row.code,
+    title: row.title,
+    year: row.year,
+    categories: categoriesMap.get(row.id) ?? [],
+    isNew: Boolean(row.isNew),
+    isPending: Boolean(row.isPending),
+    viewCount: Number(row.viewCount ?? 0),
+    likeCount: Number(row.likeCount ?? 0),
+    dislikeCount: Number(row.dislikeCount ?? 0),
+    recommendedRank: row.recommendedRank ?? null,
+    questionCount: Number.isFinite(row.questionCount) ? row.questionCount : 0,
+    creatorId: row.creatorId,
+    creatorName: row.creatorName,
+    isPublic: Boolean(row.isPublic),
+    inviteCode: null,
+    createdAt: Number(row.createdAt ?? 0),
+    updatedAt: Number(row.updatedAt ?? row.createdAt ?? 0),
+  }));
+
+  return { items, total };
 }
 
 export async function loadProblemSetDetail(
@@ -533,6 +1091,10 @@ export async function loadProblemSetDetail(
     title: string;
     year: number;
     isNew: boolean;
+    isPending: boolean;
+    viewCount: number;
+    likeCount: number;
+    dislikeCount: number;
     recommendedRank: number | null;
     testMeta: TestConfigItem[] | number[] | number | null;
     scoreMeta: number[] | null;
@@ -541,6 +1103,8 @@ export async function loadProblemSetDetail(
     creatorName: string;
     isPublic: boolean;
     inviteCode: string | null;
+    createdAt: number;
+    updatedAt: number;
   }>;
   const row = rows[0];
   if (!row) return null;
@@ -582,19 +1146,147 @@ export async function loadProblemSetDetail(
     year: row.year,
     categories: categoryMap.get(row.id) ?? [],
     isNew: Boolean(row.isNew),
+    isPending: Boolean(row.isPending),
+    viewCount: Number(row.viewCount ?? 0),
+    likeCount: Number(row.likeCount ?? 0),
+    dislikeCount: Number(row.dislikeCount ?? 0),
     recommendedRank: row.recommendedRank ?? null,
     questionCount: Number.isFinite(row.questionCount) ? row.questionCount : 0,
     creatorId: options?.creatorId ?? row.creatorId,
     creatorName: options?.creatorName ?? row.creatorName,
     isPublic: Boolean(row.isPublic),
     inviteCode: row.inviteCode ?? null,
+    createdAt: Number(row.createdAt ?? 0),
+    updatedAt: Number(row.updatedAt ?? row.createdAt ?? 0),
     test: testMeta.length ? testMeta : [],
     problems: problemRows.map((problem) => toProblemPayload(problem)),
   } as ProblemSetItem;
 }
 
+export async function incrementProblemSetViewCount(code: string) {
+  await ensureSeeded();
+  await db
+    .update(problemSets)
+    .set({
+      viewCount: sql`${problemSets.viewCount} + 1`,
+    })
+    .where(eq(problemSets.code, code));
+}
+
+export async function setProblemSetReaction(
+  code: string,
+  userId: number,
+  value: number
+) {
+  await ensureSeeded();
+  const normalized = value === -1 ? -1 : 1;
+  const now = Date.now();
+  return db.transaction(async (tx) => {
+    const [setRow] = await tx
+      .select({ id: problemSets.id })
+      .from(problemSets)
+      .where(eq(problemSets.code, code))
+      .limit(1);
+    if (!setRow) return null;
+    const setId = setRow.id;
+    const [existing] = await tx
+      .select({ value: problemSetReactions.value })
+      .from(problemSetReactions)
+      .where(
+        and(
+          eq(problemSetReactions.problemSetId, setId),
+          eq(problemSetReactions.userId, userId)
+        )
+      )
+      .limit(1);
+
+    let deltaLike = 0;
+    let deltaDislike = 0;
+    let reaction = normalized;
+
+    if (!existing) {
+      await tx.insert(problemSetReactions).values({
+        problemSetId: setId,
+        userId,
+        value: normalized,
+        createdAt: now,
+        updatedAt: now,
+      });
+      if (normalized === 1) {
+        deltaLike += 1;
+      } else {
+        deltaDislike += 1;
+      }
+    } else if (Number(existing.value) === normalized) {
+      await tx
+        .delete(problemSetReactions)
+        .where(
+          and(
+            eq(problemSetReactions.problemSetId, setId),
+            eq(problemSetReactions.userId, userId)
+          )
+        );
+      reaction = 0;
+      if (normalized === 1) {
+        deltaLike -= 1;
+      } else {
+        deltaDislike -= 1;
+      }
+    } else {
+      await tx
+        .update(problemSetReactions)
+        .set({ value: normalized, updatedAt: now })
+        .where(
+          and(
+            eq(problemSetReactions.problemSetId, setId),
+            eq(problemSetReactions.userId, userId)
+          )
+        );
+      if (normalized === 1) {
+        deltaLike += 1;
+        deltaDislike -= 1;
+      } else {
+        deltaDislike += 1;
+        deltaLike -= 1;
+      }
+    }
+
+    if (deltaLike !== 0 || deltaDislike !== 0) {
+      await tx
+        .update(problemSets)
+        .set({
+          likeCount: sql`${problemSets.likeCount} + ${deltaLike}`,
+          dislikeCount: sql`${problemSets.dislikeCount} + ${deltaDislike}`,
+        })
+        .where(eq(problemSets.id, setId));
+    }
+
+    const [counts] = await tx
+      .select({
+        likeCount: problemSets.likeCount,
+        dislikeCount: problemSets.dislikeCount,
+      })
+      .from(problemSets)
+      .where(eq(problemSets.id, setId))
+      .limit(1);
+    return {
+      reaction,
+      likeCount: Number(counts?.likeCount ?? 0),
+      dislikeCount: Number(counts?.dislikeCount ?? 0),
+    };
+  });
+}
+
 export async function createProblemSet(item: ProblemSetItem) {
   await ensureSeeded();
+  const createdAtRaw = Number(item.createdAt ?? NaN);
+  const createdAt =
+    Number.isFinite(createdAtRaw) && createdAtRaw > 0 ? createdAtRaw : Date.now();
+  const updatedAtRaw = Number(item.updatedAt ?? NaN);
+  const updatedAt =
+    Number.isFinite(updatedAtRaw) && updatedAtRaw > 0 ? updatedAtRaw : createdAt;
+  const isPublic = Boolean(item.isPublic);
+  const isPending = isPublic ? false : Boolean(item.isPending);
   return db.transaction(async (tx) => {
     const problemList = Array.isArray(item.problems)
       ? (item.problems as ProblemInput[])
@@ -607,14 +1299,20 @@ export async function createProblemSet(item: ProblemSetItem) {
       title: item.title,
       year: item.year,
       isNew: Boolean(item.isNew),
+      isPending,
+      viewCount: Number(item.viewCount ?? 0),
+      likeCount: Number(item.likeCount ?? 0),
+      dislikeCount: Number(item.dislikeCount ?? 0),
       recommendedRank: item.recommendedRank ?? null,
       testMeta: testMeta.length ? testMeta : null,
       scoreMeta: null,
       questionCount: Number.isFinite(item.questionCount) ? item.questionCount : 0,
       creatorId: item.creatorId,
       creatorName: item.creatorName,
-      isPublic: Boolean(item.isPublic),
+      isPublic,
       inviteCode: item.inviteCode ?? null,
+      createdAt,
+      updatedAt,
     });
 
     if (categoryIds.length > 0) {
@@ -647,6 +1345,13 @@ export async function createProblemSet(item: ProblemSetItem) {
       categories: item.categories ?? [],
       questionCount: problemIds.length,
       test: testMeta.length ? testMeta : [],
+      isPublic,
+      isPending,
+      viewCount: Number(item.viewCount ?? 0),
+      likeCount: Number(item.likeCount ?? 0),
+      dislikeCount: Number(item.dislikeCount ?? 0),
+      createdAt,
+      updatedAt,
     } as ProblemSetItem;
   });
 }
@@ -677,6 +1382,9 @@ async function deleteProblemSetRelations(
 
 export async function updateProblemSet(item: ProblemSetItem) {
   await ensureSeeded();
+  const updatedAt = Date.now();
+  const isPublic = Boolean(item.isPublic);
+  const isPending = isPublic ? false : Boolean(item.isPending);
   return db.transaction(async (tx) => {
     const problemList = Array.isArray(item.problems)
       ? (item.problems as ProblemInput[])
@@ -699,14 +1407,19 @@ export async function updateProblemSet(item: ProblemSetItem) {
         title: item.title,
         year: item.year,
         isNew: Boolean(item.isNew),
+        isPending,
+        viewCount: Number(item.viewCount ?? 0),
+        likeCount: Number(item.likeCount ?? 0),
+        dislikeCount: Number(item.dislikeCount ?? 0),
         recommendedRank: item.recommendedRank ?? null,
         testMeta: testMeta.length ? testMeta : null,
         scoreMeta: null,
         questionCount: Number.isFinite(item.questionCount) ? item.questionCount : 0,
         creatorId: item.creatorId,
         creatorName: item.creatorName,
-        isPublic: Boolean(item.isPublic),
+        isPublic,
         inviteCode: item.inviteCode ?? null,
+        updatedAt,
       })
       .where(eq(problemSets.id, setId));
 
@@ -743,6 +1456,12 @@ export async function updateProblemSet(item: ProblemSetItem) {
       categories: item.categories ?? [],
       questionCount: problemIds.length,
       test: testMeta.length ? testMeta : [],
+      isPublic,
+      isPending,
+      viewCount: Number(item.viewCount ?? 0),
+      likeCount: Number(item.likeCount ?? 0),
+      dislikeCount: Number(item.dislikeCount ?? 0),
+      updatedAt,
     } as ProblemSetItem;
   });
 }
@@ -752,6 +1471,7 @@ export async function updateProblemSetRecommended(
   recommendedRank: number | null
 ) {
   await ensureSeeded();
+  const updatedAt = Date.now();
   const rows = (await db
     .select({ id: problemSets.id })
     .from(problemSets)
@@ -760,16 +1480,17 @@ export async function updateProblemSetRecommended(
   if (!rows[0]) return false;
   await db
     .update(problemSets)
-    .set({ recommendedRank })
+    .set({ recommendedRank, updatedAt })
     .where(eq(problemSets.id, rows[0].id));
   return true;
 }
 
 export async function updateProblemSetFlags(
   code: string,
-  flags: { isNew?: boolean; isPublic?: boolean }
+  flags: { isNew?: boolean; isPublic?: boolean; isPending?: boolean }
 ) {
   await ensureSeeded();
+  const updatedAt = Date.now();
   const rows = (await db
     .select({ id: problemSets.id })
     .from(problemSets)
@@ -784,11 +1505,19 @@ export async function updateProblemSetFlags(
     updates.isPublic = flags.isPublic;
     if (flags.isPublic) {
       updates.inviteCode = null;
+      updates.isPending = false;
+    }
+  }
+  if (typeof flags.isPending === "boolean") {
+    updates.isPending = flags.isPending;
+    if (flags.isPending) {
+      updates.isPublic = false;
     }
   }
   if (Object.keys(updates).length === 0) {
     return true;
   }
+  updates.updatedAt = updatedAt;
   await db
     .update(problemSets)
     .set(updates)

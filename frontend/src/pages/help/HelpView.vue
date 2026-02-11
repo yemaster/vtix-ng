@@ -1,20 +1,9 @@
-<script setup lang="ts">
-import Tag from 'primevue/tag'
-</script>
-
 <template>
   <section class="help-page">
-    <header class="page-head">
-      <div class="page-intro">
-        <div class="eyebrow">帮助中心</div>
-        <h1>如何使用 Vtix 答题自测</h1>
-      </div>
-      <div class="head-tags">
-        <Tag value="快速上手" rounded />
-        <Tag value="练习记录" severity="info" rounded />
-        <Tag value="错题管理" severity="warning" rounded />
-      </div>
-    </header>
+    <section class="intro-block">
+      <div class="eyebrow">帮助中心</div>
+      <h1>如何使用 Vtix 答题自测</h1>
+    </section>
 
     <section class="quick-row">
       <article class="quick-card">
@@ -42,60 +31,6 @@ import Tag from 'primevue/tag'
 
     <section class="content-grid">
       <div class="guide-section">
-        <div class="section-head">
-          <h2>核心功能</h2>
-          <p>覆盖从题库选择到数据复盘的完整路径。</p>
-        </div>
-        <section class="guide-grid">
-          <article class="guide-card">
-            <div class="card-title">浏览题库</div>
-            <p>进入“题库”页面查看公开题库，可使用标签与关键词快速筛选。</p>
-            <div class="card-steps">
-              <span>题库列表 → 选择题库 → 点击进入做题</span>
-            </div>
-          </article>
-
-          <article class="guide-card">
-            <div class="card-title">开始练习</div>
-            <p>做题页面支持顺序、乱序、自定义、错题回顾与模拟考试模式。</p>
-            <div class="card-steps">
-              <span>快捷键：Q/W/E/R 选择 · Enter 提交 · ←/→ 切题</span>
-            </div>
-          </article>
-
-          <article class="guide-card">
-            <div class="card-title">模拟考试</div>
-            <p>模拟考试按大题顺序出题，交卷后自动评分并展示得分。</p>
-            <div class="card-steps">
-              <span>切换模拟考试 → 作答 → 交卷 → 查看得分</span>
-            </div>
-          </article>
-
-          <article class="guide-card">
-            <div class="card-title">做题记录</div>
-            <p>记录页面可查看历史练习，支持导入/导出与云端同步。</p>
-            <div class="card-steps">
-              <span>记录页面 → 导出/导入 → 同步云端</span>
-            </div>
-          </article>
-
-          <article class="guide-card">
-            <div class="card-title">错题管理</div>
-            <p>错题会自动保存，支持按题库/题型筛选与批量删除。</p>
-            <div class="card-steps">
-              <span>错题管理 → 筛选 → 练习/删除</span>
-            </div>
-          </article>
-
-          <article class="guide-card">
-            <div class="card-title">创建题库</div>
-            <p>创建题库后可在管理页面继续编辑与维护题目。</p>
-            <div class="card-steps">
-              <span>新建题库 → 编辑题目 → 发布/保存</span>
-            </div>
-          </article>
-        </section>
-
         <section class="qa-section">
           <div class="section-head">
             <h2>常见问题 Q&A</h2>
@@ -108,7 +43,7 @@ import Tag from 'primevue/tag'
             </article>
             <article class="qa-item">
               <div class="qa-q">Q：练习记录会自动保存吗？</div>
-              <div class="qa-a">A：会。做题过程中会定期保存，离开页面也会自动保存最近记录。</div>
+              <div class="qa-a">A：会。做题过程中会定期保存，离开页面也会自动保存最近记录。登录之后，还可以在云端同步。</div>
             </article>
             <article class="qa-item">
               <div class="qa-q">Q：错题如何再次练习？</div>
@@ -123,7 +58,7 @@ import Tag from 'primevue/tag'
               <div class="qa-a">A：可以。在记录页面选择“导入”，上传之前导出的记录文件即可。</div>
             </article>
             <article class="qa-item">
-              <div class="qa-q">Q：我还有其他的问题。</div>
+              <div class="qa-q">Q：我还有其他的问题 / 有 bug 需要反馈！</div>
               <div class="qa-a">A：联系 yemaster，在关于页面查看联系方法。</div>
             </article>
           </div>
@@ -178,32 +113,15 @@ import Tag from 'primevue/tag'
   gap: 22px;
 }
 
-.page-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 18px;
-  padding: 20px 22px;
-  border-radius: 18px;
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  position: relative;
-  overflow: hidden;
-}
-
-.page-head::after {
-  content: none;
-}
-
-.page-head h1 {
+.intro-block h1 {
   margin: 8px 0 6px;
   font-size: 30px;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
-.page-head p {
+.intro-block p {
   margin: 0;
-  color: #6b7280;
+  color: var(--vtix-text-muted);
 }
 
 .page-intro {
@@ -216,7 +134,7 @@ import Tag from 'primevue/tag'
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #9aa2b2;
+  color: var(--vtix-text-subtle);
 }
 
 .intro-meta {
@@ -224,7 +142,7 @@ import Tag from 'primevue/tag'
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  color: #64748b;
+  color: var(--vtix-text-muted);
   margin-top: 4px;
 }
 
@@ -251,9 +169,9 @@ import Tag from 'primevue/tag'
   gap: 12px;
   padding: 16px;
   border-radius: 16px;
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.06);
+  background: var(--vtix-surface);
+  border: 1px solid var(--vtix-border);
+  box-shadow: 0 10px 20px var(--vtix-shadow-soft);
 }
 
 .quick-index {
@@ -267,14 +185,14 @@ import Tag from 'primevue/tag'
 
 .quick-title {
   font-weight: 700;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
   margin-bottom: 4px;
 }
 
 .quick-card p {
   margin: 0;
   font-size: 13px;
-  color: #64748b;
+  color: var(--vtix-text-muted);
   line-height: 1.5;
 }
 
@@ -295,13 +213,13 @@ import Tag from 'primevue/tag'
 .section-head h2 {
   margin: 0;
   font-size: 18px;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .section-head p {
   margin: 0;
   font-size: 13px;
-  color: #6b7280;
+  color: var(--vtix-text-muted);
 }
 
 .guide-grid {
@@ -311,11 +229,11 @@ import Tag from 'primevue/tag'
 }
 
 .guide-card {
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
+  background: var(--vtix-surface);
+  border: 1px solid var(--vtix-border);
   border-radius: 16px;
   padding: 16px 16px 14px;
-  box-shadow: 0 12px 22px rgba(15, 23, 42, 0.06);
+  box-shadow: 0 12px 22px var(--vtix-shadow-soft);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -323,21 +241,21 @@ import Tag from 'primevue/tag'
 
 .card-title {
   font-weight: 700;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .guide-card p {
   margin: 0;
-  color: #6b7280;
+  color: var(--vtix-text-muted);
   font-size: 13px;
   line-height: 1.6;
 }
 
 .card-steps {
   font-size: 12px;
-  color: #475569;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
+  color: var(--vtix-text-muted);
+  background: var(--vtix-surface-2);
+  border: 1px solid var(--vtix-border-strong);
   border-radius: 12px;
   padding: 8px 10px;
 }
@@ -355,8 +273,8 @@ import Tag from 'primevue/tag'
 }
 
 .qa-item {
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
+  background: var(--vtix-surface);
+  border: 1px solid var(--vtix-border);
   border-radius: 14px;
   padding: 14px 16px;
   display: flex;
@@ -366,12 +284,12 @@ import Tag from 'primevue/tag'
 
 .qa-q {
   font-weight: 700;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
   font-size: 14px;
 }
 
 .qa-a {
-  color: #64748b;
+  color: var(--vtix-text-muted);
   font-size: 13px;
   line-height: 1.6;
 }
@@ -385,11 +303,11 @@ import Tag from 'primevue/tag'
 }
 
 .panel {
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
+  background: var(--vtix-surface);
+  border: 1px solid var(--vtix-border);
   border-radius: 16px;
   padding: 14px 14px 16px;
-  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.05);
+  box-shadow: 0 10px 20px var(--vtix-shadow-soft);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -397,7 +315,7 @@ import Tag from 'primevue/tag'
 
 .panel-title {
   font-weight: 700;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
   font-size: 14px;
 }
 
@@ -412,16 +330,16 @@ import Tag from 'primevue/tag'
   justify-content: space-between;
   gap: 10px;
   font-size: 12px;
-  color: #64748b;
+  color: var(--vtix-text-muted);
 }
 
 .shortcut-key {
   font-weight: 700;
-  color: #1e293b;
-  background: #f1f5f9;
+  color: var(--vtix-text-strong);
+  background: var(--vtix-surface-3);
   border-radius: 10px;
   padding: 4px 8px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--vtix-border-strong);
   min-width: 72px;
   text-align: center;
 }
@@ -429,7 +347,7 @@ import Tag from 'primevue/tag'
 .panel-list {
   margin: 0;
   padding-left: 16px;
-  color: #64748b;
+  color: var(--vtix-text-muted);
   font-size: 12px;
   display: grid;
   gap: 6px;
@@ -442,16 +360,12 @@ import Tag from 'primevue/tag'
 
 .panel.highlight p {
   margin: 0;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
   font-size: 13px;
   line-height: 1.6;
 }
 
 @media (max-width: 900px) {
-  .page-head {
-    flex-direction: column;
-  }
-
   .content-grid {
     grid-template-columns: 1fr;
   }

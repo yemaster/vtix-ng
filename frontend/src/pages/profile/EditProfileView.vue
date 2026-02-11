@@ -288,19 +288,19 @@ onMounted(() => {
 .page-head h1 {
   margin: 8px 0 6px;
   font-size: 28px;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .page-head p {
   margin: 0;
-  color: #6b7280;
+  color: var(--vtix-text-muted);
 }
 
 .eyebrow {
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #9aa2b2;
+  color: var(--vtix-text-subtle);
 }
 
 .edit-tabs :deep(.p-tabmenu-nav) {
@@ -312,21 +312,21 @@ onMounted(() => {
 .edit-tabs :deep(.p-tabmenuitem-link) {
   border-radius: 10px;
   border: 1px solid transparent;
-  color: #6b7280;
+  color: var(--vtix-text-muted);
   font-weight: 700;
   padding: 8px 14px;
   transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
 }
 
 .edit-tabs :deep(.p-tabmenuitem.p-highlight .p-tabmenuitem-link) {
-  background: #f1f3f6;
-  color: #0f172a;
-  border-color: #e5e7eb;
+  background: var(--vtix-surface-5);
+  color: var(--vtix-text-strong);
+  border-color: var(--vtix-border);
 }
 
 .edit-tabs :deep(.p-tabmenuitem-link:hover) {
-  background: #f8fafc;
-  color: #0f172a;
+  background: var(--vtix-surface-2);
+  color: var(--vtix-text-strong);
 }
 
 .panel-stack {
@@ -336,11 +336,11 @@ onMounted(() => {
 }
 
 .panel-card {
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
+  background: var(--vtix-surface);
+  border: 1px solid var(--vtix-border);
   border-radius: 16px;
   padding: 18px;
-  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 14px 28px var(--vtix-shadow);
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -353,7 +353,7 @@ onMounted(() => {
 
 .panel-empty {
   text-align: center;
-  color: #64748b;
+  color: var(--vtix-text-muted);
 }
 
 .form-grid {
@@ -363,8 +363,8 @@ onMounted(() => {
 }
 
 .form-grid.readonly :deep(.p-inputtext) {
-  background: #f8fafc;
-  color: #64748b;
+  background: var(--vtix-surface-2);
+  color: var(--vtix-text-muted);
 }
 
 .form-stack {
@@ -382,7 +382,7 @@ onMounted(() => {
 .section-title {
   font-size: 13px;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .field {
@@ -391,7 +391,7 @@ onMounted(() => {
   gap: 8px;
   font-size: 13px;
   font-weight: 600;
-  color: #475569;
+  color: var(--vtix-text-muted);
 }
 
 .field :deep(.p-inputtext) {
@@ -400,7 +400,7 @@ onMounted(() => {
 
 .form-hint {
   font-size: 12px;
-  color: #64748b;
+  color: var(--vtix-text-muted);
 }
 
 .form-actions {

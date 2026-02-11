@@ -87,6 +87,8 @@ async function resolveGroup(groupId: string) {
       id: group.id,
       name: group.name,
       permissions: group.permissions,
+      privateProblemSetLimit:
+        Number(group.privateProblemSetLimit ?? USER_GROUPS.user.privateProblemSetLimit) ?? -1,
     };
   }
   return USER_GROUPS.user;
@@ -108,6 +110,7 @@ async function toSessionUser(row: DbUser): Promise<User> {
     groupId: group.id,
     groupName: group.name,
     permissions: group.permissions,
+    privateProblemSetLimit: group.privateProblemSetLimit,
   };
 }
 

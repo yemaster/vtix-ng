@@ -122,7 +122,7 @@ onMounted(() => {
               <td>
                 <RouterLink class="notice-link" :to="{ name: 'notice-detail', params: { id: item.id } }">
                   <span class="notice-title">{{ item.title }}</span>
-                  <Tag v-if="item.isPinned" value="置顶" severity="info" rounded />
+                  <Tag v-if="item.isPinned" value="置顶" severity="secondary" rounded />
                 </RouterLink>
               </td>
               <td class="notice-meta">{{ item.authorName }}</td>
@@ -159,19 +159,19 @@ onMounted(() => {
 .page-head h1 {
   margin: 8px 0 6px;
   font-size: 30px;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .page-head p {
   margin: 0;
-  color: #6b7280;
+  color: var(--vtix-text-muted);
 }
 
 .eyebrow {
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #9aa2b2;
+  color: var(--vtix-text-subtle);
 }
 
 .head-actions {
@@ -181,8 +181,8 @@ onMounted(() => {
 }
 
 .notice-card {
-  background: #ffffff;
-  border: 1px solid #e4e7ec;
+  background: var(--vtix-surface);
+  border: 1px solid var(--vtix-border);
   border-radius: 16px;
   padding: 18px;
   display: flex;
@@ -204,27 +204,27 @@ onMounted(() => {
 .notice-table th {
   text-align: left;
   font-size: 12px;
-  color: #9aa2b2;
+  color: var(--vtix-text-subtle);
   font-weight: 600;
   padding: 10px;
-  border-bottom: 1px solid #e4e7ec;
-  background: #f8fafc;
+  border-bottom: 1px solid var(--vtix-border);
+  background: var(--vtix-surface-2);
   position: sticky;
   top: 0;
 }
 
 .notice-table td {
   padding: 10px;
-  border-bottom: 1px dashed #e4e7ec;
+  border-bottom: 1px dashed var(--vtix-border);
   vertical-align: middle;
 }
 
 .notice-table tr.pinned td {
-  background: #f8fbff;
+  background: var(--vtix-surface-3);
 }
 
 .notice-table tr:hover td {
-  background: #f1f5f9;
+  background: var(--vtix-surface-3);
 }
 
 .notice-link {
@@ -241,29 +241,29 @@ onMounted(() => {
 }
 
 .notice-title {
-  color: #111827;
+  color: var(--vtix-text);
   font-weight: 700;
 }
 
 .notice-meta,
 .notice-time {
-  color: #64748b;
+  color: var(--vtix-text-muted);
   font-size: 12px;
   white-space: nowrap;
 }
 
 .loading,
 .empty {
-  color: #9aa2b2;
+  color: var(--vtix-text-subtle);
   text-align: center;
   font-size: 13px;
   padding: 16px 0;
 }
 
 .status {
-  border: 1px solid #fecaca;
-  background: #fff1f2;
-  color: #991b1b;
+  border: 1px solid var(--vtix-danger-border);
+  background: var(--vtix-danger-bg);
+  color: var(--vtix-danger-text);
   padding: 14px 16px;
   border-radius: 14px;
   display: flex;

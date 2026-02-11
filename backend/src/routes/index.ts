@@ -6,6 +6,7 @@ import { registerProblemSetRoutes } from "./problemSets";
 import { registerRecordRoutes } from "./records";
 import { registerStatsRoutes } from "./stats";
 import { registerVersionRoutes } from "./version";
+import { registerMessageRoutes } from "./messages";
 
 export const registerRoutes = (app: Elysia) =>
   app
@@ -13,6 +14,7 @@ export const registerRoutes = (app: Elysia) =>
     .use(registerVersionRoutes)
     .use(registerStatsRoutes)
     .use(registerNoticeRoutes)
+    .use(registerMessageRoutes)
     .use(registerAdminRoutes)
     .use(registerProblemSetRoutes)
     .use(registerRecordRoutes);

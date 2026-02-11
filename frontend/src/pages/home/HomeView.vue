@@ -359,7 +359,7 @@ function syncBannerHeight() {
                   <td>
                     <RouterLink class="notice-link" :to="{ name: 'notice-detail', params: { id: item.id } }">
                       <span class="notice-title">{{ item.title }}</span>
-                      <Tag v-if="item.isPinned" value="置顶" severity="info" rounded />
+                      <Tag v-if="item.isPinned" value="置顶" severity="secondary" rounded />
                     </RouterLink>
                   </td>
                   <td class="notice-meta">{{ item.authorName || '管理员' }}</td>
@@ -450,7 +450,7 @@ function syncBannerHeight() {
   flex-direction: column;
   gap: 20px;
   --card-radius: 14px;
-  --card-border: #e4e7ec;
+  --card-border: var(--vtix-border);
 }
 
 .top-grid {
@@ -461,7 +461,7 @@ function syncBannerHeight() {
 }
 
 .hero-card {
-  background: #ffffff;
+  background: var(--vtix-surface);
   border: 1px solid var(--card-border);
   border-radius: var(--card-radius);
   padding: 28px;
@@ -471,20 +471,20 @@ function syncBannerHeight() {
   font-size: 12px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: #6f7785;
+  color: var(--vtix-text-muted);
   margin-bottom: 8px;
 }
 
 h1 {
   margin: 0 0 10px;
-  color: #151820;
+  color: var(--vtix-text-strong);
   font-size: 32px;
   letter-spacing: -0.02em;
 }
 
 p {
   margin: 0 0 18px;
-  color: #525a66;
+  color: var(--vtix-text-muted);
   max-width: 720px;
 }
 
@@ -503,19 +503,19 @@ p {
 
 .meta-label {
   font-size: 12px;
-  color: #7b8494;
+  color: var(--vtix-text-muted);
   letter-spacing: 0.02em;
 }
 
 .meta-value {
   font-weight: 800;
-  color: #151820;
+  color: var(--vtix-text-strong);
   font-size: 20px;
   margin-top: 4px;
 }
 
 .meta-value.positive {
-  color: #0f9b6c;
+  color: var(--vtix-success-text);
 }
 
 .grid {
@@ -529,7 +529,7 @@ p {
 }
 
 .stat-card {
-  background: #ffffff;
+  background: var(--vtix-surface);
   border: 1px solid var(--card-border);
   border-radius: var(--card-radius);
   padding: 16px;
@@ -546,7 +546,7 @@ p {
 }
 
 .stat-label {
-  color: #7b8494;
+  color: var(--vtix-text-muted);
   font-size: 13px;
 }
 
@@ -556,8 +556,8 @@ p {
   padding: 3px 8px;
   border-radius: 999px;
   border: 1px solid transparent;
-  background: #f1f5f9;
-  color: #475569;
+  background: var(--vtix-surface-3);
+  color: var(--vtix-text-muted);
 }
 
 .stat-tag.is-indigo {
@@ -580,12 +580,12 @@ p {
 
 .stat-value {
   font-size: 28px;
-  color: #151820;
+  color: var(--vtix-text-strong);
   font-weight: 800;
 }
 
 .stat-detail {
-  color: #6b7280;
+  color: var(--vtix-text-muted);
   font-size: 12px;
 }
 
@@ -602,7 +602,7 @@ p {
 }
 
 .panel.notice-panel {
-  background: #ffffff;
+  background: var(--vtix-surface);
   position: relative;
   overflow: hidden;
   display: flex;
@@ -612,7 +612,7 @@ p {
 }
 
 .panel {
-  background: #ffffff;
+  background: var(--vtix-surface);
   border: 1px solid var(--card-border);
   border-radius: var(--card-radius);
   padding: 18px;
@@ -630,13 +630,13 @@ p {
   font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #9aa2b2;
+  color: var(--vtix-text-subtle);
   margin-bottom: 4px;
 }
 
 .panel h2 {
   margin: 0;
-  color: #161b22;
+  color: var(--vtix-text-strong);
   font-size: 20px;
 }
 
@@ -675,7 +675,7 @@ p {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  background: #f7f8fa;
+  background: var(--vtix-surface-4);
   border: 1px dashed var(--card-border);
   border-radius: var(--card-radius);
   padding: 12px;
@@ -688,11 +688,11 @@ p {
 
 .record-title {
   font-weight: 700;
-  color: #111827;
+  color: var(--vtix-text);
 }
 
 .record-meta {
-  color: #6b7280;
+  color: var(--vtix-text-muted);
   font-size: 12px;
   margin-top: 4px;
 }
@@ -701,7 +701,7 @@ p {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  color: #475569;
+  color: var(--vtix-text-muted);
   font-size: 12px;
   text-align: right;
 }
@@ -711,7 +711,7 @@ p {
 }
 
 .record-empty {
-  color: #9aa2b2;
+  color: var(--vtix-text-subtle);
   text-align: center;
   font-size: 13px;
   padding: 12px 0;
@@ -731,7 +731,7 @@ p {
 .timeline-item {
   padding: 12px;
   border-radius: var(--card-radius);
-  background: #f7f8fa;
+  background: var(--vtix-surface-4);
   border: 1px dashed var(--card-border);
 }
 
@@ -745,12 +745,12 @@ p {
 }
 
 .timeline-name {
-  color: #111827;
+  color: var(--vtix-text);
   font-weight: 700;
 }
 
 .timeline-date {
-  color: #6b7280;
+  color: var(--vtix-text-muted);
   font-size: 13px;
 }
 
@@ -770,11 +770,11 @@ p {
 .notice-table th {
   text-align: left;
   font-size: 12px;
-  color: #9aa2b2;
+  color: var(--vtix-text-subtle);
   font-weight: 600;
   padding: 8px 10px;
   border-bottom: 1px solid var(--card-border);
-  background: #f8fafc;
+  background: var(--vtix-surface-2);
   position: sticky;
   top: 0;
 }
@@ -786,11 +786,11 @@ p {
 }
 
 .notice-table tr.is-pinned td {
-  background: #f8fbff;
+  background: var(--vtix-surface-3);
 }
 
 .notice-table tr:hover td {
-  background: var(--vtix-primary-50);
+  background: var(--vtix-surface-2);
 }
 
 .notice-link {
@@ -807,24 +807,24 @@ p {
 }
 
 .notice-title {
-  color: #111827;
+  color: var(--vtix-text);
   font-weight: 700;
 }
 
 .notice-meta {
-  color: #64748b;
+  color: var(--vtix-text-muted);
   font-size: 12px;
   white-space: nowrap;
 }
 
 .notice-time {
-  color: #6b7280;
+  color: var(--vtix-text-muted);
   font-size: 12px;
   white-space: nowrap;
 }
 
 .notice-empty {
-  color: #9aa2b2;
+  color: var(--vtix-text-subtle);
   text-align: center;
   font-size: 13px;
   padding: 12px 0;

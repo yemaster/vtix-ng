@@ -227,19 +227,19 @@ onMounted(() => {
 .page-head h1 {
   margin: 8px 0 6px;
   font-size: 30px;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .page-head p {
   margin: 0;
-  color: #6b7280;
+  color: var(--vtix-text-muted);
 }
 
 .eyebrow {
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #9aa2b2;
+  color: var(--vtix-text-subtle);
 }
 
 .head-actions {
@@ -253,13 +253,13 @@ onMounted(() => {
   border-radius: 999px;
   font-size: 12px;
   font-weight: 700;
-  background: #0f172a;
-  color: #ffffff;
+  background: var(--vtix-ink);
+  color: var(--vtix-inverse-text);
 }
 
 .tag.soft {
-  background: #e2e8f0;
-  color: #0f172a;
+  background: var(--vtix-border-strong);
+  color: var(--vtix-text-strong);
 }
 
 .stats-grid {
@@ -269,9 +269,9 @@ onMounted(() => {
 }
 
 .status {
-  border: 1px solid #fecaca;
-  background: #fff1f2;
-  color: #991b1b;
+  border: 1px solid var(--vtix-danger-border);
+  background: var(--vtix-danger-bg);
+  color: var(--vtix-danger-text);
   padding: 14px 16px;
   border-radius: 14px;
   display: flex;
@@ -294,7 +294,7 @@ onMounted(() => {
 }
 
 .stat-title {
-  color: #64748b;
+  color: var(--vtix-text-muted);
   font-weight: 600;
   font-size: 13px;
 }
@@ -302,12 +302,12 @@ onMounted(() => {
 .stat-value {
   font-size: 32px;
   font-weight: 800;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .stat-meta {
   font-size: 12px;
-  color: #94a3b8;
+  color: var(--vtix-text-subtle);
 }
 
 .stat-card.skeleton {
@@ -316,7 +316,7 @@ onMounted(() => {
 
 .skeleton-line {
   border-radius: 999px;
-  background: linear-gradient(90deg, #e2e8f0, #f8fafc, #e2e8f0);
+  background: linear-gradient(90deg, var(--vtix-border-strong), var(--vtix-surface-2), var(--vtix-border-strong));
   background-size: 200% 100%;
   animation: shimmer 1.6s infinite;
 }
@@ -350,9 +350,9 @@ onMounted(() => {
 
 .quick-card {
   border-radius: 14px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--vtix-border-strong);
   padding: 12px;
-  background: #f8fafc;
+  background: var(--vtix-surface-2);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -372,22 +372,22 @@ onMounted(() => {
 
 .quick-card:not(.disabled):hover {
   transform: translateY(-1px);
-  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 10px 20px var(--vtix-shadow);
 }
 
 .quick-title {
   font-weight: 700;
-  color: #0f172a;
+  color: var(--vtix-text-strong);
 }
 
 .quick-desc {
   font-size: 12px;
-  color: #64748b;
+  color: var(--vtix-text-muted);
 }
 
 .quick-note {
   font-size: 12px;
-  color: #94a3b8;
+  color: var(--vtix-text-subtle);
 }
 
 @keyframes shimmer {

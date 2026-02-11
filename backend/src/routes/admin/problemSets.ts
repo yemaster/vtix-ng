@@ -3,14 +3,19 @@ import { Elysia } from "elysia";
 import {
   createProblemSet,
   deleteProblemSet,
+  loadAdminProblemSetPage,
   loadProblemSetDetail,
   loadProblemSetList,
+  loadPendingProblemSetPage,
   updateProblemSetFlags,
   updateProblemSetRecommended,
 } from "../../services/problemSets";
+import { createMessage } from "../../services/messages";
 import { PERMISSIONS, hasPermission } from "../../utils/permissions";
 import { getSessionUser } from "../../utils/session";
 import { normalizeProblems } from "../problemSets/normalize";
+
+const MAX_QUESTION_COUNT = 4096;
 
 function generateUniqueCode(existing: Set<string>) {
   let code = "";
@@ -23,7 +28,7 @@ function generateUniqueCode(existing: Set<string>) {
 
 export const registerAdminProblemSetRoutes = (app: Elysia) =>
   app
-    .get("/api/admin/problem-sets", async ({ request, set }) => {
+    .get("/api/admin/problem-sets", async ({ request, set, query }) => {
       const user = getSessionUser(request);
       if (!user) {
         set.status = 401;
@@ -41,9 +46,73 @@ export const registerAdminProblemSetRoutes = (app: Elysia) =>
         set.status = 403;
         return { error: "Forbidden" };
       }
-      return loadProblemSetList(
-        canManageAll ? undefined : { onlyCreatorId: user.id }
+      const pageRaw = Number((query as any)?.page ?? NaN);
+      const pageSizeRaw = Number((query as any)?.pageSize ?? NaN);
+      const keyword =
+        typeof (query as any)?.q === "string" ? String((query as any).q) : "";
+      const category =
+        typeof (query as any)?.category === "string"
+          ? String((query as any).category)
+          : "";
+      const creatorId =
+        typeof (query as any)?.creator === "string"
+          ? String((query as any).creator)
+          : "";
+      const shouldPaginate =
+        Number.isFinite(pageRaw) ||
+        Number.isFinite(pageSizeRaw) ||
+        Boolean(keyword.trim()) ||
+        Boolean(category.trim()) ||
+        Boolean(creatorId.trim());
+      if (!shouldPaginate) {
+        return loadProblemSetList(
+          canManageAll ? undefined : { onlyCreatorId: user.id }
+        );
+      }
+      const page = Number.isFinite(pageRaw) ? Math.max(pageRaw, 1) : 1;
+      const pageSize = Number.isFinite(pageSizeRaw)
+        ? Math.min(Math.max(pageSizeRaw, 1), 50)
+        : 12;
+      const { items, total } = await loadAdminProblemSetPage({
+        page,
+        pageSize,
+        keyword,
+        category,
+        creatorId: canManageAll ? creatorId : "",
+        onlyCreatorId: canManageAll ? undefined : user.id,
+      });
+      set.headers["x-total-count"] = String(total);
+      return items;
+    })
+    .get("/api/admin/problem-sets/pending", async ({ request, set, query }) => {
+      const user = getSessionUser(request);
+      if (!user) {
+        set.status = 401;
+        return { error: "Unauthorized" };
+      }
+      const canManageAll = hasPermission(
+        user.permissions,
+        PERMISSIONS.MANAGE_QUESTION_BANK_ALL
       );
+      if (!canManageAll) {
+        set.status = 403;
+        return { error: "Forbidden" };
+      }
+      const pageRaw = Number((query as any)?.page ?? 1);
+      const pageSizeRaw = Number((query as any)?.pageSize ?? 12);
+      const keyword =
+        typeof (query as any)?.q === "string" ? String((query as any).q) : "";
+      const page = Number.isFinite(pageRaw) ? Math.max(pageRaw, 1) : 1;
+      const pageSize = Number.isFinite(pageSizeRaw)
+        ? Math.min(Math.max(pageSizeRaw, 1), 50)
+        : 12;
+      const { items, total } = await loadPendingProblemSetPage({
+        page,
+        pageSize,
+        keyword,
+      });
+      set.headers["x-total-count"] = String(total);
+      return items;
     })
     .get("/api/admin/problem-sets/export", async ({ request, set }) => {
       const user = getSessionUser(request);
@@ -176,6 +245,14 @@ export const registerAdminProblemSetRoutes = (app: Elysia) =>
           errors.push({ index, reason: "Empty problems." });
           continue;
         }
+        if (problems.length > MAX_QUESTION_COUNT) {
+          skipped += 1;
+          errors.push({
+            index,
+            reason: `题目数量超过上限（${MAX_QUESTION_COUNT}）。`,
+          });
+          continue;
+        }
         const yearValue = Number(raw.year ?? new Date().getFullYear());
         const year = Number.isFinite(yearValue)
           ? yearValue
@@ -188,6 +265,7 @@ export const registerAdminProblemSetRoutes = (app: Elysia) =>
           ? Number(raw.recommendedRank)
           : null;
         const isPublic = Boolean(raw.isPublic);
+        const isPending = !isPublic && Boolean(raw.isPending);
         const inviteCode = isPublic
           ? null
           : raw.inviteCode
@@ -212,6 +290,7 @@ export const registerAdminProblemSetRoutes = (app: Elysia) =>
             year,
             categories,
             isNew,
+            isPending,
             recommendedRank,
             questionCount: problems.length,
             creatorId,
@@ -353,7 +432,10 @@ export const registerAdminProblemSetRoutes = (app: Elysia) =>
               missing.push(code);
               continue;
             }
-            await updateProblemSetFlags(code, { isPublic });
+            await updateProblemSetFlags(code, {
+              isPublic,
+              isPending: false,
+            });
             updated += 1;
           }
           return { updated, skipped, missing };
@@ -467,20 +549,82 @@ export const registerAdminProblemSetRoutes = (app: Elysia) =>
         set.status = 403;
         return { error: "Forbidden" };
       }
-      const payload = (body ?? {}) as { isNew?: boolean; isPublic?: boolean };
+      const payload = (body ?? {}) as {
+        isNew?: boolean;
+        isPublic?: boolean;
+        isPending?: boolean;
+      };
       const nextIsNew =
         typeof payload.isNew === "boolean" ? payload.isNew : undefined;
       const nextIsPublic =
         typeof payload.isPublic === "boolean" ? payload.isPublic : undefined;
+      const nextIsPending =
+        typeof payload.isPending === "boolean" ? payload.isPending : undefined;
       const ok = await updateProblemSetFlags(params.code, {
         isNew: nextIsNew,
         isPublic: nextIsPublic,
+        isPending: nextIsPending,
       });
       if (!ok) {
         set.status = 404;
         return { error: "Not Found" };
       }
       return { ok: true, isNew: nextIsNew, isPublic: nextIsPublic };
+    })
+    .put("/api/admin/problem-sets/:code/review", async ({ params, request, body, set }) => {
+      const user = getSessionUser(request);
+      if (!user) {
+        set.status = 401;
+        return { error: "Unauthorized" };
+      }
+      const canManageAll = hasPermission(
+        user.permissions,
+        PERMISSIONS.MANAGE_QUESTION_BANK_ALL
+      );
+      if (!canManageAll) {
+        set.status = 403;
+        return { error: "Forbidden" };
+      }
+      const detail = await loadProblemSetDetail(params.code);
+      if (!detail) {
+        set.status = 404;
+        return { error: "Not Found" };
+      }
+      if (!detail.isPending) {
+        set.status = 400;
+        return { error: "Not pending" };
+      }
+      const payload = (body ?? {}) as { action?: string };
+      const action = String(payload.action ?? "");
+      if (action !== "approve" && action !== "reject") {
+        set.status = 400;
+        return { error: "Invalid action" };
+      }
+      const ok = await updateProblemSetFlags(params.code, {
+        isPublic: action === "approve",
+        isPending: false,
+      });
+      if (!ok) {
+        set.status = 404;
+        return { error: "Not Found" };
+      }
+      const senderId = Number(user.id);
+      const receiverId = Number(detail.creatorId);
+      if (Number.isFinite(senderId) && Number.isFinite(receiverId)) {
+        await createMessage({
+          senderId,
+          senderName: user.name ?? "管理员",
+          receiverId,
+          receiverName: detail.creatorName ?? String(detail.creatorId),
+          content:
+            action === "approve"
+              ? `你的${detail.title}题库被审核通过`
+              : `你的${detail.title}题库审核未通过`,
+          type: 1,
+          link: "/admin/question-banks",
+        });
+      }
+      return { ok: true };
     })
     .delete("/api/admin/problem-sets/:code", async ({ params, request, set }) => {
       const user = getSessionUser(request);
