@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, ref, watch } from 'vue'
+import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { format, formatDistanceToNow } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 import Button from 'primevue/button'
@@ -20,7 +20,6 @@ type PlazaItem = {
   creatorId?: string
   creatorName?: string
   updatedAt?: number
-  isNew: boolean
   recommendedRank: number | null
   categories: string[]
   questionCount: number
@@ -46,15 +45,44 @@ const reacting = reactive<Record<string, boolean>>({})
 const search = ref('')
 const debouncedSearch = ref('')
 let searchTimer: number | null = null
-const pageSize = ref(6)
+const MOBILE_BREAKPOINT = 648
+const TABLET_BREAKPOINT = 968
+
+function getColumnCountByWidth(width: number) {
+  if (width <= MOBILE_BREAKPOINT) return 1
+  if (width <= TABLET_BREAKPOINT) return 2
+  return 3
+}
+
+function getPageSizeByWidth(width: number) {
+  const columns = getColumnCountByWidth(width)
+  if (columns === 1) return 5
+  if (columns === 2) return 8
+  return 12
+}
+
+const pageSize = ref(getPageSizeByWidth(typeof window === 'undefined' ? 1200 : window.innerWidth))
 const currentPage = ref(1)
-const pageSizeOptions = [6, 12]
 const sortValue = ref('time')
 const sortOptions = [
   { label: '按时间降序', value: 'time' },
   { label: '按热度降序', value: 'hot' },
   { label: '按喜爱降序', value: 'love' }
 ]
+
+function syncPageSizeByViewport() {
+  if (typeof window === 'undefined') return false
+  const nextPageSize = getPageSizeByWidth(window.innerWidth)
+  if (nextPageSize === pageSize.value) return false
+  const firstVisibleIndex = (currentPage.value - 1) * pageSize.value
+  pageSize.value = nextPageSize
+  currentPage.value = Math.floor(firstVisibleIndex / nextPageSize) + 1
+  return true
+}
+
+function handleResize() {
+  syncPageSizeByViewport()
+}
 
 function formatFullTime(timestamp: number) {
   if (!Number.isFinite(timestamp) || timestamp <= 0) {
@@ -115,9 +143,6 @@ async function loadItems() {
 }
 
 function handlePage(event: PageState) {
-  if (typeof event.rows === 'number') {
-    pageSize.value = event.rows
-  }
   const page = event.page ?? 0
   currentPage.value = page + 1
 }
@@ -243,6 +268,15 @@ watch(sortValue, () => {
   }
   void loadItems()
 })
+
+onMounted(() => {
+  window.addEventListener('resize', handleResize)
+  syncPageSizeByViewport()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', handleResize)
+})
 </script>
 
 <template>
@@ -260,6 +294,15 @@ watch(sortValue, () => {
           size="small"
           class="action-btn primary"
           @click="handleCreateClick"
+        />
+        <Button
+          v-else
+          text
+          label="登录后新建题库"
+          severity="danger"
+          size="small"
+          class="action-btn primary"
+          disabled
         />
         <Button
           label="刷新"
@@ -396,7 +439,6 @@ watch(sortValue, () => {
             <div class="count-label">题目数</div>
           </div>
         </div>
-        <div v-if="item.isNew" class="corner-badge" aria-hidden="true"></div>
       </div>
     </div>
     <div v-if="!isLoading && items.length === 0" class="empty">暂无非公开题库</div>
@@ -406,8 +448,7 @@ watch(sortValue, () => {
         :first="(currentPage - 1) * pageSize"
         :rows="pageSize"
         :totalRecords="totalRecords"
-        :rowsPerPageOptions="pageSizeOptions"
-        template="PrevPageLink PageLinks NextPageLink RowsPerPageSelect"
+        template="PrevPageLink PageLinks NextPageLink"
         @page="handlePage"
       />
     </div>
@@ -633,32 +674,6 @@ watch(sortValue, () => {
   gap: 10px 12px;
 }
 
-.react-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0;
-  border: none;
-  background: none;
-  color: var(--vtix-text-muted);
-  font-size: 12px;
-  line-height: 1.5;
-  cursor: pointer;
-}
-
-.react-link:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.react-link.active {
-  color: var(--vtix-primary-500);
-}
-
-.react-link.dislike.active {
-  color: var(--vtix-danger-text);
-}
-
 .card-meta {
   color: var(--vtix-text-subtle);
   font-size: 12px;
@@ -695,17 +710,60 @@ watch(sortValue, () => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  border-radius: 999px;
+  padding: 3px 10px;
+  border: 1px solid var(--vtix-border);
+  background: var(--vtix-surface-2);
   color: var(--vtix-text-muted);
+  font-variant-numeric: tabular-nums;
 }
 
-.pill-group {
-  display: flex;
-  flex-wrap: wrap;
+.react-link {
+  display: inline-flex;
+  align-items: center;
   gap: 6px;
+  padding: 3px 10px;
+  border: 1px solid var(--vtix-border);
+  background: var(--vtix-surface-2);
+  border-radius: 999px;
+  color: var(--vtix-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease,
+    color 0.2s ease,
+    transform 0.2s ease;
+  cursor: pointer;
 }
 
-.pill-group :deep(.p-tag) {
+.react-link:hover {
+  transform: translateY(-1px);
+  border-color: var(--vtix-border-strong);
+  background: var(--vtix-surface-3);
+}
+
+.react-link .pi {
   font-size: 12px;
+}
+
+.react-link.active {
+  color: var(--vtix-primary-500);
+  border-color: var(--vtix-primary-300);
+  background: var(--vtix-primary-100);
+}
+
+.react-link.dislike.active {
+  color: var(--vtix-danger-text);
+  border-color: var(--vtix-danger-border);
+  background: var(--vtix-danger-bg);
+}
+
+.react-link:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .card-actions {
@@ -719,15 +777,14 @@ watch(sortValue, () => {
   padding-left: 0;
 }
 
-.corner-badge {
-  position: absolute;
-  top: 0;
-  right: 0;
-  width: 0;
-  height: 0;
-  border-top: 32px solid var(--vtix-danger-solid);
-  border-left: 32px solid transparent;
-  border-top-right-radius: 14px;
+.pill-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pill-group :deep(.p-tag) {
+  font-size: 12px;
 }
 
 .count {

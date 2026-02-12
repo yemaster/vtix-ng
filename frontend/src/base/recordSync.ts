@@ -1,3 +1,5 @@
+import type { VtixStorageLike } from './vtixGlobal'
+
 export type RecordBase = {
   id: string
   updatedAt?: number
@@ -25,12 +27,23 @@ export type SyncResult<T extends RecordBase> = {
   uploaded: boolean
   downloaded: number
   trimmed: number
+  cloudLimit?: number
   noOp: boolean
 }
 
 export const RECORD_SYNC_AT_KEY = 'vtixLastCloudSyncAt'
 export const RECORD_SYNC_CURSOR_KEY = 'vtixRecordSyncCursor'
 export const DEFAULT_MAX_RECORDS = 10
+
+type SyncStorageLike = Pick<VtixStorageLike, 'getItem' | 'setItem'>
+
+function normalizeLimit(value?: number) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return Number.POSITIVE_INFINITY
+  }
+  return Math.floor(parsed)
+}
 
 function toUpdatedAt(value: unknown) {
   if (typeof value === 'number') {
@@ -54,7 +67,8 @@ function toSafeNumber(value: unknown) {
   return 0
 }
 
-export function getSyncCursor(storage: Storage) {
+export function getSyncCursor(storage: SyncStorageLike | null | undefined) {
+  if (!storage) return 0
   const value = toSafeNumber(storage.getItem(RECORD_SYNC_CURSOR_KEY))
   if (value > 1e12) {
     return 0
@@ -62,16 +76,19 @@ export function getSyncCursor(storage: Storage) {
   return value
 }
 
-export function setSyncCursor(storage: Storage, cursor: number) {
+export function setSyncCursor(storage: SyncStorageLike | null | undefined, cursor: number) {
+  if (!storage) return
   if (!Number.isFinite(cursor) || cursor <= 0) return
   storage.setItem(RECORD_SYNC_CURSOR_KEY, String(cursor))
 }
 
-export function getSyncAt(storage: Storage) {
+export function getSyncAt(storage: SyncStorageLike | null | undefined) {
+  if (!storage) return 0
   return toSafeNumber(storage.getItem(RECORD_SYNC_AT_KEY))
 }
 
-export function setSyncAt(storage: Storage, timestamp: number) {
+export function setSyncAt(storage: SyncStorageLike | null | undefined, timestamp: number) {
+  if (!storage) return
   if (!Number.isFinite(timestamp) || timestamp <= 0) return
   storage.setItem(RECORD_SYNC_AT_KEY, String(timestamp))
 }
@@ -179,10 +196,12 @@ export function mergeByUpdatedAt<T extends RecordBase>(
     }
   }
   const total = merged.length
-  const trimmed = Math.max(0, total - maxRecords)
-  const trimmedMerged = merged
-    .sort((a, b) => (a.updatedAt ?? 0) - (b.updatedAt ?? 0))
-    .slice(Math.max(0, total - maxRecords))
+  const limit = normalizeLimit(maxRecords)
+  const trimmed = Number.isFinite(limit) ? Math.max(0, total - limit) : 0
+  const sorted = merged.sort((a, b) => (a.updatedAt ?? 0) - (b.updatedAt ?? 0))
+  const trimmedMerged = Number.isFinite(limit)
+    ? sorted.slice(Math.max(0, total - limit))
+    : sorted
   return { merged: trimmedMerged, conflicts, localNewer, remoteNewer, trimmed }
 }
 
@@ -198,10 +217,13 @@ export async function syncRecords<T extends RecordBase>(options: {
   fetchImpl?: typeof fetch
   credentials?: RequestCredentials
   maxRecords?: number
+  trimLocal?: boolean
 }): Promise<SyncResult<T>> {
   const fetchImpl = options.fetchImpl ?? fetch
   const credentials = options.credentials ?? 'include'
   const maxRecords = options.maxRecords ?? DEFAULT_MAX_RECORDS
+  const limit = normalizeLimit(maxRecords)
+  const trimLocal = options.trimLocal ?? true
   const localRecords = normalizeRecords(options.localRecords)
   const since =
     typeof options.since === 'number' && Number.isFinite(options.since) && options.since > 0
@@ -215,42 +237,78 @@ export async function syncRecords<T extends RecordBase>(options: {
     localSince > 0
       ? localRecords.filter((record) => (record.updatedAt ?? 0) > localSince)
       : localRecords
+  const uploadRecords =
+    Number.isFinite(limit) && localSince <= 0 && localDelta.length > limit
+      ? localDelta
+          .slice()
+          .sort((a, b) => (a.updatedAt ?? 0) - (b.updatedAt ?? 0))
+          .slice(Math.max(0, localDelta.length - limit))
+      : localDelta
   const response = await fetchImpl(`${options.apiBase}/api/records/sync`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials,
-    body: JSON.stringify({ since, records: localDelta })
+    body: JSON.stringify({ since, records: uploadRecords })
   })
   if (!response.ok) {
-    throw new Error(`同步失败: ${response.status}`)
+    let detail = ''
+    try {
+      const payload = (await response.json()) as { error?: unknown }
+      if (typeof payload?.error === 'string' && payload.error.trim()) {
+        detail = payload.error.trim()
+      } else {
+        const text = JSON.stringify(payload)
+        if (text && text !== '{}') {
+          detail = text
+        }
+      }
+    } catch {
+      try {
+        const text = (await response.text()).trim()
+        if (text) detail = text
+      } catch {
+        // ignore
+      }
+    }
+    throw new Error(detail ? `同步失败: ${response.status} (${detail})` : `同步失败: ${response.status}`)
   }
-  const data = (await response.json()) as { records?: T[]; cursor?: number }
+  const data = (await response.json()) as {
+    records?: T[]
+    cursor?: number
+    trimmed?: number
+    limit?: number
+  }
   const remoteRecords = normalizeRecords(Array.isArray(data.records) ? data.records : [])
   const serverCursor =
     typeof data.cursor === 'number' && Number.isFinite(data.cursor) ? data.cursor : since
+  const serverTrimmed =
+    typeof data.trimmed === 'number' && Number.isFinite(data.trimmed) ? data.trimmed : 0
+  const cloudLimit =
+    typeof data.limit === 'number' && Number.isFinite(data.limit) ? data.limit : undefined
 
   const { merged, conflicts, localNewer, remoteNewer, trimmed } = mergeByUpdatedAt(
     localRecords,
     remoteRecords,
-    maxRecords
+    trimLocal ? maxRecords : Number.POSITIVE_INFINITY
   )
 
   let finalRecords = merged
   let uploaded = false
-  if (localDelta.length > 0) {
+  if (uploadRecords.length > 0) {
     uploaded = true
   }
 
   const localChanged = !recordsEqual(finalRecords, localRecords)
   const cursor = Math.max(serverCursor, since)
   const downloaded = remoteRecords.length
-  const noOp = !uploaded && downloaded === 0 && !localChanged
+  const trimmedCount = trimLocal ? trimmed : serverTrimmed
+  const noOp = !uploaded && downloaded === 0 && !localChanged && trimmedCount === 0
 
   return {
     finalRecords,
     merged,
     remoteRecords,
-    localDelta,
+    localDelta: uploadRecords,
     cursor,
     localChanged,
     conflicts,
@@ -258,7 +316,8 @@ export async function syncRecords<T extends RecordBase>(options: {
     remoteNewer,
     uploaded,
     downloaded,
-    trimmed,
+    trimmed: trimmedCount,
+    cloudLimit,
     noOp
   }
 }

@@ -14,6 +14,7 @@ type UserGroup = {
   description: string
   permissions: number
   privateProblemSetLimit: number
+  recordCloudLimit: number
 }
 
 const apiBase = import.meta.env.VITE_API_BASE ?? 'http://localhost:3000'
@@ -29,7 +30,8 @@ const form = ref({
   name: '',
   description: '',
   permissions: 0,
-  privateProblemSetLimit: -1
+  privateProblemSetLimit: -1,
+  recordCloudLimit: -1
 })
 
 const permissionOptions = [
@@ -68,7 +70,8 @@ function resetForm() {
     name: '',
     description: '',
     permissions: 0,
-    privateProblemSetLimit: -1
+    privateProblemSetLimit: -1,
+    recordCloudLimit: -1
   }
 }
 
@@ -79,7 +82,9 @@ function startEdit(group: UserGroup) {
     description: group.description ?? '',
     permissions: group.permissions ?? 0,
     privateProblemSetLimit:
-      Number.isFinite(group.privateProblemSetLimit) ? group.privateProblemSetLimit : -1
+      Number.isFinite(group.privateProblemSetLimit) ? group.privateProblemSetLimit : -1,
+    recordCloudLimit:
+      Number.isFinite(group.recordCloudLimit) ? group.recordCloudLimit : -1
   }
 }
 
@@ -114,7 +119,8 @@ async function saveGroup() {
       name: form.value.name.trim(),
       description: form.value.description.trim(),
       permissions: form.value.permissions,
-      privateProblemSetLimit: Number(form.value.privateProblemSetLimit)
+      privateProblemSetLimit: Number(form.value.privateProblemSetLimit),
+      recordCloudLimit: Number(form.value.recordCloudLimit)
     }
     if (!payload.name) {
       toast.add({
@@ -206,6 +212,10 @@ onMounted(() => {
                   非公开题库上限：
                   <span>{{ group.privateProblemSetLimit === -1 ? '不限' : group.privateProblemSetLimit }}</span>
                 </div>
+                <div class="group-limit">
+                  云存档上限：
+                  <span>{{ group.recordCloudLimit === -1 ? '不限' : group.recordCloudLimit }}</span>
+                </div>
                 <div class="group-tags">
                   <Tag v-for="item in formatPermissionTags(group.permissions)" :key="item.value" :value="item.label" />
                 </div>
@@ -247,6 +257,16 @@ onMounted(() => {
               :min="-1"
               :step="1"
               placeholder="例如：-1 或 5"
+            />
+          </label>
+          <label class="field">
+            <span>云存档记录上限（-1 表示无限制）</span>
+            <InputNumber
+              v-model="form.recordCloudLimit"
+              :useGrouping="false"
+              :min="-1"
+              :step="1"
+              placeholder="例如：-1 或 50"
             />
           </label>
           <div class="field">

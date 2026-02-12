@@ -6,6 +6,7 @@ import InputText from 'primevue/inputtext'
 import TabMenu from 'primevue/tabmenu'
 import { useToast } from 'primevue/usetoast'
 import { useUserStore } from '../../stores/user'
+import { getStorageItem } from '../../base/vtixGlobal'
 
 const route = useRoute()
 const router = useRouter()
@@ -51,8 +52,8 @@ const isSelf = computed(() => {
 })
 
 function loadLoginInfo() {
-  const last = Number(localStorage.getItem(LAST_LOGIN_KEY))
-  const prev = Number(localStorage.getItem(PREV_LOGIN_KEY))
+  const last = Number(getStorageItem(LAST_LOGIN_KEY))
+  const prev = Number(getStorageItem(PREV_LOGIN_KEY))
   lastLoginAt.value = Number.isFinite(last) && last > 0 ? last : null
   prevLoginAt.value = Number.isFinite(prev) && prev > 0 ? prev : null
 }

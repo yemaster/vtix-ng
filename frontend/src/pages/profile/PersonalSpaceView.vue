@@ -7,6 +7,8 @@ import Button from 'primevue/button'
 import TabMenu from 'primevue/tabmenu'
 import Tag from 'primevue/tag'
 import { useUserStore } from '../../stores/user'
+import { readPracticeRecords } from '../../base/practiceRecords'
+import { getStorageItem } from '../../base/vtixGlobal'
 
 type PracticeRecord = {
   id: string
@@ -96,8 +98,8 @@ function loadLoginInfo() {
     prevLoginAt.value = null
     return
   }
-  const last = Number(localStorage.getItem(LAST_LOGIN_KEY))
-  const prev = Number(localStorage.getItem(PREV_LOGIN_KEY))
+  const last = Number(getStorageItem(LAST_LOGIN_KEY))
+  const prev = Number(getStorageItem(PREV_LOGIN_KEY))
   lastLoginAt.value = Number.isFinite(last) && last > 0 ? last : null
   prevLoginAt.value = Number.isFinite(prev) && prev > 0 ? prev : null
 }
@@ -142,45 +144,7 @@ const loginInfoText = computed(() => ({
 const records = ref<PracticeRecord[]>([])
 
 function readRecords(): PracticeRecord[] {
-  if (!window.localStorage) return []
-  const raw = localStorage.getItem('vtixSave')
-  if (!raw) return []
-  try {
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
-      return parsed
-        .map((item) => {
-          if (!item || typeof item !== 'object') return null
-          const id = typeof item.id === 'string' ? item.id : ''
-          if (!id) return null
-          if (typeof item.deletedAt === 'number' && item.deletedAt > 0) return null
-          const progressRaw =
-            item.progress && typeof item.progress === 'object' ? item.progress : {}
-        const progress = {
-          timeSpentSeconds: Number.isFinite(progressRaw.timeSpentSeconds)
-            ? progressRaw.timeSpentSeconds
-            : 0,
-          currentProblemId: Number.isFinite(progressRaw.currentProblemId)
-            ? progressRaw.currentProblemId
-            : 0,
-          problemList: Array.isArray(progressRaw.problemList) ? progressRaw.problemList : [],
-          submittedList: Array.isArray(progressRaw.submittedList) ? progressRaw.submittedList : [],
-          answerList: Array.isArray(progressRaw.answerList) ? progressRaw.answerList : []
-        }
-        return {
-          id,
-          testId: typeof item.testId === 'string' ? item.testId : '',
-          testTitle: typeof item.testTitle === 'string' ? item.testTitle : undefined,
-          updatedAt: Number.isFinite(item.updatedAt) ? item.updatedAt : 0,
-          practiceMode: Number.isFinite(item.practiceMode) ? item.practiceMode : 0,
-          progress,
-          problemState: Array.isArray(item.problemState) ? item.problemState : []
-        } as PracticeRecord
-      })
-        .filter((item): item is PracticeRecord => Boolean(item))
-  } catch (error) {
-    return []
-  }
+  return readPracticeRecords<PracticeRecord>()
 }
 
 function getRecordAnsweredCount(record: PracticeRecord) {

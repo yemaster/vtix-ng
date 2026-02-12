@@ -18,6 +18,7 @@ export type UserGroup = {
   name: string;
   permissions: number;
   privateProblemSetLimit: number;
+  recordCloudLimit: number;
 };
 
 export const USER_GROUPS: Record<string, UserGroup> = {
@@ -31,6 +32,7 @@ export const USER_GROUPS: Record<string, UserGroup> = {
       PERMISSIONS.ACCESS_WRONG_RECORDS |
       PERMISSIONS.MANAGE_QUESTION_BANK_OWN,
     privateProblemSetLimit: -1,
+    recordCloudLimit: -1,
   },
   manager: {
     id: "manager",
@@ -43,6 +45,7 @@ export const USER_GROUPS: Record<string, UserGroup> = {
       PERMISSIONS.ACCESS_WRONG_RECORDS |
       PERMISSIONS.MANAGE_QUESTION_BANK_ALL,
     privateProblemSetLimit: -1,
+    recordCloudLimit: -1,
   },
   admin: {
     id: "admin",
@@ -57,6 +60,7 @@ export const USER_GROUPS: Record<string, UserGroup> = {
       PERMISSIONS.MANAGE_USERS |
       PERMISSIONS.MANAGE_NOTICES,
     privateProblemSetLimit: -1,
+    recordCloudLimit: -1,
   },
 };
 

@@ -14,10 +14,55 @@ import { normalizeProblems } from "./normalize";
 
 const DEFAULT_TEST_SCORES = [0, 1, 2, 1, 1];
 const MAX_QUESTION_COUNT = 4096;
+const EXAM_TYPE_MASK_ITEMS = [
+  { problemType: 1, mask: 1 },
+  { problemType: 2, mask: 2 },
+  { problemType: 3, mask: 4 },
+  { problemType: 4, mask: 8 },
+] as const;
+const EXAM_TYPE_MASK_ALL = EXAM_TYPE_MASK_ITEMS.reduce(
+  (sum, item) => sum | item.mask,
+  0
+);
 
 function toSafeNumber(value: unknown, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function legacyProblemTypeToMask(type: number) {
+  return (
+    EXAM_TYPE_MASK_ITEMS.find((item) => item.problemType === type)?.mask ?? 0
+  );
+}
+
+function normalizeExamMask(value: unknown) {
+  const parsed = Math.floor(toSafeNumber(value, 0));
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+  return parsed & EXAM_TYPE_MASK_ALL;
+}
+
+function toTestConfigItem(mask: number, number: number, score: number): TestConfigItem {
+  return {
+    type: mask,
+    typeMask: mask,
+    number,
+    score,
+  };
+}
+
+function resolveMaskFromConfigItem(item: unknown) {
+  if (!item || typeof item !== "object") return 0;
+  const rawMask = (item as any).typeMask ?? (item as any).mask;
+  if (rawMask !== undefined && rawMask !== null && rawMask !== "") {
+    return normalizeExamMask(rawMask);
+  }
+  const rawType = Math.floor(toSafeNumber((item as any).type, -1));
+  if (!Number.isFinite(rawType)) return 0;
+  if (rawType >= 1 && rawType <= 4) {
+    return legacyProblemTypeToMask(rawType);
+  }
+  return normalizeExamMask(rawType);
 }
 
 function normalizeTestConfigList(raw: unknown): TestConfigItem[] {
@@ -25,22 +70,21 @@ function normalizeTestConfigList(raw: unknown): TestConfigItem[] {
   const order: number[] = [];
   const map = new Map<number, TestConfigItem>();
   for (const item of raw) {
-    if (!item || typeof item !== "object") continue;
-    const type = Math.floor(toSafeNumber((item as any).type, -1));
-    if (!Number.isFinite(type) || type < 0 || type > 4) continue;
+    const mask = resolveMaskFromConfigItem(item);
+    if (mask <= 0) continue;
     const number = Math.max(0, Math.floor(toSafeNumber((item as any).number, 0)));
     if (number <= 0) continue;
     const score = Math.max(0, toSafeNumber((item as any).score, 0));
-    if (!map.has(type)) {
-      order.push(type);
-      map.set(type, { type, number, score });
+    if (!map.has(mask)) {
+      order.push(mask);
+      map.set(mask, toTestConfigItem(mask, number, score));
     } else {
-      const existing = map.get(type)!;
+      const existing = map.get(mask)!;
       existing.number += number;
       existing.score = score;
     }
   }
-  return order.map((type) => map.get(type)!).filter(Boolean);
+  return order.map((mask) => map.get(mask)!).filter(Boolean);
 }
 
 function buildDefaultTestConfig(
@@ -48,11 +92,14 @@ function buildDefaultTestConfig(
   scores: number[] = DEFAULT_TEST_SCORES
 ) {
   const list: TestConfigItem[] = [];
-  for (const type of [1, 2, 3, 4, 0]) {
-    const number = Math.max(0, Math.floor(toSafeNumber(counts[type], 0)));
+  for (const item of EXAM_TYPE_MASK_ITEMS) {
+    const number = Math.max(
+      0,
+      Math.floor(toSafeNumber(counts[item.problemType], 0))
+    );
     if (number <= 0) continue;
-    const score = Math.max(0, toSafeNumber(scores[type], 0));
-    list.push({ type, number, score });
+    const score = Math.max(0, toSafeNumber(scores[item.problemType], 0));
+    list.push(toTestConfigItem(item.mask, number, score));
   }
   return list;
 }
@@ -74,10 +121,14 @@ function normalizeTestConfig(
     const scores = Array.isArray(rawScore)
       ? rawScore.map((value) => toSafeNumber(value, 0))
       : DEFAULT_TEST_SCORES;
-    const list = rawTest.map((value, type) => ({
-      type,
-      number: Math.max(0, Math.floor(toSafeNumber(value, 0))),
-      score: Math.max(0, toSafeNumber(scores[type], 0)),
+    const list = EXAM_TYPE_MASK_ITEMS.map((item) => ({
+      type: item.mask,
+      typeMask: item.mask,
+      number: Math.max(
+        0,
+        Math.floor(toSafeNumber(rawTest[item.problemType], 0))
+      ),
+      score: Math.max(0, toSafeNumber(scores[item.problemType], 0)),
     }));
     return normalizeTestConfigList(list);
   }
@@ -171,7 +222,6 @@ export const registerProblemSetManageRoutes = (app: Elysia) =>
         title,
         year,
         categories,
-        isNew: false,
         isPending,
         recommendedRank: null,
         questionCount: problems.length,
@@ -181,6 +231,9 @@ export const registerProblemSetManageRoutes = (app: Elysia) =>
         inviteCode,
         test: testMeta,
         problems,
+        viewCount: 0,
+        dislikeCount: 0,
+        likeCount: 0
       });
       return item;
     })

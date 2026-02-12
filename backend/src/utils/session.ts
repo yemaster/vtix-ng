@@ -6,6 +6,7 @@ export type User = {
   groupName: string;
   permissions: number;
   privateProblemSetLimit: number;
+  recordCloudLimit: number;
 };
 
 const sessions = new Map<string, User>();

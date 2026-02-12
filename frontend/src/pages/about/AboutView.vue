@@ -18,6 +18,10 @@ const frontendBuildInfo = computed(() => {
 })
 const frontendBuildTime = computed(() => (BUILD_TIME ? `构建时间: ${BUILD_TIME}` : ''))
 const frontendMode = import.meta.env.MODE ?? 'unknown'
+const frontendPlatform = computed(() => {
+  const platform = window.vtixGlobal?.platform
+  return typeof platform === 'string' && platform.trim() ? platform : 'web'
+})
 
 const backendVersion = ref<BackendVersion>({})
 const backendError = ref('')
@@ -114,6 +118,10 @@ onMounted(() => {
           <div class="build-item">
             <span>运行模式</span>
             <span class="build-value">{{ frontendMode }}</span>
+          </div>
+          <div class="build-item">
+            <span>前端平台</span>
+            <span class="build-value">{{ frontendPlatform }}</span>
           </div>
           <div class="build-item">
             <span>后端服务</span>

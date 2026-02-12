@@ -29,6 +29,7 @@ type ProblemDraft = {
 type ProblemPayload = ProblemType & { hint?: string }
 type TestConfigItem = {
   type: number
+  typeMask?: number
   number: number
   score: number
 }
@@ -108,13 +109,13 @@ const typeOptions = [
   { label: '判断题', value: 4 }
 ]
 const testTypeOptions = [
-  { label: '送分题', value: 0 },
-  { label: '单选题', value: 1 },
-  { label: '多选题', value: 2 },
-  { label: '填空题', value: 3 },
-  { label: '判断题', value: 4 }
+  { label: '单选题', problemType: 1, mask: 1 },
+  { label: '多选题', problemType: 2, mask: 2 },
+  { label: '填空题', problemType: 3, mask: 4 },
+  { label: '判断题', problemType: 4, mask: 8 }
 ]
 const DEFAULT_TEST_SCORES = [0, 1, 2, 1, 1]
+const TEST_TYPE_MASK_ALL = testTypeOptions.reduce((sum, item) => sum | item.mask, 0)
 const MAX_QUESTION_COUNT = 4096
 const testConfig = ref<TestConfigItem[]>([])
 
@@ -376,27 +377,50 @@ function createProblemDraftFromResult(result: any): ProblemDraft | null {
 }
 
 function buildDefaultTestConfig(counts: number[]) {
-  return [1, 2, 3, 4].map((type) => ({
-    type,
-    number: Math.max(0, Math.floor(Number(counts[type] ?? 0))),
-    score: DEFAULT_TEST_SCORES[type] ?? 0
+  return testTypeOptions.map((item) => ({
+    type: item.mask,
+    typeMask: item.mask,
+    number: Math.max(0, Math.floor(Number(counts[item.problemType] ?? 0))),
+    score: DEFAULT_TEST_SCORES[item.problemType] ?? 0
   }))
+}
+
+function normalizeTestTypeMask(value: unknown) {
+  const parsed = Math.floor(Number(value ?? 0))
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0
+  return parsed & TEST_TYPE_MASK_ALL
+}
+
+function legacyTypeToMask(type: number) {
+  return testTypeOptions.find((item) => item.problemType === type)?.mask ?? 0
+}
+
+function getTestConfigMask(item: TestConfigItem) {
+  const rawMask = item.typeMask
+  if (rawMask !== undefined && rawMask !== null && rawMask !== 0) {
+    return normalizeTestTypeMask(rawMask)
+  }
+  const rawType = Math.floor(Number(item.type))
+  if (Number.isFinite(rawType) && rawType >= 1 && rawType <= 4) {
+    return legacyTypeToMask(rawType)
+  }
+  return normalizeTestTypeMask(item.type)
 }
 
 function normalizeTestConfig(list: TestConfigItem[], fallbackCounts: number[]) {
   const order: number[] = []
   const map = new Map<number, TestConfigItem>()
   for (const item of list) {
-    const type = Math.floor(Number(item.type))
-    if (!Number.isFinite(type) || type < 0 || type > 4) continue
+    const typeMask = getTestConfigMask(item)
+    if (typeMask <= 0) continue
     const number = Math.max(0, Math.floor(Number(item.number ?? 0)))
     if (number <= 0) continue
     const score = Math.max(0, Number(item.score ?? 0))
-    if (!map.has(type)) {
-      order.push(type)
-      map.set(type, { type, number, score })
+    if (!map.has(typeMask)) {
+      order.push(typeMask)
+      map.set(typeMask, { type: typeMask, typeMask, number, score })
     } else {
-      const existing = map.get(type)
+      const existing = map.get(typeMask)
       if (existing) {
         existing.number += number
         existing.score = score
@@ -410,18 +434,31 @@ function normalizeTestConfig(list: TestConfigItem[], fallbackCounts: number[]) {
 }
 
 function addTestConfigRow() {
-  const used = new Set(testConfig.value.map((item) => item.type))
-  const nextType =
-    testTypeOptions.map((option) => option.value).find((value) => !used.has(value)) ?? 1
+  const used = new Set(testConfig.value.map((item) => getTestConfigMask(item)))
+  const nextType = testTypeOptions.find((option) => !used.has(option.mask))?.mask ?? 1
   testConfig.value.push({
     type: nextType,
+    typeMask: nextType,
     number: 0,
-    score: DEFAULT_TEST_SCORES[nextType] ?? 0
+    score: DEFAULT_TEST_SCORES[testTypeOptions.find((item) => item.mask === nextType)?.problemType ?? 1] ?? 0
   })
 }
 
 function removeTestConfigRow(index: number) {
   testConfig.value.splice(index, 1)
+}
+
+function isTestTypeSelected(item: TestConfigItem, mask: number) {
+  const typeMask = getTestConfigMask(item)
+  return (typeMask & mask) === mask
+}
+
+function toggleTestTypeMask(item: TestConfigItem, mask: number, checked: boolean) {
+  const current = getTestConfigMask(item)
+  const next = checked ? current | mask : current & ~mask
+  if (next <= 0) return
+  item.type = next
+  item.typeMask = next
 }
 
 function buildJsonItem(problem: ProblemDraft) {
@@ -941,16 +978,28 @@ onBeforeUnmount(() => {
         </div>
         <div class="vtix-panel__content">
           <div v-if="!testConfig.length" class="empty">暂无配置，请点击右上角添加。</div>
-          <div v-else class="test-config-list">
-            <div v-for="(item, index) in testConfig" :key="`test-config-${index}`" class="test-config-row">
-              <div class="test-config-field">
-                <span>题目类型</span>
-                <Select v-model="item.type" size="small" :options="testTypeOptions" optionLabel="label" optionValue="value"
-                  class="test-type-select" />
-              </div>
-              <div class="test-config-field">
-                <span>题数</span>
-                <InputNumber v-model="item.number" size="small" :min="0" :useGrouping="false" />
+            <div v-else class="test-config-list">
+              <div v-for="(item, index) in testConfig" :key="`test-config-${index}`" class="test-config-row">
+                <div class="test-config-field">
+                  <span>题目类型（可多选）</span>
+                  <div class="test-type-mask">
+                    <label
+                      v-for="option in testTypeOptions"
+                      :key="`test-type-${index}-${option.mask}`"
+                      class="test-type-mask-option"
+                    >
+                      <Checkbox
+                        :binary="true"
+                        :modelValue="isTestTypeSelected(item, option.mask)"
+                        @update:modelValue="toggleTestTypeMask(item, option.mask, Boolean($event))"
+                      />
+                      <span>{{ option.label }}</span>
+                    </label>
+                  </div>
+                </div>
+                <div class="test-config-field">
+                  <span>题数</span>
+                  <InputNumber v-model="item.number" size="small" :min="0" :useGrouping="false" />
               </div>
               <div class="test-config-field">
                 <span>每题分数</span>
@@ -1293,6 +1342,19 @@ onBeforeUnmount(() => {
   font-size: 12px;
   color: var(--vtix-text-muted);
   font-weight: 600;
+}
+
+.test-type-mask {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.test-type-mask-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
 }
 
 .test-type-select :deep(.p-select),

@@ -52,6 +52,20 @@ function ensureSqliteUserGroupLimitColumn(
   }
 }
 
+function ensureSqliteUserGroupRecordLimitColumn(
+  client: ReturnType<typeof assertSqliteClient>
+) {
+  const columns = client
+    .prepare("PRAGMA table_info(user_groups)")
+    .all() as Array<{ name?: string }>;
+  const hasColumn = columns.some((column) => column.name === "record_cloud_limit");
+  if (!hasColumn) {
+    client.exec(
+      "ALTER TABLE user_groups ADD COLUMN record_cloud_limit INTEGER NOT NULL DEFAULT -1;"
+    );
+  }
+}
+
 function ensureSqliteUserRecordsDataColumn(
   client: ReturnType<typeof assertSqliteClient>
 ) {
@@ -187,6 +201,19 @@ async function ensureMysqlUserGroupLimitColumn() {
   }
 }
 
+async function ensureMysqlUserGroupRecordLimitColumn() {
+  try {
+    await execMysql(
+      "ALTER TABLE user_groups ADD COLUMN record_cloud_limit INT NOT NULL DEFAULT -1;"
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.toLowerCase().includes("duplicate column")) {
+      throw error;
+    }
+  }
+}
+
 async function ensureMysqlUserRecordsDataColumn() {
   try {
     await execMysql("ALTER TABLE user_records ADD COLUMN record_data JSON;");
@@ -302,10 +329,12 @@ async function ensureSqliteTables() {
       description TEXT,
       permissions INTEGER NOT NULL,
       private_problem_set_limit INTEGER NOT NULL DEFAULT -1,
+      record_cloud_limit INTEGER NOT NULL DEFAULT -1,
       built_in INTEGER NOT NULL DEFAULT 0
     );
   `);
   ensureSqliteUserGroupLimitColumn(client);
+  ensureSqliteUserGroupRecordLimitColumn(client);
   client.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -367,7 +396,6 @@ async function ensureSqliteTables() {
       code TEXT NOT NULL UNIQUE,
       title TEXT NOT NULL,
       year INTEGER NOT NULL,
-      is_new INTEGER NOT NULL DEFAULT 0,
       is_pending INTEGER NOT NULL DEFAULT 0,
       view_count INTEGER NOT NULL DEFAULT 0,
       like_count INTEGER NOT NULL DEFAULT 0,
@@ -444,10 +472,12 @@ async function ensureMysqlTables() {
       description TEXT,
       permissions INT NOT NULL,
       private_problem_set_limit INT NOT NULL DEFAULT -1,
+      record_cloud_limit INT NOT NULL DEFAULT -1,
       built_in BOOLEAN NOT NULL DEFAULT FALSE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   `);
   await ensureMysqlUserGroupLimitColumn();
+  await ensureMysqlUserGroupRecordLimitColumn();
   await execMysql(`
     CREATE TABLE IF NOT EXISTS users (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -512,7 +542,6 @@ async function ensureMysqlTables() {
       code VARCHAR(191) NOT NULL UNIQUE,
       title VARCHAR(255) NOT NULL,
       year INT NOT NULL,
-      is_new BOOLEAN NOT NULL DEFAULT FALSE,
       is_pending BOOLEAN NOT NULL DEFAULT FALSE,
       view_count INT NOT NULL DEFAULT 0,
       like_count INT NOT NULL DEFAULT 0,

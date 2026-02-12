@@ -1,4 +1,5 @@
 import type { ProblemType } from './ProblemTypes'
+import { getStorageItem, setStorageItem } from './vtixGlobal'
 
 export type WrongProblemRecord = {
   id: string
@@ -21,8 +22,7 @@ function normalizeUserId(raw: unknown) {
 }
 
 function readWrongProblems(): WrongProblemRecord[] {
-  if (!window.localStorage) return []
-  const raw = localStorage.getItem(STORAGE_KEY)
+  const raw = getStorageItem(STORAGE_KEY)
   if (!raw) return []
   try {
     const parsed = JSON.parse(raw)
@@ -42,8 +42,7 @@ function readWrongProblems(): WrongProblemRecord[] {
 }
 
 function writeWrongProblems(records: WrongProblemRecord[]) {
-  if (!window.localStorage) return
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(records))
+  setStorageItem(STORAGE_KEY, JSON.stringify(records))
 }
 
 function createId() {

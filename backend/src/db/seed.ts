@@ -11,6 +11,7 @@ const DEFAULT_GROUPS = [
     description: "Default user group.",
     permissions: USER_GROUPS.user.permissions,
     privateProblemSetLimit: USER_GROUPS.user.privateProblemSetLimit,
+    recordCloudLimit: USER_GROUPS.user.recordCloudLimit,
     builtIn: true,
   },
   {
@@ -19,6 +20,7 @@ const DEFAULT_GROUPS = [
     description: "Question bank manager group.",
     permissions: USER_GROUPS.manager.permissions,
     privateProblemSetLimit: USER_GROUPS.manager.privateProblemSetLimit,
+    recordCloudLimit: USER_GROUPS.manager.recordCloudLimit,
     builtIn: true,
   },
   {
@@ -27,6 +29,7 @@ const DEFAULT_GROUPS = [
     description: "System administrator group.",
     permissions: USER_GROUPS.admin.permissions,
     privateProblemSetLimit: USER_GROUPS.admin.privateProblemSetLimit,
+    recordCloudLimit: USER_GROUPS.admin.recordCloudLimit,
     builtIn: true,
   },
 ];

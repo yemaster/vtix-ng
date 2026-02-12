@@ -17,6 +17,14 @@ let db: any;
 let sqliteClient: Database | null = null;
 let mysqlPool: ReturnType<typeof createPool> | null = null;
 
+function configureSqlite(sqlite: Database) {
+  // Improve write concurrency tolerance on Windows and reduce transient I/O errors.
+  sqlite.exec("PRAGMA journal_mode = WAL;");
+  sqlite.exec("PRAGMA synchronous = NORMAL;");
+  sqlite.exec("PRAGMA busy_timeout = 5000;");
+  sqlite.exec("PRAGMA foreign_keys = ON;");
+}
+
 if (useMysql) {
   const mysqlUrl = appConfig.databaseUrl || appConfig.mysqlUrl;
   if (!mysqlUrl) {
@@ -29,6 +37,7 @@ if (useMysql) {
   const dbPath = appConfig.databaseUrl || appConfig.sqlitePath || "data/vtix.db";
   mkdirSync(dirname(dbPath), { recursive: true });
   const sqlite = new Database(dbPath);
+  configureSqlite(sqlite);
   sqliteClient = sqlite;
   db = drizzleSqlite(sqlite, { schema: sqliteSchema });
 }

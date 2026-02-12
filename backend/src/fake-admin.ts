@@ -7,6 +7,7 @@ export type AdminUserGroup = {
   description: string;
   permissions: number;
   privateProblemSetLimit: number;
+  recordCloudLimit: number;
   builtIn?: boolean;
 };
 
@@ -26,6 +27,7 @@ const userGroups: AdminUserGroup[] = [
     description: "Default user group.",
     permissions: USER_GROUPS.user.permissions,
     privateProblemSetLimit: USER_GROUPS.user.privateProblemSetLimit,
+    recordCloudLimit: USER_GROUPS.user.recordCloudLimit,
     builtIn: true,
   },
   {
@@ -34,6 +36,7 @@ const userGroups: AdminUserGroup[] = [
     description: "Question bank manager group.",
     permissions: USER_GROUPS.manager.permissions,
     privateProblemSetLimit: USER_GROUPS.manager.privateProblemSetLimit,
+    recordCloudLimit: USER_GROUPS.manager.recordCloudLimit,
     builtIn: true,
   },
   {
@@ -42,6 +45,7 @@ const userGroups: AdminUserGroup[] = [
     description: "System administrator group.",
     permissions: USER_GROUPS.admin.permissions,
     privateProblemSetLimit: USER_GROUPS.admin.privateProblemSetLimit,
+    recordCloudLimit: USER_GROUPS.admin.recordCloudLimit,
     builtIn: true,
   },
 ];
@@ -94,6 +98,7 @@ export function createUserGroup(payload: {
   description?: string;
   permissions?: number;
   privateProblemSetLimit?: number;
+  recordCloudLimit?: number;
 }) {
   const name = String(payload.name ?? "").trim();
   if (!name) {
@@ -107,6 +112,7 @@ export function createUserGroup(payload: {
     description,
     permissions,
     privateProblemSetLimit: Number(payload.privateProblemSetLimit ?? -1),
+    recordCloudLimit: Number(payload.recordCloudLimit ?? -1),
   };
   userGroups.push(group);
   return group;
@@ -119,6 +125,7 @@ export function updateUserGroup(
     description?: string;
     permissions?: number;
     privateProblemSetLimit?: number;
+    recordCloudLimit?: number;
   }
 ) {
   const group = resolveGroup(id);
@@ -136,6 +143,9 @@ export function updateUserGroup(
   }
   if (payload.privateProblemSetLimit !== undefined) {
     group.privateProblemSetLimit = Number(payload.privateProblemSetLimit);
+  }
+  if (payload.recordCloudLimit !== undefined) {
+    group.recordCloudLimit = Number(payload.recordCloudLimit);
   }
   syncUsersForGroup(group);
   return group;

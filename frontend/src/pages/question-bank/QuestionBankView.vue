@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { format, formatDistanceToNow } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 import Button from 'primevue/button'
@@ -8,6 +8,10 @@ import Paginator from 'primevue/paginator'
 import type { PageState } from 'primevue/paginator'
 import Tag from 'primevue/tag'
 import { useRouter } from 'vue-router'
+import {
+  queryCachedProblemSetSummaries,
+  upsertCachedProblemSetSummaries
+} from '../../base/problemSetCache'
 import { useUserStore } from '../../stores/user'
 
 type QuestionBankItem = {
@@ -19,7 +23,6 @@ type QuestionBankItem = {
   creatorId?: string
   creatorName?: string
   updatedAt?: number
-  isNew: boolean
   recommendedRank: number | null
   categories: string[]
   questionCount: number
@@ -35,17 +38,47 @@ const items = ref<QuestionBankItem[]>([])
 const isLoading = ref(false)
 const loadError = ref('')
 const totalRecords = ref(0)
+const categoryItems = ref<string[]>([])
+let itemsAbortController: AbortController | null = null
+let categoryAbortController: AbortController | null = null
+let itemsRequestId = 0
 
 const search = ref('')
 const debouncedSearch = ref('')
 let searchTimer: number | null = null
 const selectedCategory = ref('全部')
-const pageSize = ref(6)
+const MOBILE_BREAKPOINT = 648
+const TABLET_BREAKPOINT = 968
+
+function getColumnCountByWidth(width: number) {
+  if (width <= MOBILE_BREAKPOINT) return 1
+  if (width <= TABLET_BREAKPOINT) return 2
+  return 3
+}
+
+function getPageSizeByWidth(width: number) {
+  const columns = getColumnCountByWidth(width)
+  if (columns === 1) return 4
+  if (columns === 2) return 6
+  return 9
+}
+
+const pageSize = ref(getPageSizeByWidth(typeof window === 'undefined' ? 1200 : window.innerWidth))
 const currentPage = ref(1)
-const pageSizeOptions = [
-  6,
-  12
-]
+
+function syncPageSizeByViewport() {
+  if (typeof window === 'undefined') return false
+  const nextPageSize = getPageSizeByWidth(window.innerWidth)
+  if (nextPageSize === pageSize.value) return false
+  const firstVisibleIndex = (currentPage.value - 1) * pageSize.value
+  pageSize.value = nextPageSize
+  currentPage.value = Math.floor(firstVisibleIndex / nextPageSize) + 1
+  return true
+}
+
+function handleResize() {
+  syncPageSizeByViewport()
+}
 
 function formatFullTime(timestamp: number) {
   if (!Number.isFinite(timestamp) || timestamp <= 0) {
@@ -69,6 +102,10 @@ const canManageAll = computed(
 )
 
 async function loadItems() {
+  const requestId = ++itemsRequestId
+  itemsAbortController?.abort()
+  const controller = new AbortController()
+  itemsAbortController = controller
   isLoading.value = true
   loadError.value = ''
   try {
@@ -78,7 +115,10 @@ async function loadItems() {
       ...(debouncedSearch.value ? { q: debouncedSearch.value } : {}),
       ...(selectedCategory.value !== '全部' ? { category: selectedCategory.value } : {})
     })
-    const response = await fetch(`${apiBase}/api/problem-sets?${params.toString()}`)
+    const response = await fetch(`${apiBase}/api/problem-sets?${params.toString()}`, {
+      signal: controller.signal
+    })
+    if (requestId !== itemsRequestId) return
     if (!response.ok) {
       throw new Error(`加载失败: ${response.status}`)
     }
@@ -94,24 +134,74 @@ async function loadItems() {
           updatedAt: Number(item.updatedAt ?? item.createdAt ?? 0)
         }))
       : []
+    upsertCachedProblemSetSummaries(items.value)
   } catch (error) {
-    loadError.value = error instanceof Error ? error.message : '加载失败'
-    items.value = []
-    totalRecords.value = 0
+    if (controller.signal.aborted) return
+    const cached = queryCachedProblemSetSummaries({
+      page: currentPage.value,
+      pageSize: pageSize.value,
+      keyword: debouncedSearch.value,
+      category: selectedCategory.value
+    })
+    items.value = cached.items.map((item) => ({
+      id: item.code,
+      code: item.code,
+      title: item.title,
+      year: item.year,
+      creatorId: item.creatorId,
+      creatorName: item.creatorName,
+      categories: item.categories,
+      questionCount: item.questionCount,
+      recommendedRank: item.recommendedRank,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt
+    }))
+    totalRecords.value = cached.total
+    loadError.value = cached.total > 0 ? '' : error instanceof Error ? error.message : '加载失败'
   } finally {
-    isLoading.value = false
+    if (requestId === itemsRequestId) {
+      isLoading.value = false
+    }
+  }
+}
+
+async function loadCategories(options: { force?: boolean } = {}) {
+  if (!options.force && categoryItems.value.length > 0) return
+  categoryAbortController?.abort()
+  const controller = new AbortController()
+  categoryAbortController = controller
+  try {
+    const response = await fetch(`${apiBase}/api/problem-sets/categories`, {
+      signal: controller.signal
+    })
+    if (!response.ok) {
+      throw new Error(`加载分类失败: ${response.status}`)
+    }
+    const data = (await response.json()) as { items?: unknown[] }
+    const list = Array.isArray(data.items)
+      ? data.items.map((item) => String(item ?? '').trim()).filter(Boolean)
+      : []
+    categoryItems.value = Array.from(new Set(list))
+  } catch {
+    if (controller.signal.aborted) return
+    // fallback handled in computed below
   }
 }
 
 const categories = computed(() => {
-  const set = new Set(items.value.flatMap((item) => item.categories))
+  const set = new Set<string>()
+  if (categoryItems.value.length > 0) {
+    categoryItems.value.forEach((item) => set.add(item))
+  } else {
+    items.value.flatMap((item) => item.categories).forEach((item) => set.add(item))
+  }
+  if (selectedCategory.value !== '全部') {
+    set.add(selectedCategory.value)
+  }
   return ['全部', ...Array.from(set)]
 })
 
 function handlePage(event: PageState) {
-  if (typeof event.rows === 'number') {
-    pageSize.value = event.rows
-  }
   const page = event.page ?? 0
   currentPage.value = page + 1
 }
@@ -131,12 +221,31 @@ function handleManageClick() {
   router.push({ name: 'admin-question-banks' })
 }
 
+async function handleRefresh() {
+  await Promise.all([loadItems(), loadCategories({ force: true })])
+}
+
 onMounted(() => {
-  void loadItems()
+  window.addEventListener('resize', handleResize)
+  const changed = syncPageSizeByViewport()
+  void loadCategories()
+  if (!changed) {
+    void loadItems()
+  }
 })
 
 watch([currentPage, pageSize], () => {
   void loadItems()
+})
+
+onBeforeUnmount(() => {
+  if (searchTimer !== null) {
+    window.clearTimeout(searchTimer)
+    searchTimer = null
+  }
+  itemsAbortController?.abort()
+  categoryAbortController?.abort()
+  window.removeEventListener('resize', handleResize)
 })
 
 watch(search, (value) => {
@@ -185,7 +294,7 @@ watch(selectedCategory, () => {
           severity="secondary"
           text
           size="small"
-          @click="loadItems"
+          @click="handleRefresh"
         />
       </div>
     </header>
@@ -259,7 +368,6 @@ watch(selectedCategory, () => {
             <div class="count-label">题目数</div>
           </div>
         </div>
-        <div v-if="item.isNew" class="corner-badge" aria-hidden="true"></div>
       </div>
     </div>
     <div v-if="!isLoading && items.length === 0" class="empty">暂无匹配题库</div>
@@ -269,8 +377,7 @@ watch(selectedCategory, () => {
         :first="(currentPage - 1) * pageSize"
         :rows="pageSize"
         :totalRecords="totalRecords"
-        :rowsPerPageOptions="pageSizeOptions"
-        template="PrevPageLink PageLinks NextPageLink RowsPerPageSelect"
+        template="PrevPageLink PageLinks NextPageLink"
         @page="handlePage"
       />
     </div>
@@ -391,13 +498,24 @@ watch(selectedCategory, () => {
 
 .card.recommended {
   border-color: var(--vtix-primary-500);
-  box-shadow: 0 16px 30px var(--vtix-shadow-accent);
+}
+
+.card.recommended::after {
+  content: '';
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #ef4444;
+  box-shadow: 0 0 0 3px var(--vtix-surface);
 }
 
 .card-link {
   text-decoration: none;
   color: inherit;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
 }
 
 .card-link:hover {
@@ -406,6 +524,7 @@ watch(selectedCategory, () => {
 }
 
 .card.recommended.card-link:hover {
+  border-color: var(--vtix-primary-600);
   box-shadow: 0 18px 36px var(--vtix-shadow-accent-strong);
 }
 
@@ -507,10 +626,6 @@ watch(selectedCategory, () => {
   font-weight: 400;
 }
 
-.meta-owner {
-  color: var(--vtix-text-subtle);
-}
-
 .meta-time {
   color: var(--vtix-text-muted);
 }
@@ -525,17 +640,6 @@ watch(selectedCategory, () => {
   font-size: 12px;
 }
 
-
-.corner-badge {
-  position: absolute;
-  top: 0;
-  right: 0;
-  width: 0;
-  height: 0;
-  border-top: 32px solid var(--vtix-danger-solid);
-  border-left: 32px solid transparent;
-  border-top-right-radius: 14px;
-}
 
 .count {
   text-align: center;
@@ -595,18 +699,6 @@ watch(selectedCategory, () => {
 
 .pagination :deep(.p-paginator-pages .p-paginator-page) {
   font-size: 14px;
-}
-
-.pagination :deep(.p-paginator-rpp-select),
-.pagination :deep(.p-paginator-rpp-dropdown) {
-  border-radius: 8px;
-}
-
-.pagination :deep(.p-select-label),
-.pagination :deep(.p-dropdown-label) {
-  font-size: 12px;
-  color: var(--vtix-text-muted);
-  padding: 4px 8px;
 }
 
 @media (max-width: 968px) {

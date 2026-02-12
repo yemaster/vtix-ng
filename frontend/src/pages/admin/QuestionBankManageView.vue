@@ -14,7 +14,6 @@ type QuestionBankItem = {
   code: string
   title: string
   year: number
-  isNew: boolean
   isPending: boolean
   recommendedRank: number | null
   categories: string[]
@@ -77,8 +76,6 @@ const bulkActionOptions = computed(() => {
       { label: '设为隐藏', value: 'private' },
       { label: '设为推荐', value: 'recommend' },
       { label: '取消推荐', value: 'unrecommend' },
-      { label: '设为新', value: 'new' },
-      { label: '取消新', value: 'not_new' },
       { label: '删除所选', value: 'delete' }
     ]
   }
@@ -144,7 +141,6 @@ async function loadItems() {
           ...item,
           categories: Array.isArray(item.categories) ? item.categories : [],
           questionCount: Number.isFinite(item.questionCount) ? item.questionCount : 0,
-          isNew: Boolean(item.isNew),
           isPublic: Boolean(item.isPublic),
           isPending: Boolean(item.isPending)
         }))
@@ -350,7 +346,7 @@ function getNextRecommendedRank() {
   return maxRank + 1
 }
 
-async function updateFlags(code: string, flags: { isNew?: boolean; isPublic?: boolean }) {
+async function updateFlags(code: string, flags: { isPublic?: boolean }) {
   statusError.value = ''
   try {
     const response = await fetch(`${apiBase}/api/admin/problem-sets/${code}/flags`, {
@@ -367,10 +363,6 @@ async function updateFlags(code: string, flags: { isNew?: boolean; isPublic?: bo
   } catch (error) {
     statusError.value = error instanceof Error ? error.message : '状态更新失败'
   }
-}
-
-function toggleIsNew(item: QuestionBankItem) {
-  void updateFlags(item.code, { isNew: !item.isNew })
 }
 
 function toggleIsPublic(item: QuestionBankItem) {
@@ -665,7 +657,6 @@ onMounted(() => {
             <span class="skeleton-line sm"></span>
             <span class="skeleton-line sm"></span>
             <span class="skeleton-line sm"></span>
-            <span class="skeleton-line sm"></span>
           </div>
         </div>
         <div v-else-if="items.length === 0" class="empty">暂无题库</div>
@@ -685,7 +676,6 @@ onMounted(() => {
                 <th>编号</th>
                 <th>标签</th>
                 <th>创建者</th>
-                <th>新</th>
                 <th>推荐</th>
                 <th>公开</th>
                 <th>题目数</th>
@@ -720,22 +710,6 @@ onMounted(() => {
                   </div>
                 </td>
                 <td>{{ item.creatorName || item.creatorId }}</td>
-                <td>
-                  <button
-                    v-if="canManageAll"
-                    type="button"
-                    class="tag-button"
-                    @click="toggleIsNew(item)"
-                  >
-                    <Tag :value="item.isNew ? '新' : '常规'" :severity="item.isNew ? 'info' : 'secondary'" rounded />
-                  </button>
-                  <Tag
-                    v-else
-                    :value="item.isNew ? '新' : '常规'"
-                    :severity="item.isNew ? 'info' : 'secondary'"
-                    rounded
-                  />
-                </td>
                 <td>
                   <button
                     v-if="canManageAll"
@@ -1120,7 +1094,7 @@ onMounted(() => {
 
 .skeleton-row {
   display: grid;
-  grid-template-columns: 0.4fr 1.3fr 1fr 1fr 0.8fr 0.6fr 0.6fr 0.6fr 0.6fr 0.8fr;
+  grid-template-columns: 0.4fr 1.3fr 1fr 1fr 0.8fr 0.6fr 0.6fr 0.6fr 0.8fr;
   gap: 12px;
 }
 

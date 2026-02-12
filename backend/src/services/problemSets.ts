@@ -21,7 +21,6 @@ type ListJson = {
       title: string;
       time: number;
       categories: string[];
-      new: boolean;
     }
   >;
 };
@@ -35,6 +34,7 @@ type ProblemJson = {
 
 export type TestConfigItem = {
   type: number;
+  typeMask?: number;
   number: number;
   score: number;
 };
@@ -45,7 +45,6 @@ export type ProblemSetItem = {
   title: string;
   year: number;
   categories: string[];
-  isNew: boolean;
   isPending: boolean;
   viewCount: number;
   likeCount: number;
@@ -74,10 +73,55 @@ type ProblemInput = {
 const dataRoot = resolve(process.cwd(), "../old/public/data");
 let seeded = false;
 const DEFAULT_TEST_SCORES = [0, 1, 2, 1, 1];
+const EXAM_TYPE_MASK_ITEMS = [
+  { problemType: 1, mask: 1 },
+  { problemType: 2, mask: 2 },
+  { problemType: 3, mask: 4 },
+  { problemType: 4, mask: 8 },
+] as const;
+const EXAM_TYPE_MASK_ALL = EXAM_TYPE_MASK_ITEMS.reduce(
+  (sum, item) => sum | item.mask,
+  0
+);
 
 function toSafeNumber(value: unknown, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function legacyProblemTypeToMask(type: number) {
+  return (
+    EXAM_TYPE_MASK_ITEMS.find((item) => item.problemType === type)?.mask ?? 0
+  );
+}
+
+function normalizeExamMask(value: unknown) {
+  const parsed = Math.floor(toSafeNumber(value, 0));
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+  return parsed & EXAM_TYPE_MASK_ALL;
+}
+
+function toTestConfigItem(mask: number, number: number, score: number): TestConfigItem {
+  return {
+    type: mask,
+    typeMask: mask,
+    number,
+    score,
+  };
+}
+
+function resolveMaskFromConfigItem(item: unknown) {
+  if (!item || typeof item !== "object") return 0;
+  const rawMask = (item as any).typeMask ?? (item as any).mask;
+  if (rawMask !== undefined && rawMask !== null && rawMask !== "") {
+    return normalizeExamMask(rawMask);
+  }
+  const rawType = Math.floor(toSafeNumber((item as any).type, -1));
+  if (!Number.isFinite(rawType)) return 0;
+  if (rawType >= 1 && rawType <= 4) {
+    return legacyProblemTypeToMask(rawType);
+  }
+  return normalizeExamMask(rawType);
 }
 
 function normalizeTestConfigList(raw: unknown): TestConfigItem[] {
@@ -85,22 +129,21 @@ function normalizeTestConfigList(raw: unknown): TestConfigItem[] {
   const order: number[] = [];
   const map = new Map<number, TestConfigItem>();
   for (const item of raw) {
-    if (!item || typeof item !== "object") continue;
-    const type = Math.floor(toSafeNumber((item as any).type, -1));
-    if (!Number.isFinite(type) || type < 0 || type > 4) continue;
+    const mask = resolveMaskFromConfigItem(item);
+    if (mask <= 0) continue;
     const number = Math.max(0, Math.floor(toSafeNumber((item as any).number, 0)));
     if (number <= 0) continue;
     const score = Math.max(0, toSafeNumber((item as any).score, 0));
-    if (!map.has(type)) {
-      order.push(type);
-      map.set(type, { type, number, score });
+    if (!map.has(mask)) {
+      order.push(mask);
+      map.set(mask, toTestConfigItem(mask, number, score));
     } else {
-      const existing = map.get(type)!;
+      const existing = map.get(mask)!;
       existing.number += number;
       existing.score = score;
     }
   }
-  return order.map((type) => map.get(type)!).filter(Boolean);
+  return order.map((mask) => map.get(mask)!).filter(Boolean);
 }
 
 function buildDefaultTestConfig(
@@ -108,11 +151,14 @@ function buildDefaultTestConfig(
   scores: number[] = DEFAULT_TEST_SCORES
 ) {
   const result: TestConfigItem[] = [];
-  for (const type of [1, 2, 3, 4, 0]) {
-    const count = Math.max(0, Math.floor(toSafeNumber(counts[type], 0)));
+  for (const item of EXAM_TYPE_MASK_ITEMS) {
+    const count = Math.max(
+      0,
+      Math.floor(toSafeNumber(counts[item.problemType], 0))
+    );
     if (count <= 0) continue;
-    const score = Math.max(0, toSafeNumber(scores[type], 0));
-    result.push({ type, number: count, score });
+    const score = Math.max(0, toSafeNumber(scores[item.problemType], 0));
+    result.push(toTestConfigItem(item.mask, count, score));
   }
   return result;
 }
@@ -122,12 +168,14 @@ function normalizeLegacyTestConfig(
   scores: number[] = DEFAULT_TEST_SCORES
 ) {
   const result: TestConfigItem[] = [];
-  const maxLen = Math.max(counts.length, scores.length);
-  for (let type = 0; type < maxLen; type += 1) {
-    const count = Math.max(0, Math.floor(toSafeNumber(counts[type], 0)));
+  for (const item of EXAM_TYPE_MASK_ITEMS) {
+    const count = Math.max(
+      0,
+      Math.floor(toSafeNumber(counts[item.problemType], 0))
+    );
     if (count <= 0) continue;
-    const score = Math.max(0, toSafeNumber(scores[type], 0));
-    result.push({ type, number: count, score });
+    const score = Math.max(0, toSafeNumber(scores[item.problemType], 0));
+    result.push(toTestConfigItem(item.mask, count, score));
   }
   return result;
 }
@@ -204,7 +252,6 @@ async function ensureSeeded() {
         code,
         title: meta.title,
         year: meta.time,
-        isNew: meta.new,
         isPending: false,
         viewCount: 0,
         likeCount: 0,
@@ -336,7 +383,6 @@ async function insertProblemSetRow(
     code: string;
     title: string;
     year: number;
-    isNew: boolean;
     isPending: boolean;
     viewCount: number;
     likeCount: number;
@@ -494,7 +540,6 @@ export async function loadProblemSetList(options?: {
     code: string;
     title: string;
     year: number;
-    isNew: boolean;
     isPending: boolean;
     viewCount: number;
     likeCount: number;
@@ -519,7 +564,6 @@ export async function loadProblemSetList(options?: {
     title: row.title,
     year: row.year,
     categories: categoriesMap.get(row.id) ?? [],
-    isNew: Boolean(row.isNew),
     isPending: Boolean(row.isPending),
     viewCount: Number(row.viewCount ?? 0),
     likeCount: Number(row.likeCount ?? 0),
@@ -535,7 +579,6 @@ export async function loadProblemSetList(options?: {
   }));
 
   return items.sort((a, b) => {
-    if (a.isNew !== b.isNew) return a.isNew ? -1 : 1;
     const aRec = a.recommendedRank !== null;
     const bRec = b.recommendedRank !== null;
     if (aRec !== bRec) return aRec ? -1 : 1;
@@ -616,7 +659,6 @@ export async function loadPublicProblemSetPage(options?: {
       code: problemSets.code,
       title: problemSets.title,
       year: problemSets.year,
-      isNew: problemSets.isNew,
       isPending: problemSets.isPending,
       viewCount: problemSets.viewCount,
       likeCount: problemSets.likeCount,
@@ -632,7 +674,6 @@ export async function loadPublicProblemSetPage(options?: {
     .from(problemSets)
     .where(whereClause)
     .orderBy(
-      desc(problemSets.isNew),
       asc(sql`(${problemSets.recommendedRank} IS NULL)`),
       asc(problemSets.recommendedRank),
       desc(problemSets.year),
@@ -644,7 +685,10 @@ export async function loadPublicProblemSetPage(options?: {
     code: string;
     title: string;
     year: number;
-    isNew: boolean;
+    isPending: boolean;
+    viewCount: number;
+    likeCount: number;
+    dislikeCount: number;
     recommendedRank: number | null;
     questionCount: number;
     creatorId: string;
@@ -662,7 +706,6 @@ export async function loadPublicProblemSetPage(options?: {
     title: row.title,
     year: row.year,
     categories: categoriesMap.get(row.id) ?? [],
-    isNew: Boolean(row.isNew),
     isPending: Boolean(row.isPending),
     viewCount: Number(row.viewCount ?? 0),
     likeCount: Number(row.likeCount ?? 0),
@@ -678,6 +721,20 @@ export async function loadPublicProblemSetPage(options?: {
   }));
 
   return { items, total };
+}
+
+export async function loadPublicProblemSetCategories() {
+  await ensureSeeded();
+  const rows = (await db
+    .selectDistinct({ name: categories.name })
+    .from(problemSetCategories)
+    .innerJoin(categories, eq(problemSetCategories.categoryId, categories.id))
+    .innerJoin(problemSets, eq(problemSetCategories.problemSetId, problemSets.id))
+    .where(and(eq(problemSets.isPublic, true), eq(problemSets.isPending, false)))
+    .orderBy(asc(categories.name))) as Array<{ name: string }>;
+  return rows
+    .map((row) => String(row.name ?? "").trim())
+    .filter(Boolean);
 }
 
 export async function loadProblemSetPlazaPage(options?: {
@@ -746,7 +803,6 @@ export async function loadProblemSetPlazaPage(options?: {
       code: problemSets.code,
       title: problemSets.title,
       year: problemSets.year,
-      isNew: problemSets.isNew,
       isPending: problemSets.isPending,
       viewCount: problemSets.viewCount,
       likeCount: problemSets.likeCount,
@@ -768,7 +824,6 @@ export async function loadProblemSetPlazaPage(options?: {
     code: string;
     title: string;
     year: number;
-    isNew: boolean;
     isPending: boolean;
     viewCount: number;
     likeCount: number;
@@ -812,7 +867,6 @@ export async function loadProblemSetPlazaPage(options?: {
     title: row.title,
     year: row.year,
     categories: categoriesMap.get(row.id) ?? [],
-    isNew: Boolean(row.isNew),
     isPending: Boolean(row.isPending),
     viewCount: Number(row.viewCount ?? 0),
     likeCount: Number(row.likeCount ?? 0),
@@ -906,7 +960,6 @@ export async function loadAdminProblemSetPage(options?: {
       code: problemSets.code,
       title: problemSets.title,
       year: problemSets.year,
-      isNew: problemSets.isNew,
       isPending: problemSets.isPending,
       viewCount: problemSets.viewCount,
       likeCount: problemSets.likeCount,
@@ -928,7 +981,6 @@ export async function loadAdminProblemSetPage(options?: {
     code: string;
     title: string;
     year: number;
-    isNew: boolean;
     isPending: boolean;
     viewCount: number;
     likeCount: number;
@@ -950,7 +1002,6 @@ export async function loadAdminProblemSetPage(options?: {
     title: row.title,
     year: row.year,
     categories: categoriesMap.get(row.id) ?? [],
-    isNew: Boolean(row.isNew),
     isPending: Boolean(row.isPending),
     viewCount: Number(row.viewCount ?? 0),
     likeCount: Number(row.likeCount ?? 0),
@@ -1011,7 +1062,6 @@ export async function loadPendingProblemSetPage(options?: {
       code: problemSets.code,
       title: problemSets.title,
       year: problemSets.year,
-      isNew: problemSets.isNew,
       isPending: problemSets.isPending,
       viewCount: problemSets.viewCount,
       likeCount: problemSets.likeCount,
@@ -1033,7 +1083,6 @@ export async function loadPendingProblemSetPage(options?: {
     code: string;
     title: string;
     year: number;
-    isNew: boolean;
     isPending: boolean;
     viewCount: number;
     likeCount: number;
@@ -1055,7 +1104,6 @@ export async function loadPendingProblemSetPage(options?: {
     title: row.title,
     year: row.year,
     categories: categoriesMap.get(row.id) ?? [],
-    isNew: Boolean(row.isNew),
     isPending: Boolean(row.isPending),
     viewCount: Number(row.viewCount ?? 0),
     likeCount: Number(row.likeCount ?? 0),
@@ -1090,7 +1138,6 @@ export async function loadProblemSetDetail(
     code: string;
     title: string;
     year: number;
-    isNew: boolean;
     isPending: boolean;
     viewCount: number;
     likeCount: number;
@@ -1145,7 +1192,6 @@ export async function loadProblemSetDetail(
     title: row.title,
     year: row.year,
     categories: categoryMap.get(row.id) ?? [],
-    isNew: Boolean(row.isNew),
     isPending: Boolean(row.isPending),
     viewCount: Number(row.viewCount ?? 0),
     likeCount: Number(row.likeCount ?? 0),
@@ -1161,6 +1207,39 @@ export async function loadProblemSetDetail(
     test: testMeta.length ? testMeta : [],
     problems: problemRows.map((problem) => toProblemPayload(problem)),
   } as ProblemSetItem;
+}
+
+export async function loadProblemSetMeta(code: string) {
+  await ensureSeeded();
+  const rows = (await db
+    .select({
+      code: problemSets.code,
+      creatorId: problemSets.creatorId,
+      isPublic: problemSets.isPublic,
+      inviteCode: problemSets.inviteCode,
+      createdAt: problemSets.createdAt,
+      updatedAt: problemSets.updatedAt,
+    })
+    .from(problemSets)
+    .where(eq(problemSets.code, code))
+    .limit(1)) as Array<{
+    code: string;
+    creatorId: string;
+    isPublic: boolean;
+    inviteCode: string | null;
+    createdAt: number;
+    updatedAt: number;
+  }>;
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    code: row.code,
+    creatorId: row.creatorId,
+    isPublic: Boolean(row.isPublic),
+    inviteCode: row.inviteCode ?? null,
+    createdAt: Number(row.createdAt ?? 0),
+    updatedAt: Number(row.updatedAt ?? row.createdAt ?? 0),
+  };
 }
 
 export async function incrementProblemSetViewCount(code: string) {
@@ -1298,7 +1377,6 @@ export async function createProblemSet(item: ProblemSetItem) {
       code: item.code,
       title: item.title,
       year: item.year,
-      isNew: Boolean(item.isNew),
       isPending,
       viewCount: Number(item.viewCount ?? 0),
       likeCount: Number(item.likeCount ?? 0),
@@ -1406,7 +1484,6 @@ export async function updateProblemSet(item: ProblemSetItem) {
       .set({
         title: item.title,
         year: item.year,
-        isNew: Boolean(item.isNew),
         isPending,
         viewCount: Number(item.viewCount ?? 0),
         likeCount: Number(item.likeCount ?? 0),
@@ -1487,7 +1564,7 @@ export async function updateProblemSetRecommended(
 
 export async function updateProblemSetFlags(
   code: string,
-  flags: { isNew?: boolean; isPublic?: boolean; isPending?: boolean }
+  flags: { isPublic?: boolean; isPending?: boolean }
 ) {
   await ensureSeeded();
   const updatedAt = Date.now();
@@ -1498,9 +1575,6 @@ export async function updateProblemSetFlags(
     .limit(1)) as Array<{ id: number }>;
   if (!rows[0]) return false;
   const updates: Record<string, unknown> = {};
-  if (typeof flags.isNew === "boolean") {
-    updates.isNew = flags.isNew;
-  }
   if (typeof flags.isPublic === "boolean") {
     updates.isPublic = flags.isPublic;
     if (flags.isPublic) {

@@ -10,7 +10,12 @@ import {
 } from "drizzle-orm/mysql-core";
 
 const VARCHAR_ID = 191;
-type TestConfigItem = { type: number; number: number; score: number };
+type TestConfigItem = {
+  type: number;
+  typeMask?: number;
+  number: number;
+  score: number;
+};
 type TestMeta = TestConfigItem[] | number[] | number | null;
 
 export const problemSets = mysqlTable("problem_sets", {
@@ -18,7 +23,6 @@ export const problemSets = mysqlTable("problem_sets", {
   code: varchar("code", { length: VARCHAR_ID }).notNull().unique(),
   title: varchar("title", { length: 255 }).notNull(),
   year: int("year").notNull(),
-  isNew: boolean("is_new").notNull().default(false),
   isPending: boolean("is_pending").notNull().default(false),
   viewCount: int("view_count").notNull().default(0),
   likeCount: int("like_count").notNull().default(0),
@@ -46,6 +50,7 @@ export const userGroups = mysqlTable("user_groups", {
   description: text("description"),
   permissions: int("permissions").notNull(),
   privateProblemSetLimit: int("private_problem_set_limit").notNull().default(-1),
+  recordCloudLimit: int("record_cloud_limit").notNull().default(-1),
   builtIn: boolean("built_in").notNull().default(false),
 });
 

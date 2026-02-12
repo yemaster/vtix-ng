@@ -2,6 +2,8 @@ import { Elysia } from "elysia";
 import {
   incrementProblemSetViewCount,
   loadProblemSetDetail,
+  loadProblemSetMeta,
+  loadPublicProblemSetCategories,
   loadProblemSetList,
   loadProblemSetPlazaPage,
   loadPublicProblemSetPage,
@@ -55,6 +57,10 @@ export const registerPublicProblemSetRoutes = (app: Elysia) =>
         });
       return limit > 0 ? recommended.slice(0, limit) : recommended;
     })
+    .get("/api/problem-sets/categories", async () => {
+      const items = await loadPublicProblemSetCategories();
+      return { items };
+    })
     .get("/api/problem-sets/plaza", async ({ query, set, request }) => {
       const pageRaw = Number((query as any)?.page ?? 1);
       const pageSizeRaw = Number((query as any)?.pageSize ?? 12);
@@ -103,6 +109,38 @@ export const registerPublicProblemSetRoutes = (app: Elysia) =>
         return { error: "Problem set not found." };
       }
       return result;
+    })
+    .get("/api/problem-sets/:code/meta", async ({ params, set, request, query }) => {
+      const user = getSessionUser(request);
+      const detail = await loadProblemSetMeta(params.code);
+      if (!detail) {
+        set.status = 404;
+        return { error: "Problem set not found." };
+      }
+      const invite = String(query.invite ?? "").trim();
+      const inviteCode = String(detail.inviteCode ?? "").trim();
+      const isOwner = Boolean(user && detail.creatorId === user.id);
+      const isAdmin = Boolean(user && hasPermission(user.permissions, PERMISSIONS.MANAGE_USERS));
+      const hasPrivatePerm = Boolean(
+        user && hasPermission(user.permissions, PERMISSIONS.ACCESS_PRIVATE)
+      );
+      const inviteMatch = invite.length > 0 && invite === inviteCode;
+      const canAccess =
+        detail.isPublic ||
+        !inviteCode ||
+        isOwner ||
+        isAdmin ||
+        hasPrivatePerm ||
+        inviteMatch;
+      if (!canAccess) {
+        set.status = 403;
+        return { error: "Forbidden" };
+      }
+      return {
+        code: detail.code,
+        createdAt: detail.createdAt,
+        updatedAt: detail.updatedAt,
+      };
     })
     .get("/api/problem-sets/:code", async ({ params, set, request, query }) => {
       const user = getSessionUser(request);

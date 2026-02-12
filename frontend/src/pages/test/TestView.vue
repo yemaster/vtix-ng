@@ -10,6 +10,11 @@ import Tag from 'primevue/tag'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import type { ChooseProblemType, ProblemType } from '../../base/ProblemTypes'
 import { deepCopy } from '../../base/funcs'
+import {
+  getCachedProblemSetUpdatedAt,
+  readCachedProblemSetDetail,
+  writeCachedProblemSetDetail
+} from '../../base/problemSetCache'
 import PracticeProgress from '../../base/PracticeProgress'
 import {
   getSyncAt,
@@ -18,7 +23,19 @@ import {
   setSyncCursor,
   syncRecords
 } from '../../base/recordSync'
+import {
+  readPracticeRecordById,
+  readPracticeRecords,
+  upsertPracticeRecordsWithResult
+} from '../../base/practiceRecords'
 import { addWrongProblem, getWrongProblemsByTest } from '../../base/wrongProblems'
+import {
+  getStorageItem,
+  getVtixStorage,
+  isStorageAvailable,
+  probeStorage,
+  setStorageItem
+} from '../../base/vtixGlobal'
 import { useUserStore } from '../../stores/user'
 import { formatDistanceToNow } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
@@ -30,8 +47,20 @@ type ProblemListType = {
   problems: ProblemType[]
 }
 
+type ProblemMetaPayload = {
+  createdAt?: number
+  updatedAt?: number
+}
+
+type ProblemDetailPayload = ProblemListType & {
+  code?: string
+  createdAt?: number
+  updatedAt?: number
+}
+
 type TestConfigItem = {
   type: number
+  typeMask?: number
   number: number
   score: number
 }
@@ -46,12 +75,53 @@ type PracticeRecord = {
   progress: ReturnType<InstanceType<typeof PracticeProgress>['toJSON']>
   problemState: number[]
   errorProblems: ProblemType[]
+  examQuestionScores?: number[]
   setType: [boolean, boolean, boolean, boolean, boolean]
   setShuffle: boolean
 }
 
-const STORAGE_KEY = 'vtixSave'
+type IndexedPatch<T> = {
+  index: number
+  value: T
+}
+
+type PracticeRecordDeltaPayload = {
+  id: string
+  updatedAt: number
+  baseUpdatedAt?: number
+  deletedAt?: number
+  testTitle?: string
+  practiceMode?: number
+  setType?: [boolean, boolean, boolean, boolean, boolean]
+  setShuffle?: boolean
+  progress?: {
+    currentProblemId?: number
+    currentAnswer?: (number | string)[]
+    timeSpentSeconds?: number
+    answerPatches?: IndexedPatch<(number | string)[]>[]
+    submittedPatches?: IndexedPatch<boolean>[]
+  }
+  problemStatePatches?: IndexedPatch<number>[]
+  appendErrorProblems?: ProblemType[]
+  resetErrorProblems?: boolean
+}
+
+type CloudRecordSyncState = {
+  checked: boolean
+  recordExists: boolean
+  deltaCount: number
+  snapshot: PracticeRecord | null
+}
+
+type ExamNumberGroup = {
+  key: string
+  label: string
+  score: number
+  indices: number[]
+}
+
 const LOCAL_SYNC_KEY = 'vtixLastLocalSaveAt'
+const CLOUD_SYNC_SNAPSHOT_INTERVAL = 12
 
 const router = useRouter()
 const route = useRoute()
@@ -105,10 +175,13 @@ const importInput = ref<HTMLInputElement | null>(null)
 const localSaveAt = ref<number | null>(null)
 const cloudSyncAt = ref<number | null>(null)
 const cloudSyncFailed = ref(false)
+const localSyncErrorDetail = ref('')
+const cloudSyncErrorDetail = ref('')
 const canUseLocalStorage = ref(true)
 const cloudSyncing = ref(false)
 let cloudSyncTimer: number | null = null
 let lastCloudSyncAttempt = 0
+const cloudRecordState = new Map<string, CloudRecordSyncState>()
 
 const nowProblemList = computed(() => progress.value?.problemList ?? [])
 const nowProblemId = computed({
@@ -150,10 +223,54 @@ const fillAnswerText = computed(() => {
   if (!currentProblem.value || currentProblem.value.type !== 3) return ''
   return formatFillAnswer(currentProblem.value)
 })
-const examTypeOrder = [2, 1, 3, 4, 0]
-const examSectionLabels = ['送分题', '单选题', '多选题', '填空题', '判断题']
+const examTypeOptions = [
+  { label: '单选题', problemType: 1, mask: 1 },
+  { label: '多选题', problemType: 2, mask: 2 },
+  { label: '填空题', problemType: 3, mask: 4 },
+  { label: '判断题', problemType: 4, mask: 8 }
+] as const
+const EXAM_TYPE_MASK_ALL = examTypeOptions.reduce((sum, item) => sum | item.mask, 0)
 const cnNumbers = ['一', '二', '三', '四', '五', '六']
 const DEFAULT_TEST_SCORES = [0, 1, 2, 1, 1]
+const examQuestionScores = ref<number[]>([])
+const examRuntimeGroups = ref<ExamNumberGroup[]>([])
+
+function normalizeExamMaskValue(value: unknown) {
+  const parsed = Math.floor(Number(value ?? 0))
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0
+  return parsed & EXAM_TYPE_MASK_ALL
+}
+
+function legacyProblemTypeToMask(type: number) {
+  return examTypeOptions.find((item) => item.problemType === type)?.mask ?? 0
+}
+
+function resolveExamMaskFromConfigItem(item: unknown) {
+  if (!item || typeof item !== 'object') return 0
+  const row = item as Record<string, unknown>
+  const rawMask = row.typeMask ?? row.mask
+  if (rawMask !== undefined && rawMask !== null && rawMask !== '') {
+    return normalizeExamMaskValue(rawMask)
+  }
+  const rawType = Math.floor(Number(row.type ?? -1))
+  if (Number.isFinite(rawType) && rawType >= 1 && rawType <= 4) {
+    return legacyProblemTypeToMask(rawType)
+  }
+  return normalizeExamMaskValue(rawType)
+}
+
+function decodeExamMask(mask: number) {
+  return examTypeOptions
+    .filter((item) => (mask & item.mask) === item.mask)
+    .map((item) => item.problemType)
+}
+
+function getExamMaskLabel(mask: number) {
+  const labels = examTypeOptions
+    .filter((item) => (mask & item.mask) === item.mask)
+    .map((item) => item.label)
+  return labels.length ? labels.join(' / ') : '题目'
+}
 
 function normalizeTestConfig(rawTest: unknown, rawScore: unknown) {
   if (Array.isArray(rawTest)) {
@@ -161,14 +278,14 @@ function normalizeTestConfig(rawTest: unknown, rawScore: unknown) {
       const order: number[] = []
       const map = new Map<number, TestConfigItem>()
       rawTest.forEach((item) => {
-        const type = Math.floor(Number((item as any).type))
-        if (!Number.isFinite(type) || type < 0 || type > 4) return
+        const type = resolveExamMaskFromConfigItem(item)
+        if (type <= 0) return
         const number = Math.max(0, Math.floor(Number((item as any).number ?? 0)))
         if (number <= 0) return
         const score = Math.max(0, Number((item as any).score ?? 0))
         if (!map.has(type)) {
           order.push(type)
-          map.set(type, { type, number, score })
+          map.set(type, { type, typeMask: type, number, score })
         } else {
           const existing = map.get(type)
           if (existing) {
@@ -181,11 +298,12 @@ function normalizeTestConfig(rawTest: unknown, rawScore: unknown) {
     }
     if (rawTest.every((item) => typeof item === 'number')) {
       const scores = Array.isArray(rawScore) ? rawScore : DEFAULT_TEST_SCORES
-      return rawTest
-        .map((count, type) => ({
-          type,
-          number: Math.max(0, Math.floor(Number(count ?? 0))),
-          score: Math.max(0, Number(scores[type] ?? 0))
+      return examTypeOptions
+        .map((item) => ({
+          type: item.mask,
+          typeMask: item.mask,
+          number: Math.max(0, Math.floor(Number(rawTest[item.problemType] ?? 0))),
+          score: Math.max(0, Number(scores[item.problemType] ?? 0))
         }))
         .filter((item) => item.number > 0)
     }
@@ -194,60 +312,64 @@ function normalizeTestConfig(rawTest: unknown, rawScore: unknown) {
 }
 
 const testConfig = computed(() => normalizeTestConfig(problemInfo.value.test, problemInfo.value.score))
-const testScoreMap = computed(() => {
-  const map = new Map<number, number>()
-  testConfig.value.forEach((item) => {
-    map.set(item.type, item.score)
-  })
-  return map
-})
-const testCountMap = computed(() => {
-  const map = new Map<number, number>()
-  testConfig.value.forEach((item) => {
-    map.set(item.type, item.number)
-  })
-  return map
-})
-const examSectionOrder = computed(() => {
-  const seen = new Set<number>()
-  const order: number[] = []
-  testConfig.value.forEach((item) => {
-    if (!seen.has(item.type)) {
-      seen.add(item.type)
-      order.push(item.type)
+
+function getScoreForProblemType(type: number) {
+  const typeMask = legacyProblemTypeToMask(type)
+  if (typeMask > 0) {
+    const row = testConfig.value.find((item) => (item.type & typeMask) === typeMask)
+    if (row) return row.score
+  }
+  return Math.max(0, Number(DEFAULT_TEST_SCORES[type] ?? 0))
+}
+
+function scoreForExamIndex(index: number, problem: ProblemType) {
+  if (index >= 0 && index < examQuestionScores.value.length) {
+    return Math.max(0, Number(examQuestionScores.value[index] ?? 0))
+  }
+  return getScoreForProblemType(problem.type)
+}
+
+function buildFallbackExamGroups(problemList: ProblemType[]) {
+  const groups = new Map<number, ExamNumberGroup>()
+  problemList.forEach((problem, index) => {
+    const key = problem.type
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key: `type-${key}`,
+        label: problemTypes[key] ?? '题目',
+        score: getScoreForProblemType(key),
+        indices: []
+      })
     }
+    groups.get(key)?.indices.push(index)
   })
-  return order.length ? order : examTypeOrder
-})
+  return Array.from(groups.values()).filter((group) => group.indices.length > 0)
+}
 
 const examNumberGroups = computed(() => {
   if (!isExamMode.value) return []
-  const groups = examSectionOrder.value.map((type) => ({
-    type,
-    label: examSectionLabels[type] ?? '题目',
-    indices: [] as number[]
-  }))
-  nowProblemList.value.forEach((problem, index) => {
-    const group = groups.find((item) => item.type === problem.type)
-    if (group) group.indices.push(index)
-  })
-  return groups.filter((group) => group.indices.length > 0)
+  const list = nowProblemList.value
+  if (!list.length) return []
+  const runtime = examRuntimeGroups.value
+  const canUseRuntime =
+    runtime.length > 0 &&
+    runtime.every((group) => group.indices.every((index) => index >= 0 && index < list.length))
+  if (canUseRuntime) {
+    return runtime.filter((group) => group.indices.length > 0)
+  }
+  return buildFallbackExamGroups(list)
 })
-
-function getScoreForType(type: number) {
-  return testScoreMap.value.get(type) ?? 0
-}
 
 const examMaxScore = computed(() => {
   if (!nowProblemList.value.length) return 0
-  return nowProblemList.value.reduce((sum, problem) => sum + getScoreForType(problem.type), 0)
+  return nowProblemList.value.reduce((sum, problem, index) => sum + scoreForExamIndex(index, problem), 0)
 })
 
 const examScore = computed(() => {
   if (!nowProblemList.value.length) return 0
   return nowProblemList.value.reduce((sum, problem, index) => {
     if (problemState.value[index] === 2) {
-      return sum + getScoreForType(problem.type)
+      return sum + scoreForExamIndex(index, problem)
     }
     return sum
   }, 0)
@@ -296,6 +418,15 @@ const menuItems = computed(() => [
     disabled: mode.value === 4 && !wrongReviewAvailable.value,
     command: () => handleModeClick(mode.value)
   })),
+  {
+    separator: true
+  },
+  {
+    label: '问题反馈',
+    command: () => {
+      router.push({ name: 'help' })
+    }
+  },
   {
     label: '返回题库',
     command: () => {
@@ -361,38 +492,75 @@ const progressText = computed(() => {
   return `${current} / ${total}`
 })
 
-const syncStatusLabel = computed(() => {
-  if (!canUseLocalStorage.value) return '未同步'
-  if (userStore.user) {
-    if (cloudSyncFailed.value) return '云端同步失败'
-    return cloudSyncAt.value ? '已同步云端' : '未同步'
+function formatSyncAgo(timestamp: number | null | undefined) {
+  if (!timestamp) return '未同步'
+  return `${formatDistanceToNow(timestamp, {
+    addSuffix: true,
+    locale: zhCN
+  })}同步`
+}
+
+function toErrorMessage(error: unknown, fallback = '未知错误') {
+  if (error instanceof Error && error.message.trim()) return error.message.trim()
+  if (typeof error === 'string' && error.trim()) return error.trim()
+  return fallback
+}
+
+async function readResponseErrorMessage(response: Response, fallback: string) {
+  try {
+    const payload = (await response.json()) as { error?: unknown; message?: unknown }
+    if (typeof payload?.error === 'string' && payload.error.trim()) return payload.error.trim()
+    if (typeof payload?.message === 'string' && payload.message.trim()) return payload.message.trim()
+    const text = JSON.stringify(payload)
+    if (text && text !== '{}') return text
+  } catch {
+    try {
+      const text = (await response.text()).trim()
+      if (text) return text
+    } catch {
+      // ignore
+    }
   }
-  return localSaveAt.value ? '本地已同步' : '未同步'
+  return fallback
+}
+
+const localSyncFailed = computed(() => !canUseLocalStorage.value || Boolean(localSyncErrorDetail.value))
+const localSyncSucceeded = computed(() => canUseLocalStorage.value && !localSyncFailed.value && Boolean(localSaveAt.value))
+
+const syncStatusLabel = computed(() => {
+  if (userStore.user) {
+    if (cloudSyncFailed.value) {
+      return localSyncSucceeded.value ? '本地已同步' : '同步失败'
+    }
+    if (cloudSyncAt.value) return '云端已同步'
+    if (localSyncFailed.value) return '同步失败'
+    return '未同步'
+  }
+  if (localSyncSucceeded.value) return '本地已同步'
+  if (localSyncFailed.value) return '同步失败'
+  return '未同步'
 })
 
 const syncStatusTooltip = computed(() => {
   syncTick.value
-  if (!canUseLocalStorage.value) return '未同步'
+  const localLine = localSyncFailed.value
+    ? `本地：失败（${localSyncErrorDetail.value || '未知错误'}）`
+    : `本地：${formatSyncAgo(localSaveAt.value)}`
+
   if (userStore.user) {
-    if (cloudSyncFailed.value) return '云端同步失败'
-    if (!cloudSyncAt.value) return '未同步'
-    const distance = formatDistanceToNow(cloudSyncAt.value, {
-      addSuffix: true,
-      locale: zhCN
-    })
-    return `最新云端同步：${distance}`
+    const cloudLine = cloudSyncFailed.value
+      ? `云端：失败（${cloudSyncErrorDetail.value || '未知错误'}）`
+      : cloudSyncAt.value
+      ? `云端：${formatSyncAgo(cloudSyncAt.value)}`
+      : '云端：未同步'
+    return `${cloudLine}\n${localLine}`
   }
-  if (!localSaveAt.value) return '未同步'
-  const distance = formatDistanceToNow(localSaveAt.value, {
-    addSuffix: true,
-    locale: zhCN
-  })
-  return `最新保存：${distance}`
+  return localLine
 })
 
 const syncAgoText = computed(() => {
   syncTick.value
-  if (!canUseLocalStorage.value) return '未同步'
+  if (!canUseLocalStorage.value) return '存储不可用'
   if (userStore.user) {
     if (cloudSyncFailed.value) return '云端同步失败'
     if (!cloudSyncAt.value) return '未同步'
@@ -409,6 +577,18 @@ const syncAgoText = computed(() => {
   })
   return `${distance}同步`
 })
+
+const syncStatusSeverity = computed(() => {
+  if (syncStatusLabel.value === '同步失败') return 'danger'
+  if (userStore.user && cloudSyncFailed.value) return 'danger'
+  if (syncStatusLabel.value === '未同步') return 'secondary'
+  return 'success'
+})
+
+const syncStatusTooltipOptions = computed(() => ({
+  value: syncStatusTooltip.value,
+  class: 'sync-status-tooltip'
+}))
 
 const syncTick = ref(0)
 
@@ -509,30 +689,60 @@ function isDeletedRecord(record: PracticeRecord) {
 }
 
 function readRecords(options: RecordReadOptions = {}): PracticeRecord[] {
-  if (!window.localStorage) return []
-  const raw = localStorage.getItem(STORAGE_KEY)
-  if (!raw) return []
-  try {
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
-    const list = parsed.filter(
-      (item) =>
-        item &&
-        typeof item.id === 'string' &&
-        (item.progress || typeof item.deletedAt === 'number')
-    )
-    return options.includeDeleted ? list : list.filter((item) => !isDeletedRecord(item))
-  } catch (error) {
-    return []
+  const list = readPracticeRecords<PracticeRecord>({ includeDeleted: options.includeDeleted })
+  return options.includeDeleted ? list : list.filter((item) => !isDeletedRecord(item))
+}
+
+function describeLocalWriteFailure(result: {
+  failures: Array<{ id: string; reason: string }>
+  indexError: string | null
+}) {
+  const parts: string[] = []
+  if (result.failures.length > 0) {
+    const first = result.failures[0]
+    if (first) {
+      parts.push(`记录 ${first.id} 写入失败：${first.reason}`)
+    } else {
+      parts.push(`有 ${result.failures.length} 条记录写入失败`)
+    }
   }
+  if (result.indexError) {
+    parts.push(`索引写入失败：${result.indexError}`)
+  }
+  return parts.join('；')
 }
 
 function writeRecords(records: PracticeRecord[]) {
-  if (!window.localStorage) return
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(records))
+  if (!canUseLocalStorage.value) {
+    localSyncErrorDetail.value = '本地存储不可用或被禁用'
+    return false
+  }
+  const result = upsertPracticeRecordsWithResult(records)
+  const writeError = describeLocalWriteFailure(result)
+  if (writeError) {
+    localSyncErrorDetail.value = writeError
+    return false
+  }
   const now = Date.now()
-  localStorage.setItem(LOCAL_SYNC_KEY, String(now))
+  if (!setStorageItem(LOCAL_SYNC_KEY, String(now))) {
+    localSyncErrorDetail.value = '同步时间戳写入失败'
+    return false
+  }
   localSaveAt.value = now
+  localSyncErrorDetail.value = ''
+  return true
+}
+
+function applyCloudRecords(records: PracticeRecord[]) {
+  if (!records.length) return true
+  const result = upsertPracticeRecordsWithResult(records)
+  const writeError = describeLocalWriteFailure(result)
+  if (writeError) {
+    localSyncErrorDetail.value = `云端数据回写失败：${writeError}`
+    return false
+  }
+  localSyncErrorDetail.value = ''
+  return true
 }
 
 function syncLocalRecords() {
@@ -540,65 +750,351 @@ function syncLocalRecords() {
 }
 
 function loadLocalSyncTime() {
-  try {
-    const testKey = '__vtix_ls_test'
-    localStorage.setItem(testKey, '1')
-    localStorage.removeItem(testKey)
-    canUseLocalStorage.value = true
-    const raw = Number(localStorage.getItem(LOCAL_SYNC_KEY))
-    localSaveAt.value = Number.isFinite(raw) && raw > 0 ? raw : null
-    const cloudRaw = getSyncAt(localStorage)
-    cloudSyncAt.value = Number.isFinite(cloudRaw) && cloudRaw > 0 ? cloudRaw : null
-  } catch (error) {
-    canUseLocalStorage.value = false
+  canUseLocalStorage.value = isStorageAvailable() && probeStorage()
+  if (!canUseLocalStorage.value) {
     localSaveAt.value = null
     cloudSyncAt.value = null
+    localSyncErrorDetail.value = '本地存储不可用或被禁用'
+    return
   }
+  localSyncErrorDetail.value = ''
+  const raw = Number(getStorageItem(LOCAL_SYNC_KEY))
+  localSaveAt.value = Number.isFinite(raw) && raw > 0 ? raw : null
+  const cloudRaw = getSyncAt(getVtixStorage())
+  cloudSyncAt.value = Number.isFinite(cloudRaw) && cloudRaw > 0 ? cloudRaw : null
 }
 
 
-async function syncCloudRecords() {
+function getCloudRecordSyncState(recordId: string) {
+  const cached = cloudRecordState.get(recordId)
+  if (cached) return cached
+  const next: CloudRecordSyncState = {
+    checked: false,
+    recordExists: false,
+    deltaCount: 0,
+    snapshot: null
+  }
+  cloudRecordState.set(recordId, next)
+  return next
+}
+
+async function checkCloudRecordExists(recordId: string) {
+  const response = await fetch(`${apiBase}/api/records/meta`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ ids: [recordId] })
+  })
+  if (!response.ok) {
+    const detail = await readResponseErrorMessage(response, `状态码 ${response.status}`)
+    throw new Error(`检查记录失败：${detail}`)
+  }
+  const data = (await response.json()) as { ids?: string[] }
+  const ids = Array.isArray(data.ids) ? data.ids : []
+  return ids.includes(recordId)
+}
+
+function isSameJson(left: unknown, right: unknown) {
+  return JSON.stringify(left) === JSON.stringify(right)
+}
+
+function buildIndexedPatches<T>(
+  prev: T[],
+  next: T[],
+  equal: (a: T | undefined, b: T | undefined) => boolean
+) {
+  const patches: IndexedPatch<T>[] = []
+  const total = Math.max(prev.length, next.length)
+  for (let index = 0; index < total; index += 1) {
+    const prevValue = prev[index]
+    const nextValue = next[index]
+    if (equal(prevValue, nextValue)) continue
+    if (nextValue === undefined) continue
+    patches.push({ index, value: deepCopy(nextValue) })
+  }
+  return patches
+}
+
+function buildRecordDeltaPayload(prev: PracticeRecord, next: PracticeRecord) {
+  if (prev.id !== next.id) return null
+  const payload: PracticeRecordDeltaPayload = {
+    id: next.id,
+    updatedAt: next.updatedAt,
+    baseUpdatedAt: prev.updatedAt
+  }
+  let changed = false
+
+  if (next.deletedAt && next.deletedAt > 0) {
+    payload.deletedAt = next.deletedAt
+    changed = true
+  }
+  if (prev.testTitle !== next.testTitle) {
+    payload.testTitle = next.testTitle
+    changed = true
+  }
+  if (prev.practiceMode !== next.practiceMode) {
+    payload.practiceMode = next.practiceMode
+    changed = true
+  }
+  if (!isSameJson(prev.setType, next.setType)) {
+    payload.setType = [...next.setType] as [boolean, boolean, boolean, boolean, boolean]
+    changed = true
+  }
+  if (prev.setShuffle !== next.setShuffle) {
+    payload.setShuffle = next.setShuffle
+    changed = true
+  }
+
+  const progressPayload: NonNullable<PracticeRecordDeltaPayload['progress']> = {}
+  if (prev.progress.currentProblemId !== next.progress.currentProblemId) {
+    progressPayload.currentProblemId = next.progress.currentProblemId
+    changed = true
+  }
+  if (!isSameJson(prev.progress.currentAnswer, next.progress.currentAnswer)) {
+    progressPayload.currentAnswer = deepCopy(next.progress.currentAnswer)
+    changed = true
+  }
+  if (prev.progress.timeSpentSeconds !== next.progress.timeSpentSeconds) {
+    progressPayload.timeSpentSeconds = next.progress.timeSpentSeconds
+    changed = true
+  }
+  const answerPatches = buildIndexedPatches(
+    prev.progress.answerList ?? [],
+    next.progress.answerList ?? [],
+    (left, right) => isSameJson(left, right)
+  )
+  if (answerPatches.length > 0) {
+    progressPayload.answerPatches = answerPatches
+    changed = true
+  }
+  const submittedPatches = buildIndexedPatches(
+    prev.progress.submittedList ?? [],
+    next.progress.submittedList ?? [],
+    (left, right) => left === right
+  )
+  if (submittedPatches.length > 0) {
+    progressPayload.submittedPatches = submittedPatches
+    changed = true
+  }
+  if (Object.keys(progressPayload).length > 0) {
+    payload.progress = progressPayload
+  }
+
+  const problemStatePatches = buildIndexedPatches(
+    prev.problemState ?? [],
+    next.problemState ?? [],
+    (left, right) => left === right
+  )
+  if (problemStatePatches.length > 0) {
+    payload.problemStatePatches = problemStatePatches
+    changed = true
+  }
+
+  const prevErrors = prev.errorProblems ?? []
+  const nextErrors = next.errorProblems ?? []
+  if (nextErrors.length < prevErrors.length) {
+    payload.resetErrorProblems = true
+    payload.appendErrorProblems = deepCopy(nextErrors)
+    changed = true
+  } else if (nextErrors.length > prevErrors.length) {
+    const samePrefix = prevErrors.every((item, index) => isSameJson(item, nextErrors[index]))
+    if (samePrefix) {
+      payload.appendErrorProblems = deepCopy(nextErrors.slice(prevErrors.length))
+    } else {
+      payload.resetErrorProblems = true
+      payload.appendErrorProblems = deepCopy(nextErrors)
+    }
+    changed = true
+  } else if (!isSameJson(prevErrors, nextErrors)) {
+    payload.resetErrorProblems = true
+    payload.appendErrorProblems = deepCopy(nextErrors)
+    changed = true
+  }
+
+  if (!changed) return null
+  return payload
+}
+
+async function syncCloudRecordsFull(options: { bypassThrottle?: boolean } = {}) {
   if (!userStore.user) return
   if (!canUseLocalStorage.value) return
   if (cloudSyncing.value) return
   const now = Date.now()
-  if (now - lastCloudSyncAttempt < 4000) return
+  if (!options.bypassThrottle && now - lastCloudSyncAttempt < 4000) return
   lastCloudSyncAttempt = now
   cloudSyncing.value = true
   try {
+    const storage = getVtixStorage()
+    if (!storage) return
     const localRecords = readRecords({ includeDeleted: true })
-    const previousCursor = getSyncCursor(localStorage)
+    const previousCursor = getSyncCursor(storage)
     const since = localRecords.length ? previousCursor : 0
-    const localSince = getSyncAt(localStorage)
+    const localSince = getSyncAt(storage)
+    const maxRecords = Number.isFinite(Number(userStore.user?.recordCloudLimit))
+      ? Number(userStore.user?.recordCloudLimit)
+      : undefined
     const result = await syncRecords<PracticeRecord>({
       apiBase,
       localRecords,
       since,
       localSince,
-      credentials: 'include'
+      credentials: 'include',
+      maxRecords,
+      trimLocal: false
     })
-    if (result.localChanged) {
-      writeRecords(result.finalRecords)
-    }
-    savedRecords.value = result.finalRecords.filter((item) => !isDeletedRecord(item))
+    applyCloudRecords(result.remoteRecords)
+    syncLocalRecords()
     cloudSyncFailed.value = false
-    setSyncCursor(localStorage, result.cursor)
+    cloudSyncErrorDetail.value = ''
+    setSyncCursor(storage, result.cursor)
     cloudSyncAt.value = Date.now()
-    setSyncAt(localStorage, cloudSyncAt.value)
+    setSyncAt(storage, cloudSyncAt.value)
+    if (progressId.value) {
+      const current = readPracticeRecordById<PracticeRecord>(progressId.value)
+      if (current && current.testId === testId) {
+        const state = getCloudRecordSyncState(current.id)
+        state.checked = true
+        state.recordExists = true
+        state.deltaCount = 0
+        state.snapshot = deepCopy(normalizeRecord(current))
+      }
+    }
   } catch (error) {
     cloudSyncFailed.value = true
+    cloudSyncErrorDetail.value = toErrorMessage(error, '云端同步失败')
   } finally {
     cloudSyncing.value = false
   }
 }
 
-function scheduleCloudSync(delay = 1200) {
+async function syncCloudRecords(options: { forceSnapshot?: boolean; bypassThrottle?: boolean } = {}) {
+  if (!userStore.user) return
+  if (!canUseLocalStorage.value) return
+  if (cloudSyncing.value) return
+  const storage = getVtixStorage()
+  if (!storage) return
+  const activeId = progressId.value
+  if (!activeId) return
+  const activeRecord = readPracticeRecordById<PracticeRecord>(activeId)
+  if (!activeRecord || activeRecord.testId !== testId) return
+
+  const normalizedRecord = normalizeRecord(activeRecord)
+  const syncState = getCloudRecordSyncState(normalizedRecord.id)
+  const now = Date.now()
+  if (!options.bypassThrottle && now - lastCloudSyncAttempt < 4000) return
+  lastCloudSyncAttempt = now
+  cloudSyncing.value = true
+  try {
+    if (!syncState.checked) {
+      syncState.recordExists = await checkCloudRecordExists(normalizedRecord.id)
+      syncState.checked = true
+    }
+    const previousCursor = getSyncCursor(storage)
+    const shouldSnapshot = Boolean(options.forceSnapshot) ||
+      !syncState.recordExists ||
+      !syncState.snapshot ||
+      syncState.deltaCount >= CLOUD_SYNC_SNAPSHOT_INTERVAL
+
+    let payload: Record<string, unknown> = {
+      since: previousCursor,
+      recordId: normalizedRecord.id
+    }
+    if (shouldSnapshot) {
+      payload.fullRecord = normalizedRecord
+    } else {
+      const delta = buildRecordDeltaPayload(syncState.snapshot as PracticeRecord, normalizedRecord)
+      if (!delta) {
+        cloudSyncFailed.value = false
+        cloudSyncErrorDetail.value = ''
+        return
+      }
+      payload.delta = delta
+    }
+
+    let response = await fetch(`${apiBase}/api/records/sync-item`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(payload)
+    })
+    if (!response.ok) {
+      const detail = await readResponseErrorMessage(response, `状态码 ${response.status}`)
+      throw new Error(`同步失败：${detail}`)
+    }
+    let data = (await response.json()) as {
+      needFull?: boolean
+      recordExists?: boolean
+      conflict?: boolean
+      cursor?: number
+      records?: PracticeRecord[]
+      record?: PracticeRecord
+    }
+
+    if (data.needFull && !('fullRecord' in payload)) {
+      payload = {
+        since: previousCursor,
+        recordId: normalizedRecord.id,
+        fullRecord: normalizedRecord
+      }
+      response = await fetch(`${apiBase}/api/records/sync-item`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(payload)
+      })
+      if (!response.ok) {
+        const detail = await readResponseErrorMessage(response, `状态码 ${response.status}`)
+        throw new Error(`同步失败：${detail}`)
+      }
+      data = (await response.json()) as typeof data
+    }
+    if (data.needFull) {
+      syncState.recordExists = false
+      syncState.snapshot = null
+      throw new Error('服务器要求全量同步')
+    }
+
+    if (Array.isArray(data.records) && data.records.length > 0) {
+      applyCloudRecords(data.records)
+    } else if (data.record && data.record.id) {
+      applyCloudRecords([data.record])
+    }
+    syncLocalRecords()
+
+    const cursor =
+      typeof data.cursor === 'number' && Number.isFinite(data.cursor)
+        ? Math.floor(data.cursor)
+        : previousCursor
+    setSyncCursor(storage, cursor)
+    cloudSyncAt.value = Date.now()
+    setSyncAt(storage, cloudSyncAt.value)
+    cloudSyncFailed.value = false
+    cloudSyncErrorDetail.value = ''
+
+    const latest = readPracticeRecordById<PracticeRecord>(normalizedRecord.id) ?? normalizedRecord
+    syncState.snapshot = deepCopy(normalizeRecord(latest))
+    syncState.checked = true
+    syncState.recordExists = true
+    syncState.deltaCount = shouldSnapshot ? 0 : Math.min(syncState.deltaCount + 1, CLOUD_SYNC_SNAPSHOT_INTERVAL)
+  } catch (error) {
+    cloudSyncFailed.value = true
+    cloudSyncErrorDetail.value = toErrorMessage(error, '云端同步失败')
+  } finally {
+    cloudSyncing.value = false
+  }
+}
+
+function scheduleCloudSync(delay = 1200, mode: 'incremental' | 'full' = 'incremental') {
   if (!userStore.user) return
   if (!canUseLocalStorage.value) return
   if (cloudSyncTimer !== null) {
     window.clearTimeout(cloudSyncTimer)
   }
   cloudSyncTimer = window.setTimeout(() => {
+    if (mode === 'full') {
+      void syncCloudRecordsFull()
+      return
+    }
     void syncCloudRecords()
   }, delay)
 }
@@ -711,6 +1207,28 @@ function buildRandomizedList(list: ProblemType[]) {
   return shuffleList(copy)
 }
 
+function applyExamRuntime(problemList: ProblemType[], scores: number[] = [], groups: ExamNumberGroup[] = []) {
+  if (!problemList.length) {
+    examQuestionScores.value = []
+    examRuntimeGroups.value = []
+    return
+  }
+  const fallbackScores = problemList.map((problem) => getScoreForProblemType(problem.type))
+  examQuestionScores.value =
+    scores.length === problemList.length ? [...scores] : fallbackScores
+  if (groups.length > 0) {
+    examRuntimeGroups.value = groups
+      .filter((group) => group.indices.length > 0)
+      .map((group) => ({
+        ...group,
+        indices: group.indices.filter((index) => index >= 0 && index < problemList.length)
+      }))
+      .filter((group) => group.indices.length > 0)
+    if (examRuntimeGroups.value.length > 0) return
+  }
+  examRuntimeGroups.value = buildFallbackExamGroups(problemList)
+}
+
 function createProgress(problemList: ProblemType[], mode: number) {
   const newProgress = new PracticeProgress({
     testId,
@@ -728,6 +1246,17 @@ function createProgress(problemList: ProblemType[], mode: number) {
   writeAnswer.value = ''
   examSubmitted.value = false
   showRecords.value = false
+  if (mode === 5) {
+    const hasRuntime =
+      examQuestionScores.value.length === problemList.length &&
+      examRuntimeGroups.value.length > 0
+    if (!hasRuntime) {
+      applyExamRuntime(problemList)
+    }
+  } else {
+    examQuestionScores.value = []
+    examRuntimeGroups.value = []
+  }
 }
 
 function normalizeRecord(record: PracticeRecord) {
@@ -748,6 +1277,13 @@ function normalizeRecord(record: PracticeRecord) {
     Array.isArray(record.progress.submittedList) && record.progress.submittedList.length === list.length
       ? record.progress.submittedList
       : problemState.map((state) => state > 0)
+  const examQuestionScores =
+    Array.isArray((record as { examQuestionScores?: unknown }).examQuestionScores) &&
+    (record as { examQuestionScores?: unknown[] }).examQuestionScores?.length === list.length
+      ? (record as { examQuestionScores?: unknown[] }).examQuestionScores
+          ?.map((value) => Math.max(0, Number(value ?? 0)))
+          .filter((value): value is number => Number.isFinite(value))
+      : undefined
   return {
     ...record,
     progress: {
@@ -757,7 +1293,8 @@ function normalizeRecord(record: PracticeRecord) {
       submittedList,
       currentProblemId
     },
-    problemState
+    problemState,
+    ...(examQuestionScores && examQuestionScores.length === list.length ? { examQuestionScores } : {})
   }
 }
 
@@ -797,11 +1334,20 @@ function applyRecord(record: PracticeRecord) {
   showRecords.value = false
   examSubmitted.value =
     practiceMode.value === 5 && problemState.value.length > 0 && problemState.value.every((state) => state >= 2)
+  if (practiceMode.value === 5) {
+    applyExamRuntime(data.problemList, normalized.examQuestionScores ?? [])
+  } else {
+    examQuestionScores.value = []
+    examRuntimeGroups.value = []
+  }
 }
 
 function saveCurrentRecord() {
-  if (!progress.value || !window.localStorage) return
+  if (!progress.value || !canUseLocalStorage.value) return
   if (!hasEverInteracted.value || !hasDirty.value) return
+  const previousLocalRecord = progressId.value
+    ? readPracticeRecordById<PracticeRecord>(progressId.value)
+    : null
   if (!progressId.value) {
     progressId.value = generateProgressId()
   }
@@ -815,31 +1361,38 @@ function saveCurrentRecord() {
     progress: progress.value.toJSON(),
     problemState: [...problemState.value],
     errorProblems: deepCopy(errorProblems.value),
+    ...(practiceMode.value === 5 && examQuestionScores.value.length === progress.value.problemList.length
+      ? { examQuestionScores: [...examQuestionScores.value] }
+      : {}),
     setType: [...setType.value] as [boolean, boolean, boolean, boolean, boolean],
     setShuffle: setShuffle.value
   }
-    let records = readRecords({ includeDeleted: true }).filter((item) => item.id !== record.id)
-  records.push(record)
-  records = records
-    .sort((a, b) => a.updatedAt - b.updatedAt)
-    .slice(Math.max(0, records.length - 10))
-  writeRecords(records)
-    savedRecords.value = records.filter((item) => !isDeletedRecord(item))
+  const writeOk = writeRecords([record])
+  if (!writeOk) {
+    hasDirty.value = true
+    return
+  }
+  const syncState = getCloudRecordSyncState(record.id)
+  if (!syncState.snapshot && previousLocalRecord && previousLocalRecord.id === record.id) {
+    syncState.snapshot = deepCopy(normalizeRecord(previousLocalRecord))
+  }
+  savedRecords.value = readRecords()
   hasDirty.value = false
   scheduleCloudSync()
 }
 
-  function deleteRecord(recordId: string) {
-    const now = Date.now()
-    const records = readRecords({ includeDeleted: true }).filter((item) => item.id !== recordId)
-    records.push({ id: recordId, updatedAt: now, deletedAt: now } as PracticeRecord)
-    writeRecords(records)
-    savedRecords.value = readRecords()
-    scheduleCloudSync()
+function deleteRecord(recordId: string) {
+  const now = Date.now()
+  const deleted = { id: recordId, updatedAt: now, deletedAt: now } as PracticeRecord
+  const writeOk = writeRecords([deleted])
+  savedRecords.value = readRecords()
+  if (writeOk) {
+    scheduleCloudSync(300, 'full')
   }
+}
 
 function loadRecord(recordId: string) {
-  const record = readRecords().find((item) => item.id === recordId)
+  const record = readPracticeRecordById<PracticeRecord>(recordId) ?? null
   if (!record || record.testId !== testId) return false
   applyRecord(record)
   return true
@@ -883,6 +1436,13 @@ function toRecord(raw: any): PracticeRecord | null {
     progress: progressData,
     problemState: Array.isArray(raw.problemState) ? raw.problemState : Array(progressData.problemList.length).fill(0),
     errorProblems: Array.isArray(raw.errorProblems) ? raw.errorProblems : [],
+    ...(Array.isArray(raw.examQuestionScores)
+      ? {
+          examQuestionScores: raw.examQuestionScores
+            .map((value: unknown) => Math.max(0, Number(value ?? 0)))
+            .filter((value: number) => Number.isFinite(value))
+        }
+      : {}),
     setType,
     setShuffle: Boolean(raw.setShuffle)
   }
@@ -903,17 +1463,8 @@ async function handleImport(event: Event) {
       .filter((record): record is PracticeRecord => Boolean(record))
       .filter((record) => record.testId === testId)
     if (!incoming.length) return
-      const existing = readRecords({ includeDeleted: true })
-    const recordMap = new Map(existing.map((item) => [item.id, item]))
-    for (const record of incoming) {
-      recordMap.set(record.id, record)
-    }
-    let merged = Array.from(recordMap.values())
-    merged = merged
-      .sort((a, b) => a.updatedAt - b.updatedAt)
-      .slice(Math.max(0, merged.length - 10))
-    writeRecords(merged)
-    savedRecords.value = merged.filter((item) => !isDeletedRecord(item))
+    writeRecords(incoming)
+    savedRecords.value = readRecords()
   } catch (error) {
     // ignore invalid files
   } finally {
@@ -990,30 +1541,48 @@ function buildTestList() {
   const base = problemInfo.value.problems
   const meta = problemInfo.value.test
   if (testConfig.value.length) {
-    const order = examSectionOrder.value
-    const pools = new Map<number, ProblemType[]>()
-    for (const problem of base) {
-      const list = pools.get(problem.type)
-      if (list) {
-        list.push(problem)
-      } else {
-        pools.set(problem.type, [problem])
-      }
-    }
+    const used = new Set<number>()
     const list: ProblemType[] = []
-    for (const type of order) {
-      const count = Math.max(0, Math.floor(Number(testCountMap.value.get(type) ?? 0)))
-      if (count <= 0) continue
-      const pool = pools.get(type) ?? []
-      if (pool.length) {
-        list.push(...pool.slice(0, count))
+    const scores: number[] = []
+    const groups: ExamNumberGroup[] = []
+    testConfig.value.forEach((item, rowIndex) => {
+      const count = Math.max(0, Math.floor(Number(item.number ?? 0)))
+      if (count <= 0) return
+      const mask = normalizeExamMaskValue(item.typeMask ?? item.type)
+      const allowedTypes = decodeExamMask(mask)
+      if (!allowedTypes.length) return
+      const allowedSet = new Set(allowedTypes)
+      const score = Math.max(0, Number(item.score ?? 0))
+      const group: ExamNumberGroup = {
+        key: `mask-${mask}-${rowIndex}`,
+        label: getExamMaskLabel(mask),
+        score,
+        indices: []
       }
+      for (let index = 0; index < base.length && group.indices.length < count; index += 1) {
+        if (used.has(index)) continue
+        const problem = base[index]
+        if (!problem || !allowedSet.has(problem.type)) continue
+        used.add(index)
+        list.push(problem)
+        scores.push(score)
+        group.indices.push(list.length - 1)
+      }
+      if (group.indices.length > 0) {
+        groups.push(group)
+      }
+    })
+    if (list.length) {
+      applyExamRuntime(list, scores, groups)
+      return list
     }
-    return list.length ? list : base
   }
   if (typeof meta === 'number' && Number.isFinite(meta)) {
-    return base.slice(0, Math.min(meta, base.length))
+    const list = base.slice(0, Math.min(meta, base.length))
+    applyExamRuntime(list)
+    return list
   }
+  applyExamRuntime(base)
   return base
 }
 
@@ -1261,36 +1830,103 @@ function handleFillInput() {
 
 // records are handled via saveCurrentRecord/loadLatestRecord
 
+function getPayloadUpdatedAt(payload: unknown) {
+  if (!payload || typeof payload !== 'object') return 0
+  const row = payload as Record<string, unknown>
+  const updatedAt = Number(row.updatedAt ?? row.createdAt ?? 0)
+  return Number.isFinite(updatedAt) && updatedAt > 0 ? updatedAt : 0
+}
+
+function isProblemPayload(payload: unknown): payload is ProblemListType {
+  if (!payload || typeof payload !== 'object') return false
+  const row = payload as Record<string, unknown>
+  return typeof row.title === 'string' && Array.isArray(row.problems)
+}
+
+async function fetchProblemDetail(invite: string) {
+  const inviteParam = invite ? `?invite=${encodeURIComponent(invite)}` : ''
+  const response = await fetch(`${apiBase}/api/problem-sets/${testId}${inviteParam}`)
+  if (response.status === 403) {
+    needInvite.value = true
+    inviteError.value = invite ? '邀请码无效或已过期' : '该题库需要邀请码'
+    return null
+  }
+  if (!response.ok) {
+    throw new Error(`加载失败: ${response.status}`)
+  }
+  const data = (await response.json()) as ProblemDetailPayload
+  if (!isProblemPayload(data)) {
+    throw new Error('题库数据异常')
+  }
+  return data
+}
+
+function applyProblemPayload(data: ProblemListType) {
+  problemInfo.value = data
+  loading.value = false
+  needInvite.value = false
+  inviteError.value = ''
+  syncLocalRecords()
+  const recordId = typeof route.query.record === 'string' ? route.query.record : ''
+  if (recordId && loadRecord(recordId)) {
+    return
+  }
+  if (loadLatestRecord()) {
+    return
+  }
+  setMode(0)
+}
+
 async function loadProblem() {
+  loading.value = true
+  loadError.value = ''
+  const invite = inviteCode.value.trim()
+  const cached = readCachedProblemSetDetail<ProblemDetailPayload>(testId)
+  if (isProblemPayload(cached)) {
+    const localUpdatedAt = Math.max(
+      getCachedProblemSetUpdatedAt(testId),
+      getPayloadUpdatedAt(cached)
+    )
+    try {
+      const inviteParam = invite ? `?invite=${encodeURIComponent(invite)}` : ''
+      const metaResponse = await fetch(`${apiBase}/api/problem-sets/${testId}/meta${inviteParam}`)
+      if (metaResponse.status === 403) {
+        needInvite.value = true
+        inviteError.value = invite ? '邀请码无效或已过期' : '该题库需要邀请码'
+        loading.value = false
+        return
+      }
+      if (!metaResponse.ok) {
+        throw new Error(`版本检查失败: ${metaResponse.status}`)
+      }
+      const meta = (await metaResponse.json()) as ProblemMetaPayload
+      const remoteUpdatedAt = getPayloadUpdatedAt(meta)
+      if (remoteUpdatedAt > localUpdatedAt) {
+        const fresh = await fetchProblemDetail(invite)
+        if (!fresh) {
+          loading.value = false
+          return
+        }
+        writeCachedProblemSetDetail(fresh)
+        applyProblemPayload(fresh)
+        return
+      }
+      applyProblemPayload(cached)
+      return
+    } catch {
+      applyProblemPayload(cached)
+      return
+    }
+  }
+
   try {
-    loading.value = true
-    loadError.value = ''
-    const invite = inviteCode.value.trim()
-    const inviteParam = invite ? `?invite=${encodeURIComponent(invite)}` : ''
-    const response = await fetch(`${apiBase}/api/problem-sets/${testId}${inviteParam}`)
-    if (response.status === 403) {
-      needInvite.value = true
-      inviteError.value = invite ? '邀请码无效或已过期' : '该题库需要邀请码'
+    const fresh = await fetchProblemDetail(invite)
+    if (!fresh) {
       loading.value = false
       return
     }
-    if (!response.ok) {
-      throw new Error(`加载失败: ${response.status}`)
-    }
-    const data = (await response.json()) as ProblemListType
-    problemInfo.value = data
-    loading.value = false
-    needInvite.value = false
-    inviteError.value = ''
-    syncLocalRecords()
-    const recordId = typeof route.query.record === 'string' ? route.query.record : ''
-    if (recordId && loadRecord(recordId)) {
-      return
-    }
-    if (loadLatestRecord()) {
-      return
-    }
-    setMode(0)
+    writeCachedProblemSetDetail(fresh)
+    applyProblemPayload(fresh)
   } catch (error) {
     loading.value = false
     loadError.value = error instanceof Error ? error.message : '加载失败'
@@ -1324,7 +1960,7 @@ onMounted(() => {
   setTitle(testTitle.value)
   loadLocalSyncTime()
   if (userStore.user) {
-    scheduleCloudSync(300)
+    scheduleCloudSync(300, 'full')
   }
   mediaQuery = window.matchMedia('(max-width: 900px)')
   mediaHandler = () => {
@@ -1383,7 +2019,7 @@ onBeforeUnmount(() => {
     nextProblemTimer = null
   }
   saveCurrentRecord()
-  void syncCloudRecords()
+  void syncCloudRecordsFull({ bypassThrottle: true })
   if (cloudSyncTimer !== null) {
     window.clearTimeout(cloudSyncTimer)
     cloudSyncTimer = null
@@ -1392,7 +2028,7 @@ onBeforeUnmount(() => {
 
 onBeforeRouteLeave(() => {
   saveCurrentRecord()
-  void syncCloudRecords()
+  void syncCloudRecordsFull({ bypassThrottle: true })
   if (cloudSyncTimer !== null) {
     window.clearTimeout(cloudSyncTimer)
     cloudSyncTimer = null
@@ -1402,9 +2038,13 @@ onBeforeRouteLeave(() => {
 watch(
   () => userStore.user?.id,
   (value) => {
+    cloudRecordState.clear()
     if (value) {
-      scheduleCloudSync(300)
+      scheduleCloudSync(300, 'full')
+      return
     }
+    cloudSyncFailed.value = false
+    cloudSyncErrorDetail.value = ''
   }
 )
 
@@ -1533,12 +2173,12 @@ watch(nowProblemId, () => {
         <div class="question-header">
           <div style="display: flex; align-items: center; gap: 12px;">
             <span class="question-type">{{ currentTypeLabel }}</span>
-            <div v-if="!isMobile" class="sync-tag">
+            <div class="sync-tag">
               <Tag
                 :value="syncStatusLabel"
-                :severity="syncStatusLabel === '未同步' ? 'secondary' : (syncStatusLabel === '云端同步失败' ? 'danger' : 'success')"
+                :severity="syncStatusSeverity"
                 rounded
-                v-tooltip.bottom="syncStatusTooltip"
+                v-tooltip.bottom="syncStatusTooltipOptions"
               />
             </div>
           </div>
@@ -1607,11 +2247,11 @@ watch(nowProblemId, () => {
           <div class="exam-score-sub">正确 {{ correctCount }} · 错误 {{ wrongCount }}</div>
         </div>
         <div v-if="isExamMode" class="exam-number-groups">
-          <div v-for="(group, groupIndex) in examNumberGroups" :key="group.type" class="exam-number-group">
+          <div v-for="(group, groupIndex) in examNumberGroups" :key="group.key" class="exam-number-group">
             <div class="exam-number-title">
               <span class="exam-index">{{ cnNumbers[groupIndex] ?? groupIndex + 1 }}、</span>
               <span>{{ group.label }}</span>
-              <span class="exam-meta">（{{ group.indices.length }}题，每题{{ getScoreForType(group.type) }}分）</span>
+              <span class="exam-meta">（{{ group.indices.length }}题，每题{{ group.score }}分）</span>
             </div>
             <div class="number-grid">
               <div v-for="index in group.indices" :key="index" :class="[
@@ -2406,10 +3046,6 @@ watch(nowProblemId, () => {
 
 @media (max-width: 900px) {
   :deep(.topbar) {
-    display: none;
-  }
-
-  :global(.test-view-mobile-footer-hidden .site-footer) {
     display: none;
   }
 

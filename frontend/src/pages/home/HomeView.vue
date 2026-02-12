@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import Button from 'primevue/button'
 import Tag from 'primevue/tag'
+import { readPracticeRecords } from '../../base/practiceRecords'
 
 type PracticeRecord = {
   id: string
@@ -20,7 +21,6 @@ type PracticeRecord = {
 
 const router = useRouter()
 const apiBase = import.meta.env.VITE_API_BASE ?? 'http://localhost:3000'
-const STORAGE_KEY = 'vtixSave'
 const records = ref<PracticeRecord[]>([])
 const notices = ref<NoticeItem[]>([])
 const recommendedSets = ref<RecommendedSet[]>([])
@@ -259,22 +259,7 @@ async function loadRecommended() {
 }
 
 function loadRecords() {
-    if (!window.localStorage) return
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return
-    try {
-        const parsed = JSON.parse(raw)
-        if (Array.isArray(parsed)) {
-            records.value = parsed.filter(
-                (item) =>
-                    item &&
-                    typeof item.id === 'string' &&
-                    !(typeof item.deletedAt === 'number' && Number(item.deletedAt) > 0)
-            )
-        }
-    } catch {
-        records.value = []
-    }
+    records.value = readPracticeRecords<PracticeRecord>()
 }
 
 onMounted(() => {
@@ -317,7 +302,7 @@ function syncBannerHeight() {
     <div ref="topGridRef" class="top-grid">
       <div ref="heroRef" class="hero-card">
         <div class="eyebrow">VTIX 答题自测</div>
-        <h1>开学考和政治机考随心练</h1>
+        <h1>机考随心练</h1>
         <div class="hero-actions">
           <Button label="进入题库" @click="router.push({ name: 'question-bank' })" />
           <Button label="开始练习" severity="secondary" outlined @click="router.push({ name: 'question-bank' })" />

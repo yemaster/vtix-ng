@@ -1,6 +1,11 @@
 import { integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
-type TestConfigItem = { type: number; number: number; score: number };
+type TestConfigItem = {
+  type: number;
+  typeMask?: number;
+  number: number;
+  score: number;
+};
 type TestMeta = TestConfigItem[] | number[] | number | null;
 
 export const problemSets = sqliteTable("problem_sets", {
@@ -8,7 +13,6 @@ export const problemSets = sqliteTable("problem_sets", {
   code: text("code").notNull().unique(),
   title: text("title").notNull(),
   year: integer("year").notNull(),
-  isNew: integer("is_new", { mode: "boolean" }).notNull().default(false),
   isPending: integer("is_pending", { mode: "boolean" }).notNull().default(false),
   viewCount: integer("view_count").notNull().default(0),
   likeCount: integer("like_count").notNull().default(0),
@@ -102,6 +106,7 @@ export const userGroups = sqliteTable("user_groups", {
   description: text("description"),
   permissions: integer("permissions").notNull(),
   privateProblemSetLimit: integer("private_problem_set_limit").notNull().default(-1),
+  recordCloudLimit: integer("record_cloud_limit").notNull().default(-1),
   builtIn: integer("built_in", { mode: "boolean" }).notNull().default(false),
 });
 

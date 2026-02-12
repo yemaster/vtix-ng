@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { getStorageItem, getVtixStorage, setStorageItem } from '../base/vtixGlobal'
 import {
   getSyncAt,
   getSyncCursor,
@@ -6,6 +7,10 @@ import {
   setSyncCursor,
   syncRecords
 } from '../base/recordSync'
+import {
+  readPracticeRecords,
+  upsertPracticeRecords
+} from '../base/practiceRecords'
 
 export type User = {
   id: string
@@ -15,12 +20,12 @@ export type User = {
   groupName: string
   permissions: number
   privateProblemSetLimit: number
+  recordCloudLimit: number
 }
 
 const apiBase = import.meta.env.VITE_API_BASE ?? 'http://localhost:3000'
 const LAST_LOGIN_KEY = 'vtixLastLoginAt'
 const PREV_LOGIN_KEY = 'vtixPrevLoginAt'
-const RECORDS_KEY = 'vtixSave'
 let recordSyncing = false
 
 type PracticeRecord = {
@@ -31,53 +36,42 @@ type PracticeRecord = {
 }
 
 function recordLoginTimestamp() {
-  if (!window.localStorage) return
-  const last = localStorage.getItem(LAST_LOGIN_KEY)
+  const last = getStorageItem(LAST_LOGIN_KEY)
   if (last) {
-    localStorage.setItem(PREV_LOGIN_KEY, last)
+    setStorageItem(PREV_LOGIN_KEY, last)
   }
-  localStorage.setItem(LAST_LOGIN_KEY, String(Date.now()))
+  setStorageItem(LAST_LOGIN_KEY, String(Date.now()))
 }
 
 function readLocalRecords(): PracticeRecord[] {
-  if (!window.localStorage) return []
-  const raw = localStorage.getItem(RECORDS_KEY)
-  if (!raw) return []
-  try {
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
-    return parsed.filter((item) => item && typeof item.id === 'string')
-  } catch {
-    return []
-  }
+  return readPracticeRecords<PracticeRecord>({ includeDeleted: true })
 }
 
-function writeLocalRecords(list: PracticeRecord[]) {
-  if (!window.localStorage) return
-  localStorage.setItem(RECORDS_KEY, JSON.stringify(list))
-}
-
-async function syncPracticeRecordsOnce() {
+async function syncPracticeRecordsOnce(cloudLimit?: number) {
   if (recordSyncing) return
-  if (!window.localStorage) return
+  const storage = getVtixStorage()
+  if (!storage) return
   recordSyncing = true
   try {
     const localRecords = readLocalRecords()
-    const previousCursor = getSyncCursor(localStorage)
+    const previousCursor = getSyncCursor(storage)
     const since = localRecords.length ? previousCursor : 0
-    const localSince = getSyncAt(localStorage)
+    const localSince = getSyncAt(storage)
+    const maxRecords = Number.isFinite(Number(cloudLimit)) ? Number(cloudLimit) : undefined
     const result = await syncRecords<PracticeRecord>({
       apiBase,
       localRecords,
       since,
       localSince,
-      credentials: 'include'
+      credentials: 'include',
+      maxRecords,
+      trimLocal: false
     })
-    if (result.localChanged) {
-      writeLocalRecords(result.finalRecords)
+    if (result.remoteRecords.length > 0) {
+      upsertPracticeRecords(result.remoteRecords)
     }
-    setSyncCursor(localStorage, result.cursor)
-    setSyncAt(localStorage, Date.now())
+    setSyncCursor(storage, result.cursor)
+    setSyncAt(storage, Date.now())
   } catch (error) {
     console.warn('[vtix] auto sync records failed', error)
   } finally {
@@ -131,7 +125,7 @@ export const useUserStore = defineStore('user', {
         }
         this.user = data.user
         recordLoginTimestamp()
-        void syncPracticeRecordsOnce()
+        void syncPracticeRecordsOnce(this.user?.recordCloudLimit)
         return true
       } catch (error) {
         this.error = error instanceof Error ? error.message : '登录失败'
@@ -163,7 +157,7 @@ export const useUserStore = defineStore('user', {
         }
         this.user = data.user
         recordLoginTimestamp()
-        void syncPracticeRecordsOnce()
+        void syncPracticeRecordsOnce(this.user?.recordCloudLimit)
         return true
       } catch (error) {
         this.error = error instanceof Error ? error.message : '注册失败'

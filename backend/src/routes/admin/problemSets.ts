@@ -260,7 +260,6 @@ export const registerAdminProblemSetRoutes = (app: Elysia) =>
         const categories = Array.isArray(raw.categories)
           ? raw.categories.map((item) => String(item)).filter(Boolean)
           : [];
-        const isNew = Boolean(raw.isNew);
         const recommendedRank = Number.isFinite(Number(raw.recommendedRank))
           ? Number(raw.recommendedRank)
           : null;
@@ -289,7 +288,6 @@ export const registerAdminProblemSetRoutes = (app: Elysia) =>
             title,
             year,
             categories,
-            isNew,
             isPending,
             recommendedRank,
             questionCount: problems.length,
@@ -299,6 +297,9 @@ export const registerAdminProblemSetRoutes = (app: Elysia) =>
             inviteCode,
             test,
             problems,
+            viewCount: 0,
+            likeCount: 0,
+            dislikeCount: 0,
           });
           imported += 1;
         } catch (error) {
@@ -409,8 +410,6 @@ export const registerAdminProblemSetRoutes = (app: Elysia) =>
         const allowed = new Set([
           "public",
           "private",
-          "new",
-          "not_new",
           "recommend",
           "unrecommend",
         ]);
@@ -436,19 +435,6 @@ export const registerAdminProblemSetRoutes = (app: Elysia) =>
               isPublic,
               isPending: false,
             });
-            updated += 1;
-          }
-          return { updated, skipped, missing };
-        }
-
-        if (action === "new" || action === "not_new") {
-          const isNew = action === "new";
-          for (const code of uniqueCodes) {
-            if (!map.has(code)) {
-              missing.push(code);
-              continue;
-            }
-            await updateProblemSetFlags(code, { isNew });
             updated += 1;
           }
           return { updated, skipped, missing };
@@ -550,18 +536,14 @@ export const registerAdminProblemSetRoutes = (app: Elysia) =>
         return { error: "Forbidden" };
       }
       const payload = (body ?? {}) as {
-        isNew?: boolean;
         isPublic?: boolean;
         isPending?: boolean;
       };
-      const nextIsNew =
-        typeof payload.isNew === "boolean" ? payload.isNew : undefined;
       const nextIsPublic =
         typeof payload.isPublic === "boolean" ? payload.isPublic : undefined;
       const nextIsPending =
         typeof payload.isPending === "boolean" ? payload.isPending : undefined;
       const ok = await updateProblemSetFlags(params.code, {
-        isNew: nextIsNew,
         isPublic: nextIsPublic,
         isPending: nextIsPending,
       });
@@ -569,7 +551,7 @@ export const registerAdminProblemSetRoutes = (app: Elysia) =>
         set.status = 404;
         return { error: "Not Found" };
       }
-      return { ok: true, isNew: nextIsNew, isPublic: nextIsPublic };
+      return { ok: true, isPublic: nextIsPublic };
     })
     .put("/api/admin/problem-sets/:code/review", async ({ params, request, body, set }) => {
       const user = getSessionUser(request);

@@ -9,13 +9,13 @@ const router = createRouter({
             component: () => import('./layouts/MainLayout.vue'),
             children: [
                 {
-                    path: '',
+                    path: 'home',
                     name: 'home',
                     component: () => import('./pages/home/HomeView.vue'),
                     meta: { title: '首页' }
                 },
                 {
-                    path: 'question-bank',
+                    path: '',
                     name: 'question-bank',
                     component: () => import('./pages/question-bank/QuestionBankView.vue'),
                     meta: { title: '题库' }

@@ -50,3 +50,13 @@ a {
 .p-toast-message {
   word-break: break-word;
 }
+
+.sync-status-tooltip .p-tooltip-text {
+  white-space: pre-line;
+}
+
+@media (max-width: 900px) {
+  .test-view-mobile-footer-hidden .site-footer {
+    display: none;
+  }
+}

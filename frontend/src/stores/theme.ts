@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
+import { getStorageItem, setStorageItem } from '../base/vtixGlobal'
 
 export type ThemeMode = 'system' | 'light' | 'dark'
 export type ThemeStyle = 'card' | 'paper'
@@ -61,24 +62,24 @@ export const useThemeStore = defineStore('theme', () => {
 
   function setMode(next: ThemeMode) {
     mode.value = next
-    window.localStorage?.setItem(STORAGE_KEY, next)
+    setStorageItem(STORAGE_KEY, next)
     startTransition()
     resolveMode(next)
   }
 
   function setStyle(next: ThemeStyle) {
     style.value = next
-    window.localStorage?.setItem(STYLE_STORAGE_KEY, next)
+    setStorageItem(STYLE_STORAGE_KEY, next)
     startTransition()
     applyStyle(next)
   }
 
   function init() {
-    const saved = window.localStorage?.getItem(STORAGE_KEY) as ThemeMode | null
+    const saved = getStorageItem(STORAGE_KEY) as ThemeMode | null
     if (saved === 'light' || saved === 'dark' || saved === 'system') {
       mode.value = saved
     }
-    const savedStyle = window.localStorage?.getItem(STYLE_STORAGE_KEY) as ThemeStyle | null
+    const savedStyle = getStorageItem(STYLE_STORAGE_KEY) as ThemeStyle | null
     if (savedStyle === 'card' || savedStyle === 'paper') {
       style.value = savedStyle
     }

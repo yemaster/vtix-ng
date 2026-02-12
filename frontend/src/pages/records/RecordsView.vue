@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import Button from 'primevue/button'
+import Paginator from 'primevue/paginator'
+import type { PageState } from 'primevue/paginator'
 import { useToast } from 'primevue/usetoast'
 import { useUserStore } from '../../stores/user'
 import {
@@ -11,6 +13,13 @@ import {
   setSyncCursor,
   syncRecords
 } from '../../base/recordSync'
+import {
+  getPracticeRecordCount,
+  readPracticeRecordPage,
+  readPracticeRecords,
+  upsertPracticeRecords
+} from '../../base/practiceRecords'
+import { getVtixStorage } from '../../base/vtixGlobal'
 
 type PracticeRecord = {
   id: string
@@ -30,13 +39,17 @@ type PracticeRecord = {
 }
 
 const apiBase = import.meta.env.VITE_API_BASE ?? 'http://localhost:3000'
-const STORAGE_KEY = 'vtixSave'
 const router = useRouter()
 const records = ref<PracticeRecord[]>([])
 const importInput = ref<HTMLInputElement | null>(null)
 const userStore = useUserStore()
 const isSyncing = ref(false)
 const toast = useToast()
+const pageSize = ref(8)
+const currentPage = ref(1)
+const totalRecords = ref(0)
+const cloudStatus = ref<Record<string, boolean | null>>({})
+const syncingRecordIds = ref(new Set<string>())
 
 const modes = [
   { label: '顺序练习', value: 0 },
@@ -46,34 +59,18 @@ const modes = [
   { label: '模拟考试', value: 5 }
 ]
 
-type RecordReadOptions = { includeDeleted?: boolean }
 
-function isDeletedRecord(record: PracticeRecord) {
-  return typeof (record as { deletedAt?: unknown }).deletedAt === 'number' &&
-    Number((record as { deletedAt?: number }).deletedAt ?? 0) > 0
-}
-
-function readRecords(options: RecordReadOptions = {}): PracticeRecord[] {
-  if (!window.localStorage) return []
-  const raw = localStorage.getItem(STORAGE_KEY)
-  if (!raw) return []
-  try {
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
-    const list = parsed.filter((item) => item && typeof item.id === 'string')
-    return options.includeDeleted ? list : list.filter((item) => !isDeletedRecord(item))
-  } catch (error) {
-    return []
+function syncLocalRecords(page = currentPage.value, forceCloud = false) {
+  const total = getPracticeRecordCount()
+  totalRecords.value = total
+  const totalPages = Math.max(1, Math.ceil(total / pageSize.value))
+  const targetPage = Math.min(Math.max(1, page), totalPages)
+  currentPage.value = targetPage
+  const result = readPracticeRecordPage<PracticeRecord>(targetPage, pageSize.value)
+  records.value = result.records
+  if (userStore.user) {
+    void refreshCloudStatus(records.value.map((record) => record.id), forceCloud)
   }
-}
-
-function writeRecords(next: PracticeRecord[]) {
-  if (!window.localStorage) return
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
-}
-
-function syncLocalRecords() {
-  records.value = readRecords().sort((a, b) => b.updatedAt - a.updatedAt)
 }
 
 function getModeLabel(value: number) {
@@ -140,7 +137,7 @@ function exportAllRecords() {
   const payload = {
     version: 1,
     exportedAt: Date.now(),
-    records: readRecords()
+    records: readPracticeRecords<PracticeRecord>()
   }
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
   const link = document.createElement('a')
@@ -173,47 +170,52 @@ async function handleSyncAuto() {
   if (!userStore.user) {
     router.push({ name: 'login' })
     return
+  }
+  const storage = getVtixStorage()
+  if (!storage) return
+  isSyncing.value = true
+  try {
+    const localRecords = readPracticeRecords<PracticeRecord>({ includeDeleted: true })
+    const previousCursor = getSyncCursor(storage)
+    const since = localRecords.length ? previousCursor : 0
+    const localSince = getSyncAt(storage)
+    const maxRecords = Number.isFinite(Number(userStore.user?.recordCloudLimit))
+      ? Number(userStore.user?.recordCloudLimit)
+      : undefined
+    const result = await syncRecords<PracticeRecord>({
+      apiBase,
+      localRecords,
+      since,
+      localSince,
+      credentials: 'include',
+      maxRecords,
+      trimLocal: false
+    })
+
+    if (result.remoteRecords.length > 0) {
+      upsertPracticeRecords(result.remoteRecords)
     }
-    isSyncing.value = true
-    try {
-      const localRecords = readRecords({ includeDeleted: true })
-      const previousCursor = getSyncCursor(localStorage)
-      const since = localRecords.length ? previousCursor : 0
-      const localSince = getSyncAt(localStorage)
-      const result = await syncRecords<PracticeRecord>({
-        apiBase,
-        localRecords,
-        since,
-        localSince,
-        credentials: 'include'
-      })
+    syncLocalRecords(currentPage.value, true)
+    setSyncCursor(storage, result.cursor)
+    setSyncAt(storage, Date.now())
 
-      if (result.localChanged) {
-        writeRecords(result.finalRecords)
-      }
-      records.value = result.finalRecords
-        .filter((item) => !isDeletedRecord(item))
-        .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
-      setSyncCursor(localStorage, result.cursor)
-      setSyncAt(localStorage, Date.now())
+    const details = result.noOp
+      ? '本地与云端已是最新'
+      : [
+          result.localDelta.length ? `上传 ${result.localDelta.length} 条` : '',
+          result.downloaded ? `下载 ${result.downloaded} 条` : '',
+          result.conflicts ? `冲突 ${result.conflicts} 条` : '',
+          result.trimmed ? `裁剪 ${result.trimmed} 条` : ''
+        ]
+          .filter(Boolean)
+          .join(' · ')
 
-      const details = result.noOp
-        ? '本地与云端已是最新'
-        : [
-            result.localDelta.length ? `上传 ${result.localDelta.length} 条` : '',
-            result.downloaded ? `下载 ${result.downloaded} 条` : '',
-            result.conflicts ? `冲突 ${result.conflicts} 条` : '',
-            result.trimmed ? `裁剪 ${result.trimmed} 条` : ''
-          ]
-            .filter(Boolean)
-            .join(' · ')
-
-      toast.add({
-        severity: 'success',
-        summary: '同步完成',
-        detail: details || '同步完成',
-        life: 3500
-      })
+    toast.add({
+      severity: 'success',
+      summary: '同步完成',
+      detail: details || '同步完成',
+      life: 3500
+    })
   } catch (error) {
     toast.add({
       severity: 'error',
@@ -245,20 +247,9 @@ function toRecord(raw: any): PracticeRecord | null {
 
 function mergeRecords(incoming: PracticeRecord[]) {
   if (!incoming.length) return []
-  const existing = readRecords({ includeDeleted: true })
-  const recordMap = new Map(existing.map((item) => [item.id, item]))
-  for (const record of incoming) {
-    recordMap.set(record.id, record)
-  }
-  let merged = Array.from(recordMap.values())
-  merged = merged
-    .sort((a, b) => a.updatedAt - b.updatedAt)
-    .slice(Math.max(0, merged.length - 10))
-  writeRecords(merged)
-  records.value = merged
-    .filter((item) => !isDeletedRecord(item))
-    .sort((a, b) => b.updatedAt - a.updatedAt)
-  return merged
+  upsertPracticeRecords(incoming)
+  syncLocalRecords(1)
+  return incoming
 }
 
 async function handleImport(event: Event) {
@@ -292,21 +283,149 @@ async function handleImport(event: Event) {
 
 function deleteRecord(recordId: string) {
   const now = Date.now()
-  const next = readRecords({ includeDeleted: true }).filter((item) => item.id !== recordId)
-  next.push({ id: recordId, updatedAt: now, deletedAt: now } as PracticeRecord)
-  writeRecords(next)
-  records.value = readRecords().sort((a, b) => b.updatedAt - a.updatedAt)
+  upsertPracticeRecords([{ id: recordId, updatedAt: now, deletedAt: now } as PracticeRecord])
+  syncLocalRecords(currentPage.value)
 }
 
 function continueRecord(record: PracticeRecord) {
   router.push({ name: 'test', params: { id: record.testId }, query: { record: record.id } })
 }
 
-const recordCount = computed(() => records.value.length)
+const recordCount = computed(() => totalRecords.value)
+
+const cloudLimitText = computed(() => {
+  if (!userStore.user) return ''
+  const limit = Number(userStore.user.recordCloudLimit)
+  if (!Number.isFinite(limit) || limit === -1) return '云端不限'
+  return `云端最多保留 ${limit} 条`
+})
+
+function handlePage(event: PageState) {
+  const page = event.page ?? 0
+  syncLocalRecords(page + 1)
+}
+
+function isRecordSyncing(recordId: string) {
+  return syncingRecordIds.value.has(recordId)
+}
+
+function getCloudStatusText(recordId: string) {
+  const value = cloudStatus.value[recordId]
+  if (value === true) return '已存档'
+  if (value === false) return '未存档'
+  return '检查中'
+}
+
+function markCloudPending(ids: string[]) {
+  if (!ids.length) return
+  const next = { ...cloudStatus.value }
+  ids.forEach((id) => {
+    next[id] = null
+  })
+  cloudStatus.value = next
+}
+
+async function refreshCloudStatus(ids: string[], force = false) {
+  if (!userStore.user || !ids.length) return
+  const target = (force
+    ? ids
+    : ids.filter((id) => !(id in cloudStatus.value))
+  ).slice(0, 200)
+  if (!target.length) return
+  markCloudPending(target)
+  try {
+    const response = await fetch(`${apiBase}/api/records/meta`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ ids: target })
+    })
+    if (!response.ok) return
+    const data = (await response.json()) as { ids?: string[] }
+    const exists = new Set(Array.isArray(data.ids) ? data.ids : [])
+    const next = { ...cloudStatus.value }
+    target.forEach((id) => {
+      next[id] = exists.has(id)
+    })
+    cloudStatus.value = next
+  } catch {
+    // ignore
+  }
+}
+
+async function syncSingleRecord(record: PracticeRecord) {
+  if (!userStore.user) {
+    router.push({ name: 'login' })
+    return
+  }
+  const storage = getVtixStorage()
+  if (!storage || !record?.id) return
+  if (syncingRecordIds.value.has(record.id)) return
+  const next = new Set(syncingRecordIds.value)
+  next.add(record.id)
+  syncingRecordIds.value = next
+  try {
+    const forceUpdatedAt = Date.now()
+    const forcedRecord: PracticeRecord = {
+      ...record,
+      updatedAt: forceUpdatedAt
+    }
+    const previousCursor = getSyncCursor(storage)
+    const response = await fetch(`${apiBase}/api/records/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ since: previousCursor, records: [forcedRecord] })
+    })
+    if (!response.ok) {
+      throw new Error(`同步失败: ${response.status}`)
+    }
+    const data = (await response.json()) as { records?: PracticeRecord[]; cursor?: number }
+    const remote = Array.isArray(data.records) ? data.records : []
+    if (remote.length > 0) {
+      upsertPracticeRecords(remote)
+    } else {
+      upsertPracticeRecords([forcedRecord])
+    }
+    const cursor =
+      typeof data.cursor === 'number' && Number.isFinite(data.cursor)
+        ? data.cursor
+        : previousCursor
+    setSyncCursor(storage, cursor)
+    setSyncAt(storage, Date.now())
+    syncLocalRecords(currentPage.value)
+    await refreshCloudStatus([record.id], true)
+    toast.add({
+      severity: 'success',
+      summary: '同步完成',
+      detail: '已推送该记录到云端',
+      life: 3000
+    })
+  } catch (error) {
+    toast.add({
+      severity: 'error',
+      summary: '同步失败',
+      detail: error instanceof Error ? error.message : '同步失败',
+      life: 3500
+    })
+  } finally {
+    const updated = new Set(syncingRecordIds.value)
+    updated.delete(record.id)
+    syncingRecordIds.value = updated
+  }
+}
 
 onMounted(() => {
   syncLocalRecords()
 })
+
+watch(
+  () => userStore.user?.id,
+  () => {
+    cloudStatus.value = {}
+    syncLocalRecords(currentPage.value, true)
+  }
+)
 </script>
 
 <template>
@@ -333,7 +452,10 @@ onMounted(() => {
       </div>
     </header>
 
-    <div class="summary">共 {{ recordCount }} 条记录（最多保留 10 条）</div>
+    <div class="summary">
+      共 {{ recordCount }} 条记录
+      <span v-if="cloudLimitText"> · {{ cloudLimitText }}</span>
+    </div>
 
     <div v-if="recordCount === 0" class="empty">暂无记录</div>
 
@@ -345,6 +467,7 @@ onMounted(() => {
             {{ formatTimestamp(record.updatedAt) }} ·
             用时 {{ formatDuration(record.progress?.timeSpentSeconds ?? 0) }} ·
             进度 {{ getRecordAnsweredCount(record) }}/{{ record.progress?.problemList?.length ?? 0 }}
+            <span v-if="userStore.user"> · 云端{{ getCloudStatusText(record.id) }}</span>
           </div>
           <div class="record-progress">
             <div class="record-progress-bar" aria-hidden="true">
@@ -358,10 +481,29 @@ onMounted(() => {
         </div>
         <div class="record-actions">
           <Button label="继续" size="small" @click="continueRecord(record)" />
+          <Button
+            v-if="userStore.user"
+            label="同步"
+            size="small"
+            severity="secondary"
+            text
+            icon="pi pi-cloud-upload"
+            :loading="isRecordSyncing(record.id)"
+            @click="syncSingleRecord(record)"
+          />
           <Button label="导出" size="small" severity="secondary" text @click="exportSingleRecord(record)" />
           <Button label="删除" size="small" severity="danger" text @click="deleteRecord(record.id)" />
         </div>
       </div>
+    </div>
+    <div v-if="recordCount > pageSize" class="pagination">
+      <Paginator
+        :first="(currentPage - 1) * pageSize"
+        :rows="pageSize"
+        :totalRecords="recordCount"
+        template="PrevPageLink PageLinks NextPageLink"
+        @page="handlePage"
+      />
     </div>
   </section>
 </template>
@@ -481,6 +623,31 @@ onMounted(() => {
 .empty {
   color: var(--vtix-text-subtle);
   text-align: center;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 8px;
+}
+
+.pagination :deep(.p-paginator) {
+  border: none;
+  background: transparent;
+  gap: 8px;
+}
+
+.pagination :deep(.p-paginator-page),
+.pagination :deep(.p-paginator-prev),
+.pagination :deep(.p-paginator-next) {
+  min-width: 32px;
+  height: 32px;
+  border-radius: 10px;
+}
+
+.pagination :deep(.p-paginator-pages .p-paginator-page) {
+  font-size: 14px;
 }
 
 @media (max-width: 900px) {

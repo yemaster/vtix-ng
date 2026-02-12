@@ -89,6 +89,8 @@ async function resolveGroup(groupId: string) {
       permissions: group.permissions,
       privateProblemSetLimit:
         Number(group.privateProblemSetLimit ?? USER_GROUPS.user.privateProblemSetLimit) ?? -1,
+      recordCloudLimit:
+        Number(group.recordCloudLimit ?? USER_GROUPS.user.recordCloudLimit) ?? -1,
     };
   }
   return USER_GROUPS.user;
@@ -111,6 +113,7 @@ async function toSessionUser(row: DbUser): Promise<User> {
     groupName: group.name,
     permissions: group.permissions,
     privateProblemSetLimit: group.privateProblemSetLimit,
+    recordCloudLimit: group.recordCloudLimit,
   };
 }
 

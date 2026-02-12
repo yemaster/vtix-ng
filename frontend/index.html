@@ -8,6 +8,58 @@
   </head>
   <body>
     <div id="app"></div>
+    <script>
+      ;(() => {
+        const existing = window.vtixGlobal || {}
+        const defaultStorageAvailable = (() => {
+          try {
+            if (!window.localStorage) return false
+            const testKey = '__vtix_storage_available__'
+            window.localStorage.setItem(testKey, '1')
+            window.localStorage.removeItem(testKey)
+            return true
+          } catch {
+            return false
+          }
+        })()
+        const defaultStorage = {
+          getItem(key) {
+            try {
+              return window.localStorage ? window.localStorage.getItem(key) : null
+            } catch {
+              return null
+            }
+          },
+          setItem(key, value) {
+            try {
+              if (window.localStorage) {
+                window.localStorage.setItem(key, value)
+              }
+            } catch {
+              // ignore
+            }
+          },
+          removeItem(key) {
+            try {
+              if (window.localStorage) {
+                window.localStorage.removeItem(key)
+              }
+            } catch {
+              // ignore
+            }
+          }
+        }
+        window.vtixGlobal = {
+          platform: 'web',
+          storageAvailable: defaultStorageAvailable,
+          ...existing,
+          storage: {
+            ...defaultStorage,
+            ...(existing.storage || {})
+          }
+        }
+      })()
+    </script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

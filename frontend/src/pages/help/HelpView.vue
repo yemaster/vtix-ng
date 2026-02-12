@@ -31,6 +31,44 @@
 
     <section class="content-grid">
       <div class="guide-section">
+        <section class="qa-section feedback-section">
+          <div class="section-head">
+            <h2>问题反馈 & 提交建议</h2>
+            <p>欢迎提交您的意见让我们做得更好</p>
+          </div>
+          <article class="qa-item feedback-card">
+            <div class="feedback-grid">
+              <a
+                class="feedback-channel is-link"
+                href="https://qm.qq.com/q/PqwEed4eo8"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <div class="feedback-label">交流 QQ 群</div>
+                <div class="feedback-value">1082797665</div>
+                <div class="feedback-hint">点击加入，适合问题讨论与建议收集</div>
+              </a>
+              <div class="feedback-channel">
+                <div class="feedback-label">作者 QQ</div>
+                <div class="feedback-value">1440169768</div>
+                <div class="feedback-hint">可直接反馈 bug、需求和使用问题</div>
+              </div>
+              <a
+                class="feedback-channel is-link"
+                href="https://github.com/yemaster/vtix-ng"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <div class="feedback-label">项目 Github</div>
+                <div class="feedback-value">yemaster/vtix-ng</div>
+                <div class="feedback-hint">欢迎提交 Issue 和 PR</div>
+              </a>
+            </div>
+            <div class="feedback-tip">
+              建议反馈时附上题库编号、页面路径、复现步骤和报错截图，处理会更快。
+            </div>
+          </article>
+        </section>
         <section class="qa-section">
           <div class="section-head">
             <h2>常见问题 Q&A</h2>
@@ -38,8 +76,14 @@
           </div>
           <div class="qa-list">
             <article class="qa-item">
+              <div class="qa-q">Q：我一定要登录才能答题吗？</div>
+              <div class="qa-a">A：不需要，不登录就可以进行答题，练习记录，错题回顾。不过登录之后可以进行云端同步，自建题库等功能。
+              </div>
+            </article>
+            <article class="qa-item">
               <div class="qa-q">Q：我如何继续之前的练习？</div>
-              <div class="qa-a">A：进入题库后，会自动继续最近的一次练习。也可以进入题库的练习记录页面（电脑端点击导航条中的做题记录，手机端点击底部的记录），可以选择练习继续。也可以在做题记录管理页面进入。</div>
+              <div class="qa-a">A：进入题库后，会自动继续最近的一次练习。也可以进入题库的练习记录页面（电脑端点击导航条中的做题记录，手机端点击底部的记录），可以选择练习继续。也可以在做题记录管理页面进入。
+              </div>
             </article>
             <article class="qa-item">
               <div class="qa-q">Q：练习记录会自动保存吗？</div>
@@ -280,6 +324,68 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.feedback-card {
+  gap: 12px;
+}
+
+.feedback-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.feedback-channel {
+  border: 1px solid var(--vtix-border-strong);
+  background: var(--vtix-surface-2);
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 96px;
+}
+
+.feedback-channel.is-link {
+  text-decoration: none;
+  color: inherit;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.feedback-channel.is-link:hover {
+  background: var(--vtix-surface-5);
+  border-color: var(--vtix-border);
+}
+
+.feedback-label {
+  font-size: 12px;
+  color: var(--vtix-text-subtle);
+}
+
+.feedback-value {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--vtix-text-strong);
+  line-height: 1.2;
+  word-break: break-word;
+}
+
+.feedback-hint {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--vtix-text-muted);
+  line-height: 1.5;
+}
+
+.feedback-tip {
+  border: 1px dashed var(--vtix-border-strong);
+  background: var(--vtix-surface-2);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--vtix-text-muted);
+  line-height: 1.6;
 }
 
 .qa-q {

@@ -287,7 +287,7 @@ watch(
           <template v-if="!userStore.user">
             <Button label="登录" severity="secondary" text size="small" class="action-btn ghost"
               @click="router.push({ name: 'login' })" />
-            <Button label="开始使用" size="small" class="action-btn primary"
+            <Button label="注册账号" size="small" class="action-btn primary"
               @click="router.push({ name: 'register' })" />
           </template>
           <template v-else>
@@ -409,9 +409,9 @@ watch(
       </nav>
       <div class="drawer-actions">
         <template v-if="!userStore.user">
-          <Button label="登录" severity="secondary" text size="small" class="action-btn ghost"
+          <Button label="登录" severity="secondary" size="small" class="action-btn ghost"
             @click="router.push({ name: 'login' })" />
-          <Button label="开始使用" size="small" class="action-btn primary"
+          <Button label="注册账号" size="small" class="action-btn primary"
             @click="router.push({ name: 'register' })" />
         </template>
         <template v-else>

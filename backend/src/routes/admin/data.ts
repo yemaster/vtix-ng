@@ -12,6 +12,7 @@ export type AdminUserGroup = {
   description: string | null;
   permissions: number;
   privateProblemSetLimit: number;
+  recordCloudLimit: number;
   builtIn?: boolean;
 };
 
@@ -61,6 +62,7 @@ export async function listUserGroupsDb() {
     description: group.description ?? "",
     permissions: group.permissions,
     privateProblemSetLimit: Number(group.privateProblemSetLimit ?? -1),
+    recordCloudLimit: Number(group.recordCloudLimit ?? -1),
     builtIn: Boolean(group.builtIn),
   }));
 }
@@ -70,6 +72,7 @@ export async function createUserGroupDb(payload: {
   description?: string;
   permissions?: number;
   privateProblemSetLimit?: number;
+  recordCloudLimit?: number;
 }) {
   const name = String(payload.name ?? "").trim();
   if (!name) {
@@ -79,6 +82,8 @@ export async function createUserGroupDb(payload: {
   const permissions = Number(payload.permissions ?? 0);
   const limitRaw = Number(payload.privateProblemSetLimit ?? -1);
   const privateProblemSetLimit = Number.isFinite(limitRaw) ? Math.floor(limitRaw) : -1;
+  const recordLimitRaw = Number(payload.recordCloudLimit ?? -1);
+  const recordCloudLimit = Number.isFinite(recordLimitRaw) ? Math.floor(recordLimitRaw) : -1;
   const { groups } = await loadGroupMap();
   const id = makeGroupId(name, new Set(groups.map((group) => group.id)));
   const group: AdminUserGroup = {
@@ -87,6 +92,7 @@ export async function createUserGroupDb(payload: {
     description,
     permissions,
     privateProblemSetLimit,
+    recordCloudLimit,
     builtIn: false,
   };
   await db.insert(userGroups).values(group);
@@ -100,6 +106,7 @@ export async function updateUserGroupDb(
     description?: string;
     permissions?: number;
     privateProblemSetLimit?: number;
+    recordCloudLimit?: number;
   }
 ) {
   const [existing] = await db
@@ -124,6 +131,11 @@ export async function updateUserGroupDb(
       ? Number(payload.privateProblemSetLimit)
       : Number(existing.privateProblemSetLimit ?? -1);
   const privateProblemSetLimit = Number.isFinite(limitRaw) ? Math.floor(limitRaw) : -1;
+  const recordLimitRaw =
+    payload.recordCloudLimit !== undefined
+      ? Number(payload.recordCloudLimit)
+      : Number(existing.recordCloudLimit ?? -1);
+  const recordCloudLimit = Number.isFinite(recordLimitRaw) ? Math.floor(recordLimitRaw) : -1;
   await db
     .update(userGroups)
     .set({
@@ -131,6 +143,7 @@ export async function updateUserGroupDb(
       description,
       permissions,
       privateProblemSetLimit,
+      recordCloudLimit,
     })
     .where(eq(userGroups.id, id));
   return {
@@ -139,6 +152,7 @@ export async function updateUserGroupDb(
     description,
     permissions,
     privateProblemSetLimit,
+    recordCloudLimit,
     builtIn: Boolean(existing.builtIn),
   };
 }
