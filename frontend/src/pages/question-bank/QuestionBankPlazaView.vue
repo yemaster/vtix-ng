@@ -33,9 +33,6 @@ const apiBase = import.meta.env.VITE_API_BASE ?? 'http://localhost:3000'
 const router = useRouter()
 const userStore = useUserStore()
 
-const MANAGE_QUESTION_BANK_OWN = 1 << 9
-const MANAGE_QUESTION_BANK_ALL = 1 << 10
-
 const items = ref<PlazaItem[]>([])
 const isLoading = ref(false)
 const loadError = ref('')
@@ -163,12 +160,6 @@ function handleCreateClick() {
   router.push({ name: 'admin-question-bank-create' })
 }
 
-function handlePracticeClick(event: MouseEvent, code: string) {
-  event.preventDefault()
-  event.stopPropagation()
-  router.push(`/t/${code}`)
-}
-
 async function handleReactionClick(event: MouseEvent, item: PlazaItem, value: number) {
   event.preventDefault()
   event.stopPropagation()
@@ -199,42 +190,6 @@ async function handleReactionClick(event: MouseEvent, item: PlazaItem, value: nu
     loadError.value = error instanceof Error ? error.message : '操作失败'
   } finally {
     reacting[item.code] = false
-  }
-}
-
-function canManageItem(item: PlazaItem) {
-  if (!userStore.user) return false
-  const permissions = userStore.user.permissions ?? 0
-  const canManageAll = (permissions & MANAGE_QUESTION_BANK_ALL) === MANAGE_QUESTION_BANK_ALL
-  if (canManageAll) return true
-  const canManageOwn = (permissions & MANAGE_QUESTION_BANK_OWN) === MANAGE_QUESTION_BANK_OWN
-  if (!canManageOwn) return false
-  return String(item.creatorId ?? '') === String(userStore.user.id ?? '')
-}
-
-function handleEditClick(event: MouseEvent, code: string) {
-  event.preventDefault()
-  event.stopPropagation()
-  router.push({ name: 'admin-question-bank-edit', params: { code } })
-}
-
-async function handleDeleteClick(event: MouseEvent, code: string) {
-  event.preventDefault()
-  event.stopPropagation()
-  if (!window.confirm('确认删除该题库？')) return
-  loadError.value = ''
-  try {
-    const response = await fetch(`${apiBase}/api/admin/problem-sets/${code}`, {
-      method: 'DELETE',
-      credentials: 'include'
-    })
-    const data = (await response.json().catch(() => null)) as { error?: string } | null
-    if (!response.ok) {
-      throw new Error(data?.error || `删除失败: ${response.status}`)
-    }
-    await loadItems()
-  } catch (error) {
-    loadError.value = error instanceof Error ? error.message : '删除失败'
   }
 }
 
@@ -360,80 +315,55 @@ onBeforeUnmount(() => {
             <div class="card-title">{{ item.title }}</div>
             <div class="card-info">
               <div class="card-info-meta">
-                <div class="pill-group">
-                  <Tag v-for="category in item.categories" :key="category" :value="category" rounded />
+                <div v-if="item.categories.length" class="pill-group">
+                  <Tag v-for="category in item.categories.slice(0, 3)" :key="category" :value="category" rounded />
+                  <span v-if="item.categories.length > 3" class="pill-more">+{{ item.categories.length - 3 }}</span>
                 </div>
                 <div class="card-meta">
-                  <span class="meta-owner">by {{ item.creatorName || '匿名' }}</span>
-                  <span class="meta-time" v-tooltip.bottom="formatFullTime(item.updatedAt ?? 0)">
-                    @{{ formatRelativeTime(item.updatedAt ?? 0) }}
-                  </span>
+                  <div class="card-meta-line card-meta-stats">
+                    <span class="meta-views-inline">
+                      <span class="pi pi-eye" aria-hidden="true"></span>
+                      <span>{{ item.viewCount }}</span>
+                    </span>
+                    <span class="meta-sep" aria-hidden="true">·</span>
+                    <button
+                      type="button"
+                      :disabled="reacting[item.code]"
+                      :class="['react-text-link', { active: item.reaction === 1 }]"
+                      @click="handleReactionClick($event, item, 1)"
+                      @pointerdown.stop
+                    >
+                      <span class="pi pi-thumbs-up" aria-hidden="true"></span>
+                      <span>{{ item.likeCount }}</span>
+                    </button>
+                    <span class="meta-sep" aria-hidden="true">·</span>
+                    <button
+                      type="button"
+                      :disabled="reacting[item.code]"
+                      :class="['react-text-link', 'dislike', { active: item.reaction === -1 }]"
+                      @click="handleReactionClick($event, item, -1)"
+                      @pointerdown.stop
+                    >
+                      <span class="pi pi-thumbs-down" aria-hidden="true"></span>
+                      <span>{{ item.dislikeCount }}</span>
+                    </button>
+                  </div>
+                  <div class="card-meta-line">
+                    <span class="meta-owner">by {{ item.creatorName || '匿名' }}</span>
+                    <span class="meta-sep" aria-hidden="true">·</span>
+                    <span class="meta-time" v-tooltip.bottom="formatFullTime(item.updatedAt ?? 0)">
+                      @{{ formatRelativeTime(item.updatedAt ?? 0) }}
+                    </span>
+                  </div>
                 </div>
               </div>
-              <div class="card-meta-secondary">
-                <span class="meta-views">
-                  <span class="pi pi-eye" aria-hidden="true"></span>
-                  <span>{{ item.viewCount }}</span>
-                </span>
-                <button
-                  v-if="item.reaction !== -1"
-                  type="button"
-                  :disabled="reacting[item.code]"
-                  :class="['react-link', { active: item.reaction === 1 }]"
-                  @click="handleReactionClick($event, item, 1)"
-                  @pointerdown.stop
-                >
-                  <span class="pi pi-thumbs-up" aria-hidden="true"></span>
-                  <span>{{ item.likeCount }}</span>
-                </button>
-                <button
-                  v-if="item.reaction !== 1"
-                  type="button"
-                  :disabled="reacting[item.code]"
-                  :class="['react-link', 'dislike', { active: item.reaction === -1 }]"
-                  @click="handleReactionClick($event, item, -1)"
-                  @pointerdown.stop
-                >
-                  <span class="pi pi-thumbs-down" aria-hidden="true"></span>
-                  <span>{{ item.dislikeCount }}</span>
-                </button>
-              </div>
-            </div>
-            <div class="card-actions">
-              <Button
-                label="练习"
-                text
-                severity="secondary"
-                size="small"
-                class="practice-btn"
-                @click="handlePracticeClick($event, item.code)"
-                @pointerdown.stop
-              />
-              <Button
-                v-if="canManageItem(item)"
-                label="编辑"
-                text
-                severity="secondary"
-                size="small"
-                class="edit-btn"
-                @click="handleEditClick($event, item.code)"
-                @pointerdown.stop
-              />
-              <Button
-                v-if="canManageItem(item)"
-                label="删除"
-                text
-                severity="danger"
-                size="small"
-                class="delete-btn"
-                @click="handleDeleteClick($event, item.code)"
-                @pointerdown.stop
-              />
             </div>
           </div>
-          <div class="count">
-            <div class="count-value">{{ item.questionCount }}</div>
-            <div class="count-label">题目数</div>
+          <div class="card-side">
+            <div class="count">
+              <div class="count-value">{{ item.questionCount }}</div>
+              <div class="count-label">题目数</div>
+            </div>
           </div>
         </div>
       </div>
@@ -654,40 +584,90 @@ onBeforeUnmount(() => {
   font-size: 20px;
   line-height: 1.3;
   margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.card-side {
+  min-width: 88px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.meta-views-inline .pi,
+.react-text-link .pi {
+  font-size: 12px;
+}
+
+.react-text-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  color: var(--vtix-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.react-text-link:hover {
+  color: var(--vtix-text-strong);
+}
+
+.react-text-link.active {
+  color: var(--vtix-primary-500);
+}
+
+.react-text-link.dislike.active {
+  color: var(--vtix-danger-text);
+}
+
+.react-text-link:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .card-info {
   margin-top: auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   padding-top: 12px;
 }
 
 .card-info-meta {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px 12px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
 }
 
 .card-meta {
   color: var(--vtix-text-subtle);
   font-size: 12px;
   display: flex;
-  gap: 8px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.card-meta-line {
+  display: flex;
+  gap: 6px;
   align-items: center;
   line-height: 1.5;
   flex-wrap: wrap;
 }
 
-.card-meta-secondary {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  font-size: 12px;
-  line-height: 1.5;
+.card-meta-stats {
+  color: var(--vtix-text-muted);
 }
 
 .meta-owner,
@@ -699,79 +679,20 @@ onBeforeUnmount(() => {
   color: var(--vtix-text-subtle);
 }
 
+.meta-sep {
+  color: var(--vtix-text-muted);
+}
+
 .meta-time {
   color: var(--vtix-text-muted);
 }
 
-.meta-views {
+.meta-views-inline {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  border-radius: 999px;
-  padding: 3px 10px;
-  border: 1px solid var(--vtix-border);
-  background: var(--vtix-surface-2);
+  gap: 4px;
   color: var(--vtix-text-muted);
   font-variant-numeric: tabular-nums;
-}
-
-.react-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 10px;
-  border: 1px solid var(--vtix-border);
-  background: var(--vtix-surface-2);
-  border-radius: 999px;
-  color: var(--vtix-text-muted);
-  font-size: 12px;
-  line-height: 1.4;
-  font-variant-numeric: tabular-nums;
-  transition:
-    border-color 0.2s ease,
-    background-color 0.2s ease,
-    color 0.2s ease,
-    transform 0.2s ease;
-  cursor: pointer;
-}
-
-.react-link:hover {
-  transform: translateY(-1px);
-  border-color: var(--vtix-border-strong);
-  background: var(--vtix-surface-3);
-}
-
-.react-link .pi {
-  font-size: 12px;
-}
-
-.react-link.active {
-  color: var(--vtix-primary-500);
-  border-color: var(--vtix-primary-300);
-  background: var(--vtix-primary-100);
-}
-
-.react-link.dislike.active {
-  color: var(--vtix-danger-text);
-  border-color: var(--vtix-danger-border);
-  background: var(--vtix-danger-bg);
-}
-
-.react-link:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-  transform: none;
-}
-
-.card-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 6px;
-}
-
-.practice-btn :deep(.p-button) {
-  padding-left: 0;
 }
 
 .pill-group {
@@ -782,6 +703,22 @@ onBeforeUnmount(() => {
 
 .pill-group :deep(.p-tag) {
   font-size: 12px;
+}
+
+.pill-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--vtix-border);
+  background: var(--vtix-surface-2);
+  color: var(--vtix-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .count {
