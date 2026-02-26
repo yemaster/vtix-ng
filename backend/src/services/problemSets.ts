@@ -230,7 +230,7 @@ async function ensureSeeded() {
     return;
   }
 
-  await db.transaction(async (tx) => {
+  await db.transaction(async (tx: typeof db) => {
     for (const [code, meta] of Object.entries(list.problems)) {
       const detailPath = join(dataRoot, `${code}.json`);
       let detail: ProblemJson | null = null;
@@ -344,10 +344,13 @@ async function ensureCategories(
   if (normalized.length === 0) return [];
   const unique = Array.from(new Set(normalized));
 
-  const existingRows = await tx
+  const existingRows = (await tx
     .select({ id: categories.id, name: categories.name })
     .from(categories)
-    .where(inArray(categories.name, unique));
+    .where(inArray(categories.name, unique))) as Array<{
+    id: number;
+    name: string;
+  }>;
   const existingMap = new Map(existingRows.map((row) => [row.name, row.id]));
   const missing = unique.filter((name) => !existingMap.has(name));
   if (missing.length > 0) {
@@ -357,10 +360,13 @@ async function ensureCategories(
       }))
     );
   }
-  const finalRows = await tx
+  const finalRows = (await tx
     .select({ id: categories.id, name: categories.name })
     .from(categories)
-    .where(inArray(categories.name, unique));
+    .where(inArray(categories.name, unique))) as Array<{
+    id: number;
+    name: string;
+  }>;
   return finalRows.map((row) => row.id);
 }
 
@@ -621,7 +627,10 @@ export async function loadPublicProblemSetPage(options?: {
     if (Number.isFinite(yearValue)) {
       matches.push(eq(problemSets.year, Math.floor(yearValue)));
     }
-    conditions.push(or(...matches));
+    const keywordCondition = or(matches[0]!, ...matches.slice(1));
+    if (keywordCondition) {
+      conditions.push(keywordCondition);
+    }
   }
   if (categoryName) {
     const [categoryRow] = await db
@@ -632,10 +641,12 @@ export async function loadPublicProblemSetPage(options?: {
     if (!categoryRow) {
       return { items: [], total: 0 };
     }
-    const ids = await db
+    const ids = (await db
       .select({ problemSetId: problemSetCategories.problemSetId })
       .from(problemSetCategories)
-      .where(eq(problemSetCategories.categoryId, categoryRow.id));
+      .where(eq(problemSetCategories.categoryId, categoryRow.id))) as Array<{
+      problemSetId: number;
+    }>;
     const idList = ids.map((row) => row.problemSetId);
     if (idList.length === 0) {
       return { items: [], total: 0 };
@@ -762,7 +773,10 @@ export async function loadProblemSetPlazaPage(options?: {
     if (Number.isFinite(yearValue)) {
       matches.push(eq(problemSets.year, Math.floor(yearValue)));
     }
-    conditions.push(or(...matches));
+    const keywordCondition = or(matches[0]!, ...matches.slice(1));
+    if (keywordCondition) {
+      conditions.push(keywordCondition);
+    }
   }
   const whereClause = conditions.length > 1 ? and(...conditions) : conditions[0];
 
@@ -834,7 +848,7 @@ export async function loadProblemSetPlazaPage(options?: {
   const userId = Number(options?.userId ?? NaN);
   let reactionMap: Map<number, number> = new Map();
   if (Number.isFinite(userId) && rows.length > 0) {
-    const reactionRows = await db
+    const reactionRows = (await db
       .select({
         problemSetId: problemSetReactions.problemSetId,
         value: problemSetReactions.value,
@@ -848,7 +862,7 @@ export async function loadProblemSetPlazaPage(options?: {
             rows.map((row) => row.id)
           )
         )
-      );
+      )) as Array<{ problemSetId: number; value: number | null }>;
     reactionMap = new Map(
       reactionRows.map((row) => [row.problemSetId, Number(row.value ?? 0)])
     );
@@ -913,7 +927,10 @@ export async function loadAdminProblemSetPage(options?: {
     if (Number.isFinite(yearValue)) {
       matches.push(eq(problemSets.year, Math.floor(yearValue)));
     }
-    conditions.push(or(...matches));
+    const keywordCondition = or(matches[0]!, ...matches.slice(1));
+    if (keywordCondition) {
+      conditions.push(keywordCondition);
+    }
   }
   if (categoryName) {
     const [categoryRow] = await db
@@ -924,10 +941,12 @@ export async function loadAdminProblemSetPage(options?: {
     if (!categoryRow) {
       return { items: [], total: 0 };
     }
-    const ids = await db
+    const ids = (await db
       .select({ problemSetId: problemSetCategories.problemSetId })
       .from(problemSetCategories)
-      .where(eq(problemSetCategories.categoryId, categoryRow.id));
+      .where(eq(problemSetCategories.categoryId, categoryRow.id))) as Array<{
+      problemSetId: number;
+    }>;
     const idList = ids.map((row) => row.problemSetId);
     if (idList.length === 0) {
       return { items: [], total: 0 };
@@ -1031,7 +1050,10 @@ export async function loadPendingProblemSetPage(options?: {
     if (Number.isFinite(yearValue)) {
       matches.push(eq(problemSets.year, Math.floor(yearValue)));
     }
-    conditions.push(or(...matches));
+    const keywordCondition = or(matches[0]!, ...matches.slice(1));
+    if (keywordCondition) {
+      conditions.push(keywordCondition);
+    }
   }
   const whereClause = conditions.length > 1 ? and(...conditions) : conditions[0];
 
@@ -1245,7 +1267,7 @@ export async function setProblemSetReaction(
   await ensureSeeded();
   const normalized = value === -1 ? -1 : 1;
   const now = Date.now();
-  return db.transaction(async (tx) => {
+  return db.transaction(async (tx: typeof db) => {
     const [setRow] = await tx
       .select({ id: problemSets.id })
       .from(problemSets)
@@ -1351,7 +1373,7 @@ export async function createProblemSet(item: ProblemSetItem) {
     Number.isFinite(updatedAtRaw) && updatedAtRaw > 0 ? updatedAtRaw : createdAt;
   const isPublic = Boolean(item.isPublic);
   const isPending = isPublic ? false : Boolean(item.isPending);
-  return db.transaction(async (tx) => {
+  return db.transaction(async (tx: typeof db) => {
     const problemList = Array.isArray(item.problems)
       ? (item.problems as ProblemInput[])
       : [];
@@ -1448,7 +1470,7 @@ export async function updateProblemSet(item: ProblemSetItem) {
   const updatedAt = Date.now();
   const isPublic = Boolean(item.isPublic);
   const isPending = isPublic ? false : Boolean(item.isPending);
-  return db.transaction(async (tx) => {
+  return db.transaction(async (tx: typeof db) => {
     const problemList = Array.isArray(item.problems)
       ? (item.problems as ProblemInput[])
       : [];
@@ -1586,7 +1608,7 @@ export async function updateProblemSetFlags(
 
 export async function deleteProblemSet(code: string) {
   await ensureSeeded();
-  return db.transaction(async (tx) => {
+  return db.transaction(async (tx: typeof db) => {
     const rows = (await tx
       .select({ id: problemSets.id })
       .from(problemSets)

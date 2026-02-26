@@ -4,7 +4,14 @@ import { db, notices } from "../../db";
 import { PERMISSIONS, hasPermission } from "../../utils/permissions";
 import { getSessionUser } from "../../utils/session";
 
-function ensureNoticePermission(request: Request, set: { status: number }) {
+type NoticeGuard =
+  | { user: NonNullable<ReturnType<typeof getSessionUser>> }
+  | { error: "Unauthorized" | "Forbidden" };
+
+function ensureNoticePermission(
+  request: Request,
+  set: { status?: number | string }
+): NoticeGuard {
   const user = getSessionUser(request);
   if (!user) {
     set.status = 401;
@@ -21,13 +28,21 @@ export const registerAdminNoticeRoutes = (app: Elysia) =>
   app
     .get("/api/admin/notices", async ({ request, set }) => {
       const guard = ensureNoticePermission(request, set);
-      if (!("user" in guard)) {
+      if ("error" in guard) {
         return guard;
       }
-      const rows = await db
+      const rows = (await db
         .select()
         .from(notices)
-        .orderBy(desc(notices.isPinned), desc(notices.updatedAt));
+        .orderBy(desc(notices.isPinned), desc(notices.updatedAt))) as Array<{
+        id: number;
+        title: string;
+        content: string;
+        isPinned: boolean;
+        authorName: string;
+        createdAt: number;
+        updatedAt: number;
+      }>;
       return rows.map((item) => ({
         id: String(item.id),
         title: item.title,
@@ -40,9 +55,10 @@ export const registerAdminNoticeRoutes = (app: Elysia) =>
     })
     .post("/api/admin/notices", async ({ request, body, set }) => {
       const guard = ensureNoticePermission(request, set);
-      if (!("user" in guard)) {
+      if ("error" in guard) {
         return guard;
       }
+      const user = guard.user;
       const payload = (body ?? {}) as {
         title?: string;
         content?: string;
@@ -60,8 +76,8 @@ export const registerAdminNoticeRoutes = (app: Elysia) =>
         title,
         content,
         isPinned,
-        authorId: Number(guard.user.id),
-        authorName: guard.user.name,
+        authorId: Number(user.id),
+        authorName: user.name,
         createdAt: now,
         updatedAt: now,
       });
@@ -70,7 +86,7 @@ export const registerAdminNoticeRoutes = (app: Elysia) =>
         .from(notices)
         .where(
           and(
-            eq(notices.authorId, Number(guard.user.id)),
+            eq(notices.authorId, Number(user.id)),
             eq(notices.createdAt, now),
             eq(notices.title, title)
           )
@@ -81,14 +97,14 @@ export const registerAdminNoticeRoutes = (app: Elysia) =>
         title,
         content,
         isPinned,
-        authorName: guard.user.name,
+        authorName: user.name,
         createdAt: Number(created?.createdAt ?? now),
         updatedAt: Number(created?.updatedAt ?? now),
       };
     })
     .put("/api/admin/notices/:id", async ({ params, request, body, set }) => {
       const guard = ensureNoticePermission(request, set);
-      if (!("user" in guard)) {
+      if ("error" in guard) {
         return guard;
       }
       const noticeId = Number(params.id);
@@ -137,7 +153,7 @@ export const registerAdminNoticeRoutes = (app: Elysia) =>
     })
     .delete("/api/admin/notices/:id", async ({ params, request, set }) => {
       const guard = ensureNoticePermission(request, set);
-      if (!("user" in guard)) {
+      if ("error" in guard) {
         return guard;
       }
       const noticeId = Number(params.id);

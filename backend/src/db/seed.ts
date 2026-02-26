@@ -36,7 +36,7 @@ const DEFAULT_GROUPS = [
 
 export async function ensureDefaultUserGroups() {
   const existing = await db.select({ id: userGroups.id }).from(userGroups);
-  const existingIds = new Set(existing.map((row) => row.id));
+  const existingIds = new Set(existing.map((row: { id: string }) => row.id));
   const missing = DEFAULT_GROUPS.filter((group) => !existingIds.has(group.id));
   if (missing.length > 0) {
     await db.insert(userGroups).values(missing);
