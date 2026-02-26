@@ -422,7 +422,7 @@ onMounted(() => {
   gap: 8px;
   font-size: 13px;
   color: var(--vtix-text-muted);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .form-actions {

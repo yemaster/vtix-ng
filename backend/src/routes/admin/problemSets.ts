@@ -11,6 +11,7 @@ import {
   updateProblemSetRecommended,
 } from "../../services/problemSets";
 import { createMessage } from "../../services/messages";
+import { normalizePage, normalizePageSize } from "../../utils/pagination";
 import { PERMISSIONS, hasPermission } from "../../utils/permissions";
 import { getSessionUser } from "../../utils/session";
 import { normalizeProblems } from "../problemSets/normalize";
@@ -69,10 +70,8 @@ export const registerAdminProblemSetRoutes = (app: Elysia) =>
           canManageAll ? undefined : { onlyCreatorId: user.id }
         );
       }
-      const page = Number.isFinite(pageRaw) ? Math.max(pageRaw, 1) : 1;
-      const pageSize = Number.isFinite(pageSizeRaw)
-        ? Math.min(Math.max(pageSizeRaw, 1), 50)
-        : 12;
+      const page = normalizePage(pageRaw);
+      const pageSize = normalizePageSize(pageSizeRaw);
       const { items, total } = await loadAdminProblemSetPage({
         page,
         pageSize,
@@ -102,10 +101,8 @@ export const registerAdminProblemSetRoutes = (app: Elysia) =>
       const pageSizeRaw = Number((query as any)?.pageSize ?? 12);
       const keyword =
         typeof (query as any)?.q === "string" ? String((query as any).q) : "";
-      const page = Number.isFinite(pageRaw) ? Math.max(pageRaw, 1) : 1;
-      const pageSize = Number.isFinite(pageSizeRaw)
-        ? Math.min(Math.max(pageSizeRaw, 1), 50)
-        : 12;
+      const page = normalizePage(pageRaw);
+      const pageSize = normalizePageSize(pageSizeRaw);
       const { items, total } = await loadPendingProblemSetPage({
         page,
         pageSize,
@@ -499,16 +496,21 @@ export const registerAdminProblemSetRoutes = (app: Elysia) =>
           set.status = 403;
           return { error: "Forbidden" };
         }
-        const payload = (body ?? {}) as { recommendedRank?: number | null };
+        const payload = (body ?? {}) as {
+          recommendedRank?: number | string | null;
+        };
         const raw = payload.recommendedRank;
         let recommendedRank: number | null = null;
-        if (raw !== null && raw !== undefined && raw !== "") {
-          const parsed = Number(raw);
-          if (!Number.isFinite(parsed) || parsed < 0) {
-            set.status = 400;
-            return { error: "Invalid recommended rank." };
+        if (raw !== null && raw !== undefined) {
+          const normalizedRaw = typeof raw === "string" ? raw.trim() : raw;
+          if (normalizedRaw !== "") {
+            const parsed = Number(normalizedRaw);
+            if (!Number.isFinite(parsed) || parsed < 0) {
+              set.status = 400;
+              return { error: "Invalid recommended rank." };
+            }
+            recommendedRank = parsed;
           }
-          recommendedRank = parsed;
         }
         const ok = await updateProblemSetRecommended(
           params.code,

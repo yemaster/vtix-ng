@@ -13,7 +13,9 @@ import Textarea from 'primevue/textarea'
 import { useToast } from 'primevue/usetoast'
 import { useUserStore } from '../../stores/user'
 import type { ProblemType } from '../../base/ProblemTypes'
-import * as XLSX from 'xlsx'
+import { pushLoginRequired } from '../../utils/auth'
+
+type XlsxModule = typeof import('xlsx')
 
 type ProblemDraft = {
   id: string
@@ -100,6 +102,8 @@ const jsonText = ref(`[
 const jsonError = ref('')
 const jsonParsing = ref(false)
 const jsonStats = ref({ total: 0, parsed: 0, skipped: 0 })
+
+let xlsxModulePromise: Promise<XlsxModule> | null = null
 
 
 const typeOptions = [
@@ -494,9 +498,19 @@ function syncJsonFromProblems() {
 function setActiveEditorTab(next: 'manual' | 'import' | 'json') {
   if (next === activeEditorTab.value) return
   activeEditorTab.value = next
+  if (next === 'import') {
+    void loadXlsxModule()
+  }
   if (next === 'json') {
     syncJsonFromProblems()
   }
+}
+
+function loadXlsxModule() {
+  if (!xlsxModulePromise) {
+    xlsxModulePromise = import('xlsx')
+  }
+  return xlsxModulePromise
 }
 
 function extractJsonItems(raw: unknown) {
@@ -596,6 +610,7 @@ async function readRowsFromFile(file: File) {
     const text = await file.text()
     return parseCsv(text)
   }
+  const XLSX = await loadXlsxModule()
   const buffer = await file.arrayBuffer()
   const workbook = XLSX.read(buffer, { type: 'array' })
   const sheetName = workbook.SheetNames[0]
@@ -782,7 +797,7 @@ async function loadPrivateProblemSetCount() {
 
 async function handleSubmit() {
   if (!userStore.user) {
-    router.push({ name: 'login' })
+    void pushLoginRequired(router)
     return
   }
   if (privateLimitExceeded.value) {
@@ -1281,7 +1296,7 @@ onBeforeUnmount(() => {
   gap: 8px;
   font-size: 13px;
   color: var(--vtix-text-muted);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .field :deep(.p-inputtext) {
@@ -1303,7 +1318,7 @@ onBeforeUnmount(() => {
 }
 
 .toggle-label {
-  font-weight: 600;
+  font-weight: 500;
   color: var(--vtix-text-strong);
 }
 
@@ -1341,7 +1356,7 @@ onBeforeUnmount(() => {
   gap: 6px;
   font-size: 12px;
   color: var(--vtix-text-muted);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .test-type-mask {
@@ -1401,7 +1416,7 @@ onBeforeUnmount(() => {
 
 .import-file {
   color: var(--vtix-text-strong);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .import-file-input {
@@ -1414,7 +1429,7 @@ onBeforeUnmount(() => {
   gap: 8px;
   font-size: 13px;
   color: var(--vtix-text-muted);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .import-tip {
@@ -1591,7 +1606,7 @@ label.field.choice-content-field {
 .limit-warning {
   color: var(--vtix-danger-text);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .problem-editor-card {

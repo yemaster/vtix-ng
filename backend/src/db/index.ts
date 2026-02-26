@@ -54,4 +54,5 @@ export const userGroups = schema.userGroups;
 export const userRecords = schema.userRecords;
 export const notices = schema.notices;
 export const messages = schema.messages;
+export const brawlRecords = schema.brawlRecords;
 export { db, schema, sqliteClient, mysqlPool };

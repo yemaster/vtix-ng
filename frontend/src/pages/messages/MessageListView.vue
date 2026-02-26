@@ -5,7 +5,7 @@ import Button from 'primevue/button'
 import Paginator from 'primevue/paginator'
 import type { PageState } from 'primevue/paginator'
 import Tag from 'primevue/tag'
-import { format } from 'date-fns'
+import { formatDateTime } from '../../utils/datetime'
 
 type MessageItem = {
   id: number
@@ -41,7 +41,7 @@ function formatType(type: number) {
 
 function formatTime(timestamp: number) {
   if (!Number.isFinite(timestamp) || timestamp <= 0) return '--'
-  return format(new Date(timestamp), 'yyyy-MM-dd HH:mm')
+  return formatDateTime(timestamp)
 }
 
 function handleCardClick(event: MouseEvent, link: string | null) {
@@ -246,7 +246,7 @@ onMounted(() => {
 }
 
 .message-content {
-  font-weight: 600;
+  font-weight: 500;
   color: var(--vtix-text-strong);
   font-size: 15px;
 }
@@ -266,7 +266,7 @@ onMounted(() => {
 
 .meta-link {
   color: var(--vtix-primary-600);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .empty {

@@ -29,6 +29,11 @@ export function getSessionUser(request: Request) {
   return sessions.get(token) ?? null;
 }
 
+export function getSessionUserByToken(token: string | null | undefined) {
+  if (!token) return null;
+  return sessions.get(token) ?? null;
+}
+
 export function updateSessionUser(request: Request, nextUser: User) {
   const cookies = parseCookies(request.headers.get("cookie"));
   const token = cookies.vtix_session;

@@ -40,7 +40,7 @@ import { RouterLink } from 'vue-router'
 
 .footer-left {
   color: var(--vtix-text-strong);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .footer-right {
@@ -51,7 +51,7 @@ import { RouterLink } from 'vue-router'
 
 .footer-right a {
   color: var(--vtix-text-muted);
-  font-weight: 600;
+  font-weight: 500;
   text-decoration: none;
 }
 

@@ -11,6 +11,7 @@ import {
   problemSets,
   problems,
 } from "../db";
+import { normalizePage, normalizePageSize } from "../utils/pagination";
 
 type ListJson = {
   categories: string[];
@@ -599,12 +600,8 @@ export async function loadPublicProblemSetPage(options?: {
   category?: string;
 }) {
   await ensureSeeded();
-  const pageRaw = Number(options?.page ?? 1);
-  const pageSizeRaw = Number(options?.pageSize ?? 12);
-  const page = Number.isFinite(pageRaw) ? Math.max(pageRaw, 1) : 1;
-  const limit = Number.isFinite(pageSizeRaw)
-    ? Math.min(Math.max(pageSizeRaw, 1), 50)
-    : 12;
+  const page = normalizePage(options?.page);
+  const limit = normalizePageSize(options?.pageSize);
   const offset = (page - 1) * limit;
 
   const keyword = String(options?.keyword ?? "").trim();
@@ -745,12 +742,8 @@ export async function loadProblemSetPlazaPage(options?: {
   userId?: string | number;
 }) {
   await ensureSeeded();
-  const pageRaw = Number(options?.page ?? 1);
-  const pageSizeRaw = Number(options?.pageSize ?? 12);
-  const page = Number.isFinite(pageRaw) ? Math.max(pageRaw, 1) : 1;
-  const limit = Number.isFinite(pageSizeRaw)
-    ? Math.min(Math.max(pageSizeRaw, 1), 50)
-    : 12;
+  const page = normalizePage(options?.page);
+  const limit = normalizePageSize(options?.pageSize);
   const offset = (page - 1) * limit;
 
   const keyword = String(options?.keyword ?? "").trim();
@@ -894,12 +887,8 @@ export async function loadAdminProblemSetPage(options?: {
   onlyCreatorId?: string;
 }) {
   await ensureSeeded();
-  const pageRaw = Number(options?.page ?? 1);
-  const pageSizeRaw = Number(options?.pageSize ?? 12);
-  const page = Number.isFinite(pageRaw) ? Math.max(pageRaw, 1) : 1;
-  const limit = Number.isFinite(pageSizeRaw)
-    ? Math.min(Math.max(pageSizeRaw, 1), 50)
-    : 12;
+  const page = normalizePage(options?.page);
+  const limit = normalizePageSize(options?.pageSize);
   const offset = (page - 1) * limit;
 
   const keyword = String(options?.keyword ?? "").trim();
@@ -1025,12 +1014,8 @@ export async function loadPendingProblemSetPage(options?: {
   keyword?: string;
 }) {
   await ensureSeeded();
-  const pageRaw = Number(options?.page ?? 1);
-  const pageSizeRaw = Number(options?.pageSize ?? 12);
-  const page = Number.isFinite(pageRaw) ? Math.max(pageRaw, 1) : 1;
-  const limit = Number.isFinite(pageSizeRaw)
-    ? Math.min(Math.max(pageSizeRaw, 1), 50)
-    : 12;
+  const page = normalizePage(options?.page);
+  const limit = normalizePageSize(options?.pageSize);
   const offset = (page - 1) * limit;
 
   const keyword = String(options?.keyword ?? "").trim();

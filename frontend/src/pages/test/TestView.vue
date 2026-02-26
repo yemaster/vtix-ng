@@ -37,8 +37,7 @@ import {
   setStorageItem
 } from '../../base/vtixGlobal'
 import { useUserStore } from '../../stores/user'
-import { formatDistanceToNow } from 'date-fns'
-import { zhCN } from 'date-fns/locale'
+import { formatRelativeTimeFromNow } from '../../utils/datetime'
 
 type ProblemListType = {
   title: string
@@ -80,10 +79,7 @@ type PracticeRecord = {
   setShuffle: boolean
 }
 
-type IndexedPatch<T> = {
-  index: number
-  value: T
-}
+type IndexedPatchTuple<T> = [number, T]
 
 type PracticeRecordDeltaPayload = {
   id: string
@@ -96,14 +92,13 @@ type PracticeRecordDeltaPayload = {
   setShuffle?: boolean
   progress?: {
     currentProblemId?: number
-    currentAnswer?: (number | string)[]
     timeSpentSeconds?: number
-    answerPatches?: IndexedPatch<(number | string)[]>[]
-    submittedPatches?: IndexedPatch<boolean>[]
+    answerPatches?: IndexedPatchTuple<(number | string)[]>[]
   }
-  problemStatePatches?: IndexedPatch<number>[]
-  appendErrorProblems?: ProblemType[]
-  resetErrorProblems?: boolean
+  problemStatePatches?: IndexedPatchTuple<number>[]
+  errorProblemIndexes?: number[]
+  examQuestionScorePatches?: IndexedPatchTuple<number>[]
+  resetExamQuestionScores?: boolean
 }
 
 type CloudRecordSyncState = {
@@ -121,7 +116,7 @@ type ExamNumberGroup = {
 }
 
 const LOCAL_SYNC_KEY = 'vtixLastLocalSaveAt'
-const CLOUD_SYNC_SNAPSHOT_INTERVAL = 12
+const CLOUD_SYNC_SNAPSHOT_INTERVAL = 24
 
 const router = useRouter()
 const route = useRoute()
@@ -494,10 +489,7 @@ const progressText = computed(() => {
 
 function formatSyncAgo(timestamp: number | null | undefined) {
   if (!timestamp) return '未同步'
-  return `${formatDistanceToNow(timestamp, {
-    addSuffix: true,
-    locale: zhCN
-  })}同步`
+  return `${formatRelativeTimeFromNow(timestamp)}同步`
 }
 
 function toErrorMessage(error: unknown, fallback = '未知错误') {
@@ -564,17 +556,11 @@ const syncAgoText = computed(() => {
   if (userStore.user) {
     if (cloudSyncFailed.value) return '云端同步失败'
     if (!cloudSyncAt.value) return '未同步'
-    const distance = formatDistanceToNow(cloudSyncAt.value, {
-      addSuffix: true,
-      locale: zhCN
-    })
+    const distance = formatRelativeTimeFromNow(cloudSyncAt.value)
     return `${distance}同步`
   }
   if (!localSaveAt.value) return '未同步'
-  const distance = formatDistanceToNow(localSaveAt.value, {
-    addSuffix: true,
-    locale: zhCN
-  })
+  const distance = formatRelativeTimeFromNow(localSaveAt.value)
   return `${distance}同步`
 })
 
@@ -803,16 +789,26 @@ function buildIndexedPatches<T>(
   next: T[],
   equal: (a: T | undefined, b: T | undefined) => boolean
 ) {
-  const patches: IndexedPatch<T>[] = []
+  const patches: IndexedPatchTuple<T>[] = []
   const total = Math.max(prev.length, next.length)
   for (let index = 0; index < total; index += 1) {
     const prevValue = prev[index]
     const nextValue = next[index]
     if (equal(prevValue, nextValue)) continue
     if (nextValue === undefined) continue
-    patches.push({ index, value: deepCopy(nextValue) })
+    patches.push([index, deepCopy(nextValue)])
   }
   return patches
+}
+
+function collectWrongIndexes(problemState: number[]) {
+  const indexes: number[] = []
+  for (let index = 0; index < problemState.length; index += 1) {
+    if (problemState[index] === 3) {
+      indexes.push(index)
+    }
+  }
+  return indexes
 }
 
 function buildRecordDeltaPayload(prev: PracticeRecord, next: PracticeRecord) {
@@ -850,10 +846,6 @@ function buildRecordDeltaPayload(prev: PracticeRecord, next: PracticeRecord) {
     progressPayload.currentProblemId = next.progress.currentProblemId
     changed = true
   }
-  if (!isSameJson(prev.progress.currentAnswer, next.progress.currentAnswer)) {
-    progressPayload.currentAnswer = deepCopy(next.progress.currentAnswer)
-    changed = true
-  }
   if (prev.progress.timeSpentSeconds !== next.progress.timeSpentSeconds) {
     progressPayload.timeSpentSeconds = next.progress.timeSpentSeconds
     changed = true
@@ -865,15 +857,6 @@ function buildRecordDeltaPayload(prev: PracticeRecord, next: PracticeRecord) {
   )
   if (answerPatches.length > 0) {
     progressPayload.answerPatches = answerPatches
-    changed = true
-  }
-  const submittedPatches = buildIndexedPatches(
-    prev.progress.submittedList ?? [],
-    next.progress.submittedList ?? [],
-    (left, right) => left === right
-  )
-  if (submittedPatches.length > 0) {
-    progressPayload.submittedPatches = submittedPatches
     changed = true
   }
   if (Object.keys(progressPayload).length > 0) {
@@ -890,25 +873,28 @@ function buildRecordDeltaPayload(prev: PracticeRecord, next: PracticeRecord) {
     changed = true
   }
 
-  const prevErrors = prev.errorProblems ?? []
-  const nextErrors = next.errorProblems ?? []
-  if (nextErrors.length < prevErrors.length) {
-    payload.resetErrorProblems = true
-    payload.appendErrorProblems = deepCopy(nextErrors)
+  const prevWrongIndexes = collectWrongIndexes(prev.problemState ?? [])
+  const nextWrongIndexes = collectWrongIndexes(next.problemState ?? [])
+  if (!isSameJson(prevWrongIndexes, nextWrongIndexes)) {
+    payload.errorProblemIndexes = nextWrongIndexes
     changed = true
-  } else if (nextErrors.length > prevErrors.length) {
-    const samePrefix = prevErrors.every((item, index) => isSameJson(item, nextErrors[index]))
-    if (samePrefix) {
-      payload.appendErrorProblems = deepCopy(nextErrors.slice(prevErrors.length))
-    } else {
-      payload.resetErrorProblems = true
-      payload.appendErrorProblems = deepCopy(nextErrors)
+  }
+
+  const prevExamScores = Array.isArray(prev.examQuestionScores) ? prev.examQuestionScores : []
+  const nextExamScores = Array.isArray(next.examQuestionScores) ? next.examQuestionScores : []
+  if (prevExamScores.length > 0 && nextExamScores.length === 0) {
+    payload.resetExamQuestionScores = true
+    changed = true
+  } else {
+    const examQuestionScorePatches = buildIndexedPatches(
+      prevExamScores,
+      nextExamScores,
+      (left, right) => Number(left ?? NaN) === Number(right ?? NaN)
+    )
+    if (examQuestionScorePatches.length > 0) {
+      payload.examQuestionScorePatches = examQuestionScorePatches
+      changed = true
     }
-    changed = true
-  } else if (!isSameJson(prevErrors, nextErrors)) {
-    payload.resetErrorProblems = true
-    payload.appendErrorProblems = deepCopy(nextErrors)
-    changed = true
   }
 
   if (!changed) return null
@@ -990,7 +976,7 @@ async function syncCloudRecords(options: { forceSnapshot?: boolean; bypassThrott
       syncState.checked = true
     }
     const previousCursor = getSyncCursor(storage)
-    const shouldSnapshot = Boolean(options.forceSnapshot) ||
+    let shouldSnapshot = Boolean(options.forceSnapshot) ||
       !syncState.recordExists ||
       !syncState.snapshot ||
       syncState.deltaCount >= CLOUD_SYNC_SNAPSHOT_INTERVAL
@@ -1007,8 +993,9 @@ async function syncCloudRecords(options: { forceSnapshot?: boolean; bypassThrott
         cloudSyncFailed.value = false
         cloudSyncErrorDetail.value = ''
         return
+      } else {
+        payload.delta = delta
       }
-      payload.delta = delta
     }
 
     let response = await fetch(`${apiBase}/api/records/sync-item`, {
@@ -1025,7 +1012,11 @@ async function syncCloudRecords(options: { forceSnapshot?: boolean; bypassThrott
       needFull?: boolean
       recordExists?: boolean
       conflict?: boolean
+      noOp?: boolean
       cursor?: number
+      updatedAt?: number
+      trimmed?: number
+      limit?: number
       records?: PracticeRecord[]
       record?: PracticeRecord
     }
@@ -1054,12 +1045,21 @@ async function syncCloudRecords(options: { forceSnapshot?: boolean; bypassThrott
       throw new Error('服务器要求全量同步')
     }
 
+    let remoteApplied = false
     if (Array.isArray(data.records) && data.records.length > 0) {
-      applyCloudRecords(data.records)
+      if (!applyCloudRecords(data.records)) {
+        throw new Error('云端数据回写失败')
+      }
+      remoteApplied = true
     } else if (data.record && data.record.id) {
-      applyCloudRecords([data.record])
+      if (!applyCloudRecords([data.record])) {
+        throw new Error('云端数据回写失败')
+      }
+      remoteApplied = true
     }
-    syncLocalRecords()
+    if (remoteApplied) {
+      syncLocalRecords()
+    }
 
     const cursor =
       typeof data.cursor === 'number' && Number.isFinite(data.cursor)
@@ -1071,7 +1071,9 @@ async function syncCloudRecords(options: { forceSnapshot?: boolean; bypassThrott
     cloudSyncFailed.value = false
     cloudSyncErrorDetail.value = ''
 
-    const latest = readPracticeRecordById<PracticeRecord>(normalizedRecord.id) ?? normalizedRecord
+    const latest = remoteApplied
+      ? readPracticeRecordById<PracticeRecord>(normalizedRecord.id) ?? normalizedRecord
+      : normalizedRecord
     syncState.snapshot = deepCopy(normalizeRecord(latest))
     syncState.checked = true
     syncState.recordExists = true
@@ -1352,6 +1354,11 @@ function saveCurrentRecord() {
     progressId.value = generateProgressId()
   }
   progressUpdatedAt.value = Date.now()
+  const currentList = progress.value.problemList ?? []
+  const normalizedErrors = collectWrongIndexes(problemState.value)
+    .map((index) => currentList[index])
+    .filter((problem): problem is ProblemType => Boolean(problem))
+  errorProblems.value = normalizedErrors
   const record: PracticeRecord = {
     id: progressId.value,
     testId,
@@ -1360,7 +1367,7 @@ function saveCurrentRecord() {
     practiceMode: practiceMode.value,
     progress: progress.value.toJSON(),
     problemState: [...problemState.value],
-    errorProblems: deepCopy(errorProblems.value),
+    errorProblems: deepCopy(normalizedErrors),
     ...(practiceMode.value === 5 && examQuestionScores.value.length === progress.value.problemList.length
       ? { examQuestionScores: [...examQuestionScores.value] }
       : {}),
@@ -2655,7 +2662,7 @@ watch(nowProblemId, () => {
 .question-index {
   color: var(--vtix-text-muted);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .question-content {
@@ -2670,7 +2677,7 @@ watch(nowProblemId, () => {
 .question-no {
   margin-right: 6px;
   color: var(--vtix-text-muted);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .question-choices {
@@ -2730,7 +2737,7 @@ watch(nowProblemId, () => {
   border: 1px solid var(--vtix-border-strong);
   background: var(--vtix-surface-2);
   color: var(--vtix-text-strong);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .custom-actions {
@@ -3136,7 +3143,7 @@ watch(nowProblemId, () => {
 
   .dock-sub {
     font-size: 11px;
-    font-weight: 600;
+    font-weight: 500;
     line-height: 1.1;
     color: var(--vtix-text-subtle);
   }

@@ -386,6 +386,22 @@ async function ensureSqliteTables() {
       created_at INTEGER NOT NULL
     );
   `);
+  client.exec(`
+    CREATE TABLE IF NOT EXISTS brawl_records (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      problem_set_code TEXT NOT NULL,
+      problem_set_title TEXT NOT NULL,
+      player1_id TEXT NOT NULL,
+      player1_name TEXT NOT NULL,
+      player2_id TEXT NOT NULL,
+      player2_name TEXT NOT NULL,
+      score1 INTEGER NOT NULL,
+      score2 INTEGER NOT NULL,
+      winner_id TEXT,
+      winner_name TEXT,
+      created_at INTEGER NOT NULL
+    );
+  `);
   ensureSqliteNoticePinnedColumn(client);
   ensureSqliteMessagesReadColumn(client);
   ensureSqliteUserRecordsDataColumn(client);
@@ -529,6 +545,22 @@ async function ensureMysqlTables() {
       type INT NOT NULL,
       link VARCHAR(512),
       is_read BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at BIGINT NOT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+  await execMysql(`
+    CREATE TABLE IF NOT EXISTS brawl_records (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      problem_set_code VARCHAR(191) NOT NULL,
+      problem_set_title VARCHAR(255) NOT NULL,
+      player1_id VARCHAR(191) NOT NULL,
+      player1_name VARCHAR(255) NOT NULL,
+      player2_id VARCHAR(191) NOT NULL,
+      player2_name VARCHAR(255) NOT NULL,
+      score1 INT NOT NULL,
+      score2 INT NOT NULL,
+      winner_id VARCHAR(191),
+      winner_name VARCHAR(255),
       created_at BIGINT NOT NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   `);

@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { format, formatDistanceToNow } from 'date-fns'
-import { zhCN } from 'date-fns/locale'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import Paginator from 'primevue/paginator'
 import type { PageState } from 'primevue/paginator'
 import Tag from 'primevue/tag'
 import { useRouter } from 'vue-router'
+import { formatDateTime, formatRelativeTimeFromNow } from '../../utils/datetime'
 import {
   queryCachedProblemSetSummaries,
   upsertCachedProblemSetSummaries
@@ -84,17 +83,14 @@ function formatFullTime(timestamp: number) {
   if (!Number.isFinite(timestamp) || timestamp <= 0) {
     return '--'
   }
-  return format(new Date(timestamp), 'yyyy-MM-dd HH:mm')
+  return formatDateTime(timestamp)
 }
 
 function formatRelativeTime(timestamp: number) {
   if (!Number.isFinite(timestamp) || timestamp <= 0) {
     return '--'
   }
-  return formatDistanceToNow(new Date(timestamp), {
-    addSuffix: true,
-    locale: zhCN
-  })
+  return formatRelativeTimeFromNow(timestamp)
 }
 
 const canManageAll = computed(

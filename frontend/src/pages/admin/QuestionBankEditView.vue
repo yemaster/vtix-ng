@@ -13,6 +13,7 @@ import Textarea from 'primevue/textarea'
 import { useToast } from 'primevue/usetoast'
 import { useUserStore } from '../../stores/user'
 import type { ProblemType } from '../../base/ProblemTypes'
+import { pushLoginRequired } from '../../utils/auth'
 
 type ProblemDraft = {
   id: string
@@ -638,7 +639,7 @@ async function loadDetail() {
       credentials: 'include'
     })
     if (response.status === 401) {
-      router.push({ name: 'login' })
+      void pushLoginRequired(router)
       return
     }
     if (!response.ok) {
@@ -665,7 +666,7 @@ async function loadDetail() {
 
 async function handleSubmit() {
   if (!userStore.user) {
-    router.push({ name: 'login' })
+    void pushLoginRequired(router)
     return
   }
   if (isOverQuestionLimit.value) {
@@ -1124,7 +1125,7 @@ onBeforeUnmount(() => {
   gap: 8px;
   font-size: 13px;
   color: var(--vtix-text-muted);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .field :deep(.p-inputtext) {
@@ -1146,7 +1147,7 @@ onBeforeUnmount(() => {
 }
 
 .toggle-label {
-  font-weight: 600;
+  font-weight: 500;
   color: var(--vtix-text-strong);
 }
 
@@ -1184,7 +1185,7 @@ onBeforeUnmount(() => {
   gap: 6px;
   font-size: 12px;
   color: var(--vtix-text-muted);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .test-type-mask {
@@ -1371,7 +1372,7 @@ label.field.choice-content-field {
 .limit-warning {
   color: var(--vtix-danger-text);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .problem-editor-card {

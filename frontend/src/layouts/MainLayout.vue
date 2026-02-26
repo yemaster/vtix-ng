@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import Button from 'primevue/button'
 import Menu from 'primevue/menu'
@@ -17,6 +17,7 @@ const themeStore = useThemeStore()
 const userMenu = ref<InstanceType<typeof Menu> | null>(null)
 const moreMenu = ref<InstanceType<typeof Menu> | null>(null)
 const themePanel = ref<InstanceType<typeof Popover> | null>(null)
+const navRef = ref<HTMLElement | null>(null)
 const unreadCount = ref(0)
 
 const activeName = computed(() =>
@@ -69,12 +70,71 @@ const mainNavItems = [
 type DrawerMenuItem = MenuItem & { disabled?: boolean; badge?: string; badgeClass?: string }
 
 const moreNavItems = [
-  { label: '题库广场', name: 'question-bank-plaza', icon: 'pi pi-th-large' }
+  { label: '题库广场', name: 'question-bank-plaza', icon: 'pi pi-th-large' },
+  { label: '题库大乱斗', name: 'question-bank-brawl', icon: 'pi pi-bolt' }
 ]
 
 const isMoreActive = computed(() =>
   moreNavItems.some((item) => item.name === activeName.value)
 )
+
+const activeNavKey = computed(() => {
+  const matchedMain = mainNavItems.find((item) => item.name === activeName.value)
+  if (matchedMain) return `main:${matchedMain.name}`
+  if (isMoreActive.value) return 'more'
+  return ''
+})
+const desktopIndicatorEnabled = computed(() => themeStore.style === 'paper' && !isMobile.value)
+
+const navIndicatorX = ref(0)
+const navIndicatorWidth = ref(0)
+const navIndicatorVisible = ref(false)
+let navIndicatorFrame: number | null = null
+const NAV_INDICATOR_WIDTH = 40
+
+const navIndicatorStyle = computed(() => ({
+  transform: `translateX(${navIndicatorX.value}px)`,
+  width: `${navIndicatorWidth.value}px`,
+  opacity: navIndicatorVisible.value ? '1' : '0'
+}))
+
+function updateNavIndicator() {
+  if (!desktopIndicatorEnabled.value) {
+    navIndicatorVisible.value = false
+    return
+  }
+  const navElement = navRef.value
+  if (!navElement) {
+    navIndicatorVisible.value = false
+    return
+  }
+  const key = activeNavKey.value
+  if (!key) {
+    navIndicatorVisible.value = false
+    return
+  }
+  const target = navElement.querySelector<HTMLElement>(`[data-nav-key="${key}"]`)
+  if (!target) {
+    navIndicatorVisible.value = false
+    return
+  }
+  const navRect = navElement.getBoundingClientRect()
+  const targetRect = target.getBoundingClientRect()
+  const fullWidth = Math.max(0, targetRect.width)
+  const indicatorWidth = NAV_INDICATOR_WIDTH
+  const left = targetRect.left - navRect.left + (fullWidth - indicatorWidth) / 2
+  navIndicatorX.value = Math.max(0, left)
+  navIndicatorWidth.value = indicatorWidth
+  navIndicatorVisible.value = navIndicatorWidth.value > 0
+}
+
+function scheduleNavIndicatorUpdate() {
+  if (navIndicatorFrame !== null) return
+  navIndicatorFrame = window.requestAnimationFrame(() => {
+    navIndicatorFrame = null
+    updateNavIndicator()
+  })
+}
 
 const moreMenuItems = computed<MenuItem[]>(() =>
   moreNavItems.map((item) => ({
@@ -202,19 +262,29 @@ onMounted(() => {
     if (mediaQuery) {
       isMobile.value = mediaQuery.matches
     }
+    scheduleNavIndicatorUpdate()
   }
   mediaHandler()
   void loadUnreadCount()
   window.addEventListener('messages-updated', loadUnreadCount)
+  window.addEventListener('resize', scheduleNavIndicatorUpdate)
   if (typeof mediaQuery.addEventListener === 'function') {
     mediaQuery.addEventListener('change', mediaHandler)
   } else {
     mediaQuery.addListener(mediaHandler)
   }
+  void nextTick(() => {
+    scheduleNavIndicatorUpdate()
+  })
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('messages-updated', loadUnreadCount)
+  window.removeEventListener('resize', scheduleNavIndicatorUpdate)
+  if (navIndicatorFrame !== null) {
+    window.cancelAnimationFrame(navIndicatorFrame)
+    navIndicatorFrame = null
+  }
   if (mediaQuery && mediaHandler) {
     if (typeof mediaQuery.removeEventListener === 'function') {
       mediaQuery.removeEventListener('change', mediaHandler)
@@ -238,36 +308,62 @@ watch(
     hideThemePanel()
   }
 )
+
+watch(
+  () => [activeNavKey.value, isMobile.value, desktopIndicatorEnabled.value],
+  () => {
+    void nextTick(() => {
+      scheduleNavIndicatorUpdate()
+    })
+  },
+  { flush: 'post' }
+)
 </script>
 
 <template>
   <div class="app-shell">
-    <header v-show="!hideTopbar" class="topbar">
+    <header
+      v-show="!hideTopbar"
+      :class="[
+        'topbar',
+        `theme-style-${themeStore.style}`,
+        themeStore.isDark ? 'is-dark' : 'is-light'
+      ]"
+    >
       <div class="topbar-inner">
         <div class="left-group">
           <RouterLink class="brand brand-link" :to="{ name: 'home' }">
             <span class="brand-dot" />
             <span class="brand-word">VTIX</span>
           </RouterLink>
-          <nav v-if="!isMobile" class="nav">
+          <nav v-if="!isMobile" ref="navRef" class="nav">
             <RouterLink
               v-for="item in mainNavItems"
               :key="item.name"
               :to="{ name: item.name }"
               :class="['nav-link', { active: activeName === item.name }]"
+              :data-nav-key="`main:${item.name}`"
               v-ripple
             >
               <span class="nav-icon" :class="item.icon" aria-hidden="true" />
               <span class="nav-text">{{ item.label }}</span>
             </RouterLink>
-            <Button
-              type="button"
-              text
-              icon="pi pi-ellipsis-h"
-              label="更多"
-              class="nav-more-trigger"
-              :class="{ active: isMoreActive }"
-              @click="toggleMoreMenu"
+            <span class="nav-more-item" data-nav-key="more">
+              <Button
+                type="button"
+                text
+                icon="pi pi-ellipsis-h"
+                label="更多"
+                class="nav-more-trigger"
+                :class="{ active: isMoreActive }"
+                @click="toggleMoreMenu"
+              />
+            </span>
+            <span
+              v-if="themeStore.style === 'paper'"
+              class="desktop-active-indicator"
+              :style="navIndicatorStyle"
+              aria-hidden="true"
             />
             <Menu ref="moreMenu" size="big" :model="moreMenuItems" popup />
           </nav>
@@ -472,7 +568,7 @@ watch(
 .topbar-inner {
   max-width: 1120px;
   margin: 0 auto;
-  padding: 16px 18px;
+  padding: 0 18px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -502,15 +598,14 @@ watch(
 .nav {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  position: relative;
 }
 
 .nav-link {
   color: var(--vtix-text-strong);
-  font-weight: 600;
   text-decoration: none;
+  margin: 0;
   padding: 8px 12px;
-  border-radius: 999px;
   border: 1px solid transparent;
   background: transparent;
   display: inline-flex;
@@ -522,31 +617,27 @@ watch(
 }
 
 .nav-more-trigger.p-button {
-  border-radius: 999px;
+  border-radius: 0;
+  margin: 0;
   border: 1px solid transparent;
   background: transparent;
   color: var(--vtix-text-strong);
-  font-weight: 600;
+  font-weight: 500;
   padding: 8px 12px;
   gap: 8px;
+}
+
+.nav-more-trigger.p-button :deep(.p-button-label) {
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 500;
+  line-height: 1.2;
 }
 
 .nav-more-trigger.p-button:hover {
   background: var(--vtix-surface-2);
   border-color: var(--vtix-border-strong);
   color: var(--vtix-text-strong);
-}
-
-.nav-more-trigger.p-button.active {
-  background: var(--vtix-active-bg);
-  color: var(--vtix-active-text);
-  border-color: var(--vtix-active-border);
-  box-shadow: 0 6px 14px var(--vtix-shadow);
-}
-
-.nav-more-trigger.p-button :deep(.p-button-icon) {
-  font-size: 14px;
-  color: var(--vtix-text-muted);
 }
 
 .nav-link .nav-icon {
@@ -560,15 +651,13 @@ watch(
   color: var(--vtix-text-strong);
 }
 
-.nav-link.active {
-  background: var(--vtix-active-bg);
-  color: var(--vtix-active-text);
-  border-color: var(--vtix-active-border);
-  box-shadow: 0 6px 14px var(--vtix-shadow);
+.nav-more-item {
+  display: inline-flex;
+  align-items: stretch;
 }
 
-.nav-link.active .nav-icon {
-  color: var(--vtix-active-text);
+.desktop-active-indicator {
+  display: none;
 }
 
 .actions {
@@ -730,8 +819,183 @@ watch(
   width: 100%;
 }
 
+@media (min-width: 901px) {
+  .topbar {
+    border-bottom: 1px solid var(--vtix-border-strong);
+    box-shadow: 0 6px 18px var(--vtix-shadow-soft);
+    backdrop-filter: blur(10px) saturate(130%);
+    --desktop-nav-active-bg: transparent;
+    --desktop-nav-active-text: var(--vtix-text-strong);
+    --desktop-nav-active-border: transparent;
+    --desktop-nav-indicator-color: var(--vtix-primary-600);
+  }
 
-@media (max-width: 768px) {
+  .topbar.is-dark {
+    --desktop-nav-indicator-color: var(--vtix-primary-700);
+  }
+
+  .topbar-inner {
+    padding: 0 18px;
+    gap: 16px;
+  }
+
+  .left-group {
+    gap: 14px;
+  }
+
+  .brand-word {
+    font-size: 15px;
+    letter-spacing: 0.04em;
+  }
+
+  .nav {
+    padding: 0;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    isolation: isolate;
+  }
+
+  .nav-link {
+    gap: 8px;
+    padding: 18px 20px;
+    color: var(--vtix-text-muted);
+    border-color: transparent;
+    min-height: 44px;
+    line-height: 1;
+    position: relative;
+  }
+
+  .nav .nav-link .nav-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+  }
+
+  .nav-link:hover {
+    background: var(--vtix-surface-3);
+    border-color: transparent;
+    color: var(--vtix-text-strong);
+  }
+
+  .nav-link.active {
+    background: var(--desktop-nav-active-bg);
+    color: var(--desktop-nav-active-text);
+    border-color: var(--desktop-nav-active-border);
+    box-shadow: none;
+  }
+
+  .nav-more-trigger.p-button {
+    padding: 18px 20px;
+    gap: 8px;
+    border-color: transparent;
+    color: var(--vtix-text-muted);
+    background: transparent;
+    min-height: 44px;
+    line-height: 1;
+    position: relative;
+  }
+
+  .nav-more-trigger.p-button:hover {
+    background: var(--vtix-surface-3);
+    border-color: transparent;
+    color: var(--vtix-text-strong);
+  }
+
+  .nav-more-trigger.p-button.active {
+    background: var(--desktop-nav-active-bg);
+    color: var(--desktop-nav-active-text);
+    border-color: var(--desktop-nav-active-border);
+    box-shadow: none;
+  }
+
+  .nav-more-trigger.p-button :deep(.p-button-label) {
+    font-size: inherit;
+    line-height: 1;
+  }
+
+  .nav-more-trigger.p-button :deep(.p-button-icon) {
+    font-size: 14px;
+    color: var(--vtix-text-muted);
+  }
+
+  .topbar.theme-style-card {
+    --desktop-nav-active-bg: var(--vtix-surface-3);
+    --desktop-nav-active-text: var(--vtix-text-strong);
+    --desktop-nav-active-border: transparent;
+  }
+
+  .topbar.theme-style-card.is-dark {
+    --desktop-nav-active-bg: rgba(148, 163, 184, 0.16);
+    --desktop-nav-active-text: var(--vtix-text-strong);
+    --desktop-nav-active-border: transparent;
+  }
+
+  .desktop-active-indicator {
+    display: block;
+    position: absolute;
+    left: 0;
+    bottom: -2px;
+    height: 4px;
+    width: 20px;
+    opacity: 0;
+    border-radius: 2px;
+    background: var(--desktop-nav-indicator-color);
+    transform: translateX(0);
+    transform-origin: left center;
+    pointer-events: none;
+    z-index: 2;
+    transition:
+      transform 240ms cubic-bezier(0.22, 0.61, 0.36, 1),
+      width 240ms cubic-bezier(0.22, 0.61, 0.36, 1),
+      opacity 160ms ease;
+  }
+
+  .actions {
+    gap: 10px;
+  }
+
+  .theme-toggle {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    background: transparent;
+  }
+
+  .theme-toggle:hover {
+    background: var(--vtix-surface-3);
+    border-color: var(--vtix-border-strong);
+  }
+
+  .user-area {
+    gap: 6px;
+    padding-left: 10px;
+    border-left: 1px solid var(--vtix-border);
+  }
+
+  .user-trigger {
+    font-weight: 500;
+    padding: 6px 8px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+  }
+
+  .user-trigger:hover {
+    background: var(--vtix-surface-3);
+  }
+
+  .group-badge {
+    padding: 3px 8px;
+    border: 1px solid var(--vtix-border);
+    background: var(--vtix-surface-2);
+    font-weight: 500;
+  }
+}
+
+
+@media (max-width: 900px) {
   .topbar-inner {
     flex-direction: row;
     align-items: center;

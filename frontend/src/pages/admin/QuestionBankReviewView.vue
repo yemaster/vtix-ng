@@ -352,7 +352,7 @@ onMounted(() => {
 }
 
 .title-link {
-  font-weight: 600;
+  font-weight: 500;
   color: var(--vtix-text-strong);
   text-decoration: none;
 }

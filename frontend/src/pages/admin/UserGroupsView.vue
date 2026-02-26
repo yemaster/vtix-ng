@@ -380,7 +380,7 @@ onMounted(() => {
 
 .group-limit span {
   color: var(--vtix-text);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .group-tags {
@@ -401,7 +401,7 @@ onMounted(() => {
   gap: 8px;
   font-size: 13px;
   color: var(--vtix-text-muted);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .permission-grid {
@@ -419,7 +419,7 @@ onMounted(() => {
   border: 1px solid var(--vtix-border-strong);
   background: var(--vtix-surface-2);
   color: var(--vtix-text-strong);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .form-actions {

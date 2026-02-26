@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import Password from 'primevue/password'
@@ -18,6 +18,23 @@ const redirectTarget = computed(() => {
   const value = route.query.redirect
   return typeof value === 'string' ? value : ''
 })
+
+watch(
+  () => route.query.authRequired,
+  (value) => {
+    if (value !== '1') return
+    toast.add({
+      severity: 'warn',
+      summary: '请先登录',
+      detail: '请先登录',
+      life: 2400
+    })
+    const nextQuery = { ...route.query }
+    delete nextQuery.authRequired
+    router.replace({ name: 'login', query: nextQuery })
+  },
+  { immediate: true }
+)
 
 
 async function handleSubmit() {
@@ -164,7 +181,7 @@ async function handleSubmit() {
 }
 
 .auth-intro .brand {
-  font-weight: 600;
+  font-weight: 500;
   letter-spacing: 1px;
   color: var(--vtix-auth-accent-warm);
 }

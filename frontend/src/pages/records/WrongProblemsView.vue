@@ -482,7 +482,7 @@ function formatUserAnswer(problem: ProblemType, answer: (number | string)[] | nu
   border-radius: 999px;
   padding: 2px 8px;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 500;
   white-space: nowrap;
 }
 

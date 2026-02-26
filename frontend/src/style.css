@@ -1,9 +1,17 @@
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap');
+@import '@fontsource/manrope/latin-400.css';
+@import '@fontsource/manrope/latin-500.css';
+@import '@fontsource/manrope/latin-700.css';
+@import '@fontsource/manrope/latin-800.css';
 @import './styles/theme.css';
 @import './styles/layout-common.css';
 
 :root {
-  font-family: 'Manrope', 'Segoe UI', sans-serif;
+  --vtix-font-family: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', Roboto, 'Helvetica Neue', Arial, 'Noto Sans',
+    'Liberation Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol',
+    'Noto Color Emoji';
+  --p-font-family: var(--vtix-font-family);
+  font-family: var(--vtix-font-family);
   line-height: 1.6;
   font-weight: 400;
   font-synthesis: none;

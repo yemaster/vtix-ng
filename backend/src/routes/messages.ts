@@ -1,5 +1,6 @@
 import { Elysia } from "elysia";
 import { loadUnreadMessageCount, loadUserMessagesPage, markMessagesRead } from "../services/messages";
+import { normalizePage, normalizePageSize } from "../utils/pagination";
 import { getSessionUser } from "../utils/session";
 
 export const registerMessageRoutes = (app: Elysia) =>
@@ -29,12 +30,8 @@ export const registerMessageRoutes = (app: Elysia) =>
         set.status = 400;
         return { error: "Invalid user" };
       }
-      const pageRaw = Number((query as any)?.page ?? 1);
-      const pageSizeRaw = Number((query as any)?.pageSize ?? 12);
-      const page = Number.isFinite(pageRaw) ? Math.max(pageRaw, 1) : 1;
-      const pageSize = Number.isFinite(pageSizeRaw)
-        ? Math.min(Math.max(pageSizeRaw, 1), 50)
-        : 12;
+      const page = normalizePage((query as any)?.page);
+      const pageSize = normalizePageSize((query as any)?.pageSize);
       const unreadCount = await loadUnreadMessageCount(receiverId);
       const { items, total } = await loadUserMessagesPage({
         receiverId,

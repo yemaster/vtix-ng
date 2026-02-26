@@ -1,7 +1,5 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { format, formatDistanceToNow } from 'date-fns'
-import { zhCN } from 'date-fns/locale'
 import Button from 'primevue/button'
 import InputText from 'primevue/inputtext'
 import Paginator from 'primevue/paginator'
@@ -9,7 +7,9 @@ import type { PageState } from 'primevue/paginator'
 import Select from 'primevue/select'
 import Tag from 'primevue/tag'
 import { useRouter } from 'vue-router'
+import { formatDateTime, formatRelativeTimeFromNow } from '../../utils/datetime'
 import { useUserStore } from '../../stores/user'
+import { pushLoginRequired } from '../../utils/auth'
 
 type PlazaItem = {
   createdAt: number | undefined
@@ -88,17 +88,14 @@ function formatFullTime(timestamp: number) {
   if (!Number.isFinite(timestamp) || timestamp <= 0) {
     return '--'
   }
-  return format(new Date(timestamp), 'yyyy-MM-dd HH:mm')
+  return formatDateTime(timestamp)
 }
 
 function formatRelativeTime(timestamp: number) {
   if (!Number.isFinite(timestamp) || timestamp <= 0) {
     return '--'
   }
-  return formatDistanceToNow(new Date(timestamp), {
-    addSuffix: true,
-    locale: zhCN
-  })
+  return formatRelativeTimeFromNow(timestamp)
 }
 
 async function loadItems() {
@@ -160,7 +157,7 @@ function handleCardClick(event: MouseEvent, code: string) {
 
 function handleCreateClick() {
   if (!userStore.user) {
-    router.push({ name: 'login' })
+    void pushLoginRequired(router)
     return
   }
   router.push({ name: 'admin-question-bank-create' })
@@ -176,7 +173,7 @@ async function handleReactionClick(event: MouseEvent, item: PlazaItem, value: nu
   event.preventDefault()
   event.stopPropagation()
   if (!userStore.user) {
-    router.push({ name: 'login' })
+    void pushLoginRequired(router)
     return
   }
   if (reacting[item.code]) return

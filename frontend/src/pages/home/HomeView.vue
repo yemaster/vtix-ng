@@ -756,7 +756,7 @@ p {
   text-align: left;
   font-size: 12px;
   color: var(--vtix-text-subtle);
-  font-weight: 600;
+  font-weight: 500;
   padding: 8px 10px;
   border-bottom: 1px solid var(--card-border);
   background: var(--vtix-surface-2);
@@ -784,7 +784,7 @@ p {
   gap: 8px;
   text-decoration: none;
   color: inherit;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .notice-link :deep(.p-tag) {
@@ -823,7 +823,7 @@ p {
 .notice-more {
   color: var(--vtix-primary-600);
   text-decoration: none;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 @media (max-width: 768px) {

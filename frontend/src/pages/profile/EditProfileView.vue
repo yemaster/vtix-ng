@@ -7,6 +7,7 @@ import TabMenu from 'primevue/tabmenu'
 import { useToast } from 'primevue/usetoast'
 import { useUserStore } from '../../stores/user'
 import { getStorageItem } from '../../base/vtixGlobal'
+import { pushLoginRequired } from '../../utils/auth'
 
 const route = useRoute()
 const router = useRouter()
@@ -76,7 +77,7 @@ function syncForm() {
 
 async function handleSave() {
   if (!userStore.user) {
-    router.push({ name: 'login' })
+    void pushLoginRequired(router)
     return
   }
   const name = nameField.value.trim()
@@ -114,7 +115,7 @@ async function handleSave() {
 
 function handlePasswordSave() {
   if (!userStore.user) {
-    router.push({ name: 'login' })
+    void pushLoginRequired(router)
     return
   }
   if (!currentPassword.value || !newPassword.value || !confirmPassword.value) {
@@ -391,7 +392,7 @@ onMounted(() => {
   flex-direction: column;
   gap: 8px;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--vtix-text-muted);
 }
 

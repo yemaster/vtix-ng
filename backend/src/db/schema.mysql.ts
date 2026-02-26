@@ -166,3 +166,18 @@ export const messages = mysqlTable("messages", {
   isRead: boolean("is_read").notNull().default(false),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
 });
+
+export const brawlRecords = mysqlTable("brawl_records", {
+  id: int("id").autoincrement().primaryKey(),
+  problemSetCode: varchar("problem_set_code", { length: 191 }).notNull(),
+  problemSetTitle: varchar("problem_set_title", { length: 255 }).notNull(),
+  player1Id: varchar("player1_id", { length: 191 }).notNull(),
+  player1Name: varchar("player1_name", { length: 255 }).notNull(),
+  player2Id: varchar("player2_id", { length: 191 }).notNull(),
+  player2Name: varchar("player2_name", { length: 255 }).notNull(),
+  score1: int("score1").notNull(),
+  score2: int("score2").notNull(),
+  winnerId: varchar("winner_id", { length: 191 }),
+  winnerName: varchar("winner_name", { length: 255 }),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+});

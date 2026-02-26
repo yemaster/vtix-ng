@@ -863,7 +863,7 @@ onMounted(() => {
   gap: 8px;
   color: var(--vtix-text-muted);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .filter-select {
@@ -893,7 +893,7 @@ onMounted(() => {
   flex-wrap: wrap;
   color: var(--vtix-text-muted);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .bulk-count {
@@ -966,11 +966,11 @@ onMounted(() => {
 }
 
 .title {
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .title-link {
-  font-weight: 600;
+  font-weight: 500;
   color: var(--vtix-text-strong);
   text-decoration: none;
   display: inline-flex;

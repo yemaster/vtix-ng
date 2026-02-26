@@ -166,3 +166,18 @@ export const messages = sqliteTable("messages", {
   isRead: integer("is_read", { mode: "boolean" }).notNull().default(false),
   createdAt: integer("created_at").notNull(),
 });
+
+export const brawlRecords = sqliteTable("brawl_records", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  problemSetCode: text("problem_set_code").notNull(),
+  problemSetTitle: text("problem_set_title").notNull(),
+  player1Id: text("player1_id").notNull(),
+  player1Name: text("player1_name").notNull(),
+  player2Id: text("player2_id").notNull(),
+  player2Name: text("player2_name").notNull(),
+  score1: integer("score1").notNull(),
+  score2: integer("score2").notNull(),
+  winnerId: text("winner_id"),
+  winnerName: text("winner_name"),
+  createdAt: integer("created_at").notNull(),
+});

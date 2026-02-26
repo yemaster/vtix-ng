@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../../stores/user'
+import { pushLoginRequired } from '../../utils/auth'
 
 type AdminStats = {
   totalSets: number
@@ -98,7 +99,7 @@ async function loadStats() {
       credentials: 'include'
     })
     if (response.status === 401) {
-      router.push({ name: 'login' })
+      void pushLoginRequired(router)
       return
     }
     if (response.status === 403) {
@@ -295,7 +296,7 @@ onMounted(() => {
 
 .stat-title {
   color: var(--vtix-text-muted);
-  font-weight: 600;
+  font-weight: 500;
   font-size: 13px;
 }
 

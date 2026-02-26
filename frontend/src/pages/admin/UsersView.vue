@@ -392,7 +392,7 @@ watch(totalPages, (value) => {
   gap: 8px;
   color: var(--vtix-text-muted);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .group-filter {
@@ -501,7 +501,7 @@ watch(totalPages, (value) => {
   gap: 8px;
   font-size: 13px;
   color: var(--vtix-text-muted);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .group-select :deep(.p-select),

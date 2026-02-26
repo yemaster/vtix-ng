@@ -339,7 +339,7 @@ onMounted(() => {
 
 .build-value {
   color: var(--vtix-text-strong);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .build-note {

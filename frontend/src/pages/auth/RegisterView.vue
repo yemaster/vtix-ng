@@ -166,7 +166,7 @@ async function handleSubmit() {
 }
 
 .auth-intro .brand {
-  font-weight: 600;
+  font-weight: 500;
   letter-spacing: 1px;
   color: var(--vtix-auth-accent-cool);
 }

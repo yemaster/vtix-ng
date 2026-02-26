@@ -1,4 +1,12 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import NProgress from 'nprogress'
+import 'nprogress/nprogress.css'
+
+NProgress.configure({
+    showSpinner: false,
+    trickleSpeed: 120,
+    minimum: 0.08
+})
 
 const router = createRouter({
     history: createWebHistory(import.meta.env.BASE_URL),
@@ -25,6 +33,12 @@ const router = createRouter({
                     name: 'question-bank-plaza',
                     component: () => import('./pages/question-bank/QuestionBankPlazaView.vue'),
                     meta: { title: '题库广场' }
+                },
+                {
+                    path: 'brawl',
+                    name: 'question-bank-brawl',
+                    component: () => import('./pages/brawl/QuestionBankBrawlView.vue'),
+                    meta: { title: '题库大乱斗' }
                 },
                 {
                     path: 'records',
@@ -174,6 +188,9 @@ const router = createRouter({
 })
 
 router.beforeEach((to, from) => {
+    if (to.fullPath !== from.fullPath) {
+        NProgress.start()
+    }
     const isAuthPage = to.name === 'login' || to.name === 'register'
     const hasRedirect = typeof to.query.redirect === 'string'
     if (!isAuthPage || hasRedirect) return true
@@ -192,8 +209,13 @@ router.beforeEach((to, from) => {
 const TITLE_SUFFIX = ' - vtix 答题'
 const DEFAULT_TITLE = `VTIX${TITLE_SUFFIX}`
 router.afterEach((to) => {
+    NProgress.done()
     const title = typeof to.meta?.title === 'string' ? to.meta.title.trim() : ''
     document.title = title ? `${title}${TITLE_SUFFIX}` : DEFAULT_TITLE
+})
+
+router.onError(() => {
+    NProgress.done()
 })
 
 export default router

@@ -205,7 +205,7 @@ onMounted(() => {
   text-align: left;
   font-size: 12px;
   color: var(--vtix-text-subtle);
-  font-weight: 600;
+  font-weight: 500;
   padding: 10px;
   border-bottom: 1px solid var(--vtix-border);
   background: var(--vtix-surface-2);
@@ -233,7 +233,7 @@ onMounted(() => {
   gap: 8px;
   text-decoration: none;
   color: inherit;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .notice-link :deep(.p-tag) {

@@ -12,11 +12,14 @@ import './styles/primevue-overrides.css'
 import './styles/transitions.css'
 import './styles/panel-common.css'
 import 'primeicons/primeicons.css'
-import { useUserStore } from './stores/user'
+import { useUserStore, type User } from './stores/user'
 import { useThemeStore } from './stores/theme'
 
 const apiBase = import.meta.env.VITE_API_BASE ?? 'http://localhost:3000'
 const BACKEND_TIMEOUT_MS = 3500
+type BackendStatus =
+    | { ok: true; user: User | null }
+    | { ok: false; user: null; message: string }
 
 const skyPrimary = {
     50: '{sky.50}',
@@ -60,30 +63,45 @@ app.use(router)
 const themeStore = useThemeStore(pinia)
 themeStore.init()
 
-async function checkBackendAvailability() {
+async function fetchCurrentUserWithTimeout(): Promise<BackendStatus> {
     const controller = new AbortController()
     const timeoutId = window.setTimeout(() => controller.abort(), BACKEND_TIMEOUT_MS)
     try {
-        await fetch(`${apiBase}/api/me`, {
+        const response = await fetch(`${apiBase}/api/me`, {
             credentials: 'include',
             cache: 'no-store',
             signal: controller.signal
         })
-        return { ok: true }
+        if (!response.ok) {
+            if (response.status >= 500) {
+                return {
+                    ok: false,
+                    user: null,
+                    message: `后端服务异常（HTTP ${response.status}）`
+                }
+            }
+            return { ok: true, user: null }
+        }
+        const data = (await response.json().catch(() => null)) as { user?: User | null } | null
+        return { ok: true, user: data?.user ?? null }
     } catch (error) {
         const message = error instanceof Error ? error.message : '无法连接到后端服务'
-        return { ok: false, message }
+        return { ok: false, user: null, message }
     } finally {
         window.clearTimeout(timeoutId)
     }
 }
 
 async function bootstrapApp() {
-    const backendStatus = await checkBackendAvailability()
     const userStore = useUserStore(pinia)
+    userStore.loading = true
+    userStore.error = ''
+    const backendStatus = await fetchCurrentUserWithTimeout()
     if (backendStatus.ok) {
-        await userStore.loadCurrentUser()
+        userStore.user = backendStatus.user
     } else {
+        userStore.user = null
+        userStore.error = backendStatus.message
         try {
             await router.replace({
                 name: 'error',
@@ -94,9 +112,10 @@ async function bootstrapApp() {
                 }
             })
         } catch {
-            // ignore navigation errors and still mount the app
+            // ignore navigation errors
         }
     }
+    userStore.loading = false
     app.mount('#app')
 }
 

@@ -15,6 +15,7 @@ type IndexedPatch<T> = {
   index: number;
   value: T;
 };
+type IndexedPatchTuple<T> = [number, T];
 
 type PracticeRecordDelta = {
   id: string;
@@ -33,6 +34,9 @@ type PracticeRecordDelta = {
     submittedPatches?: IndexedPatch<boolean>[];
   };
   problemStatePatches?: IndexedPatch<number>[];
+  errorProblemIndexes?: number[];
+  examQuestionScorePatches?: IndexedPatch<number>[];
+  resetExamQuestionScores?: boolean;
   appendErrorProblems?: unknown[];
   resetErrorProblems?: boolean;
 };
@@ -165,14 +169,24 @@ function normalizeIndexedPatches<T>(
   if (!Array.isArray(input)) return [] as IndexedPatch<T>[];
   const patches: IndexedPatch<T>[] = [];
   for (const item of input) {
-    if (!item || typeof item !== "object") continue;
-    const row = item as Record<string, unknown>;
-    const indexRaw = toSafeNumber(row.index);
+    let indexRaw: number | undefined;
+    let value: unknown;
+    if (Array.isArray(item)) {
+      const tuple = item as IndexedPatchTuple<unknown>;
+      indexRaw = toSafeNumber(tuple[0]);
+      value = tuple[1];
+    } else if (item && typeof item === "object") {
+      const row = item as Record<string, unknown>;
+      indexRaw = toSafeNumber(row.index);
+      value = row.value;
+    } else {
+      continue;
+    }
     if (indexRaw === undefined) continue;
     const index = Math.floor(indexRaw);
     if (!Number.isFinite(index) || index < 0) continue;
-    if (!valueGuard(row.value)) continue;
-    patches.push({ index, value: cloneJsonValue(row.value) });
+    if (!valueGuard(value)) continue;
+    patches.push({ index, value: cloneJsonValue(value) });
   }
   return patches;
 }
@@ -238,6 +252,20 @@ function normalizeRecordDelta(input: unknown, recordId: string) {
       row.problemStatePatches,
       (value): value is number => typeof value === "number" && Number.isFinite(value)
     ).map((patch) => ({ ...patch, value: Math.floor(patch.value) })),
+    examQuestionScorePatches: normalizeIndexedPatches(
+      row.examQuestionScorePatches,
+      (value): value is number => typeof value === "number" && Number.isFinite(value)
+    ).map((patch) => ({ ...patch, value: Math.max(0, patch.value) })),
+    errorProblemIndexes: Array.isArray(row.errorProblemIndexes)
+      ? row.errorProblemIndexes
+          .map((value) => toSafeNumber(value))
+          .filter((value): value is number => value !== undefined)
+          .map((value) => Math.floor(value))
+          .filter((value) => Number.isFinite(value) && value >= 0)
+      : undefined,
+    ...(typeof row.resetExamQuestionScores === "boolean"
+      ? { resetExamQuestionScores: row.resetExamQuestionScores }
+      : {}),
     appendErrorProblems: Array.isArray(row.appendErrorProblems)
       ? cloneJsonValue(row.appendErrorProblems)
       : undefined,
@@ -265,6 +293,8 @@ function applyRecordDelta(base: PracticeRecord, delta: PracticeRecordDelta) {
     next.progress && typeof next.progress === "object"
       ? (next.progress as Record<string, unknown>)
       : {};
+  let currentProblemChanged = false;
+  let answerListChanged = false;
 
   if (typeof delta.testTitle === "string") {
     next.testTitle = delta.testTitle;
@@ -286,6 +316,7 @@ function applyRecordDelta(base: PracticeRecord, delta: PracticeRecordDelta) {
   if (progressDelta) {
     if (typeof progressDelta.currentProblemId === "number" && Number.isFinite(progressDelta.currentProblemId)) {
       baseProgress.currentProblemId = progressDelta.currentProblemId;
+      currentProblemChanged = true;
     }
     if (Array.isArray(progressDelta.currentAnswer)) {
       baseProgress.currentAnswer = cloneJsonValue(progressDelta.currentAnswer);
@@ -298,12 +329,34 @@ function applyRecordDelta(base: PracticeRecord, delta: PracticeRecordDelta) {
         ? (baseProgress.answerList as unknown[][])
         : [];
       baseProgress.answerList = applyIndexedPatches(baseAnswerList, progressDelta.answerPatches);
+      answerListChanged = true;
     }
     if (progressDelta.submittedPatches && progressDelta.submittedPatches.length > 0) {
       const baseSubmitted = Array.isArray(baseProgress.submittedList)
         ? (baseProgress.submittedList as boolean[])
         : [];
       baseProgress.submittedList = applyIndexedPatches(baseSubmitted, progressDelta.submittedPatches);
+    }
+    if (
+      !Array.isArray(baseProgress.currentAnswer) ||
+      currentProblemChanged ||
+      answerListChanged
+    ) {
+      const answerList = Array.isArray(baseProgress.answerList)
+        ? (baseProgress.answerList as unknown[][])
+        : [];
+      const rawCurrent =
+        typeof baseProgress.currentProblemId === "number" && Number.isFinite(baseProgress.currentProblemId)
+          ? Math.floor(baseProgress.currentProblemId)
+          : 0;
+      const safeCurrent = answerList.length
+        ? Math.min(Math.max(rawCurrent, 0), answerList.length - 1)
+        : 0;
+      baseProgress.currentProblemId = safeCurrent;
+      const currentAnswer = answerList[safeCurrent];
+      baseProgress.currentAnswer = Array.isArray(currentAnswer)
+        ? cloneJsonValue(currentAnswer)
+        : [];
     }
     next.progress = baseProgress;
   }
@@ -313,16 +366,53 @@ function applyRecordDelta(base: PracticeRecord, delta: PracticeRecordDelta) {
       ? (next.problemState as number[])
       : [];
     next.problemState = applyIndexedPatches(baseProblemState, delta.problemStatePatches);
+    if (next.progress && typeof next.progress === "object") {
+      (next.progress as Record<string, unknown>).submittedList = (next.problemState as number[]).map(
+        (state) => Number(state) > 0
+      );
+    }
   }
 
-  if (delta.resetErrorProblems) {
-    next.errorProblems = [];
-  }
-  if (Array.isArray(delta.appendErrorProblems) && delta.appendErrorProblems.length > 0) {
-    const baseErrorProblems = Array.isArray(next.errorProblems)
-      ? (next.errorProblems as unknown[])
+  if (delta.resetExamQuestionScores) {
+    delete (next as Record<string, unknown>).examQuestionScores;
+  } else if (delta.examQuestionScorePatches && delta.examQuestionScorePatches.length > 0) {
+    const baseExamScores = Array.isArray(next.examQuestionScores)
+      ? (next.examQuestionScores as number[])
       : [];
-    next.errorProblems = baseErrorProblems.concat(cloneJsonValue(delta.appendErrorProblems));
+    next.examQuestionScores = applyIndexedPatches(
+      baseExamScores,
+      delta.examQuestionScorePatches
+    ).map((value) => {
+      const parsed =
+        typeof value === "number" && Number.isFinite(value)
+          ? value
+          : Number(value ?? 0);
+      return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+    });
+  }
+
+  if (Array.isArray(delta.errorProblemIndexes)) {
+    const progressValue =
+      next.progress && typeof next.progress === "object"
+        ? (next.progress as Record<string, unknown>)
+        : {};
+    const list = Array.isArray(progressValue.problemList)
+      ? (progressValue.problemList as unknown[])
+      : [];
+    next.errorProblems = delta.errorProblemIndexes
+      .map((index) => list[index])
+      .filter((item) => item !== undefined)
+      .map((item) => cloneJsonValue(item));
+  } else {
+    if (delta.resetErrorProblems) {
+      next.errorProblems = [];
+    }
+    if (Array.isArray(delta.appendErrorProblems) && delta.appendErrorProblems.length > 0) {
+      const baseErrorProblems = Array.isArray(next.errorProblems)
+        ? (next.errorProblems as unknown[])
+        : [];
+      next.errorProblems = baseErrorProblems.concat(cloneJsonValue(delta.appendErrorProblems));
+    }
   }
 
   const fallbackUpdatedAt =
@@ -769,10 +859,9 @@ export const registerRecordRoutes = (app: Elysia) =>
           needFull: false,
           conflict: false,
           cursor: Math.max(result.cursor, since),
-          records: [normalized],
-          record: normalized,
           trimmed: result.trimmed,
           limit,
+          updatedAt: Number(normalized.updatedAt ?? 0),
         };
       }
 
@@ -827,10 +916,10 @@ export const registerRecordRoutes = (app: Elysia) =>
           conflict: false,
           noOp: true,
           cursor: Math.max(currentCursor, since),
-          records: [],
           record: existingRecord,
           trimmed: 0,
           limit,
+          updatedAt: existingUpdatedAt,
         };
       }
 
@@ -844,10 +933,9 @@ export const registerRecordRoutes = (app: Elysia) =>
         needFull: false,
         conflict: false,
         cursor: Math.max(result.cursor, since),
-        records: [nextRecord],
-        record: nextRecord,
         trimmed: result.trimmed,
         limit,
+        updatedAt: Number(nextRecord.updatedAt ?? 0),
       };
     })
     .post("/api/records/meta", async ({ request, body, set }) => {

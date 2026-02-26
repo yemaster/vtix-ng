@@ -216,7 +216,7 @@ function handleBack() {
 
 .detail-value {
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--vtix-text-strong);
   white-space: pre-wrap;
 }

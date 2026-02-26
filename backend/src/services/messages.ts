@@ -1,5 +1,6 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db, dbDialect, messages } from "../db";
+import { normalizePage, normalizePageSize } from "../utils/pagination";
 
 export type MessageItem = {
   id: number;
@@ -55,12 +56,8 @@ export async function loadUserMessagesPage(options: {
   page?: number;
   pageSize?: number;
 }) {
-  const pageRaw = Number(options.page ?? 1);
-  const pageSizeRaw = Number(options.pageSize ?? 12);
-  const page = Number.isFinite(pageRaw) ? Math.max(pageRaw, 1) : 1;
-  const limit = Number.isFinite(pageSizeRaw)
-    ? Math.min(Math.max(pageSizeRaw, 1), 50)
-    : 12;
+  const page = normalizePage(options.page);
+  const limit = normalizePageSize(options.pageSize);
   const offset = (page - 1) * limit;
 
   const [countRow] = await db

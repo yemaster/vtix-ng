@@ -20,6 +20,7 @@ import {
   upsertPracticeRecords
 } from '../../base/practiceRecords'
 import { getVtixStorage } from '../../base/vtixGlobal'
+import { pushLoginRequired } from '../../utils/auth'
 
 type PracticeRecord = {
   id: string
@@ -168,7 +169,7 @@ function exportSingleRecord(record: PracticeRecord) {
 
 async function handleSyncAuto() {
   if (!userStore.user) {
-    router.push({ name: 'login' })
+    void pushLoginRequired(router)
     return
   }
   const storage = getVtixStorage()
@@ -355,7 +356,7 @@ async function refreshCloudStatus(ids: string[], force = false) {
 
 async function syncSingleRecord(record: PracticeRecord) {
   if (!userStore.user) {
-    router.push({ name: 'login' })
+    void pushLoginRequired(router)
     return
   }
   const storage = getVtixStorage()

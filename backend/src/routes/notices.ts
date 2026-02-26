@@ -1,16 +1,14 @@
 import { Elysia } from "elysia";
 import { desc, eq, sql } from "drizzle-orm";
 import { db, notices } from "../db";
+import { normalizePageSize } from "../utils/pagination";
 
 export const registerNoticeRoutes = (app: Elysia) =>
   app
     .get("/api/notices", async ({ query, set }) => {
-      const limitRaw = Number(query.limit ?? 6);
       const offsetRaw = Number(query.offset ?? 0);
-      const limit = Number.isFinite(limitRaw)
-        ? Math.min(Math.max(limitRaw, 1), 50)
-        : 6;
-      const offset = Number.isFinite(offsetRaw) ? Math.max(offsetRaw, 0) : 0;
+      const limit = normalizePageSize(query.limit, 6);
+      const offset = Number.isFinite(offsetRaw) ? Math.max(Math.floor(offsetRaw), 0) : 0;
 
       const [countRow] = await db
         .select({ count: sql<number>`count(*)` })
@@ -18,12 +16,19 @@ export const registerNoticeRoutes = (app: Elysia) =>
       const total = Number(countRow?.count ?? 0);
       set.headers["x-total-count"] = String(total);
 
-      const rows = await db
+      const rows = (await db
         .select()
         .from(notices)
         .orderBy(desc(notices.isPinned), desc(notices.createdAt))
         .limit(limit)
-        .offset(offset);
+        .offset(offset)) as Array<{
+        id: number;
+        title: string;
+        authorName: string;
+        isPinned: boolean;
+        createdAt: number;
+        updatedAt: number;
+      }>;
       return rows.map((item) => ({
         id: String(item.id),
         title: item.title,

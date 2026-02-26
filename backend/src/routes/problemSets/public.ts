@@ -9,6 +9,7 @@ import {
   loadPublicProblemSetPage,
   setProblemSetReaction,
 } from "../../services/problemSets";
+import { normalizeOptionalLimit, normalizePage, normalizePageSize } from "../../utils/pagination";
 import { PERMISSIONS, hasPermission } from "../../utils/permissions";
 import { getSessionUser } from "../../utils/session";
 
@@ -31,10 +32,8 @@ export const registerPublicProblemSetRoutes = (app: Elysia) =>
       if (!shouldPaginate) {
         return loadProblemSetList({ onlyPublic: true });
       }
-      const page = Number.isFinite(pageRaw) ? Math.max(pageRaw, 1) : 1;
-      const pageSize = Number.isFinite(pageSizeRaw)
-        ? Math.min(Math.max(pageSizeRaw, 1), 50)
-        : 12;
+      const page = normalizePage(pageRaw);
+      const pageSize = normalizePageSize(pageSizeRaw);
       const { items, total } = await loadPublicProblemSetPage({
         page,
         pageSize,
@@ -45,8 +44,7 @@ export const registerPublicProblemSetRoutes = (app: Elysia) =>
       return items;
     })
     .get("/api/problem-sets/recommended", async ({ query }) => {
-      const limitRaw = Number((query as any)?.limit ?? 0);
-      const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : 0;
+      const limit = normalizeOptionalLimit((query as any)?.limit);
       const list = await loadProblemSetList({ onlyPublic: true });
       const recommended = list
         .filter((item) => item.recommendedRank !== null)
@@ -64,10 +62,8 @@ export const registerPublicProblemSetRoutes = (app: Elysia) =>
     .get("/api/problem-sets/plaza", async ({ query, set, request }) => {
       const pageRaw = Number((query as any)?.page ?? 1);
       const pageSizeRaw = Number((query as any)?.pageSize ?? 12);
-      const page = Number.isFinite(pageRaw) ? Math.max(pageRaw, 1) : 1;
-      const pageSize = Number.isFinite(pageSizeRaw)
-        ? Math.min(Math.max(pageSizeRaw, 1), 50)
-        : 12;
+      const page = normalizePage(pageRaw);
+      const pageSize = normalizePageSize(pageSizeRaw);
       const keyword =
         typeof (query as any)?.q === "string" ? String((query as any).q) : "";
       const order =

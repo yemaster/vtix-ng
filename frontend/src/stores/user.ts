@@ -27,6 +27,7 @@ const apiBase = import.meta.env.VITE_API_BASE ?? 'http://localhost:3000'
 const LAST_LOGIN_KEY = 'vtixLastLoginAt'
 const PREV_LOGIN_KEY = 'vtixPrevLoginAt'
 let recordSyncing = false
+let recordSyncPromise: Promise<void> | null = null
 
 type PracticeRecord = {
   id: string
@@ -48,35 +49,44 @@ function readLocalRecords(): PracticeRecord[] {
 }
 
 async function syncPracticeRecordsOnce(cloudLimit?: number) {
-  if (recordSyncing) return
+  if (recordSyncing) {
+    if (recordSyncPromise) {
+      await recordSyncPromise
+    }
+    return
+  }
   const storage = getVtixStorage()
   if (!storage) return
   recordSyncing = true
-  try {
-    const localRecords = readLocalRecords()
-    const previousCursor = getSyncCursor(storage)
-    const since = localRecords.length ? previousCursor : 0
-    const localSince = getSyncAt(storage)
-    const maxRecords = Number.isFinite(Number(cloudLimit)) ? Number(cloudLimit) : undefined
-    const result = await syncRecords<PracticeRecord>({
-      apiBase,
-      localRecords,
-      since,
-      localSince,
-      credentials: 'include',
-      maxRecords,
-      trimLocal: false
-    })
-    if (result.remoteRecords.length > 0) {
-      upsertPracticeRecords(result.remoteRecords)
+  recordSyncPromise = (async () => {
+    try {
+      const localRecords = readLocalRecords()
+      const previousCursor = getSyncCursor(storage)
+      const since = localRecords.length ? previousCursor : 0
+      const localSince = getSyncAt(storage)
+      const maxRecords = Number.isFinite(Number(cloudLimit)) ? Number(cloudLimit) : undefined
+      const result = await syncRecords<PracticeRecord>({
+        apiBase,
+        localRecords,
+        since,
+        localSince,
+        credentials: 'include',
+        maxRecords,
+        trimLocal: false
+      })
+      if (result.remoteRecords.length > 0) {
+        upsertPracticeRecords(result.remoteRecords)
+      }
+      setSyncCursor(storage, result.cursor)
+      setSyncAt(storage, Date.now())
+    } catch (error) {
+      console.warn('[vtix] auto sync records failed', error)
+    } finally {
+      recordSyncing = false
+      recordSyncPromise = null
     }
-    setSyncCursor(storage, result.cursor)
-    setSyncAt(storage, Date.now())
-  } catch (error) {
-    console.warn('[vtix] auto sync records failed', error)
-  } finally {
-    recordSyncing = false
-  }
+  })()
+  await recordSyncPromise
 }
 
 export const useUserStore = defineStore('user', {
@@ -170,6 +180,9 @@ export const useUserStore = defineStore('user', {
       this.loading = true
       this.error = ''
       try {
+        if (this.user) {
+          await syncPracticeRecordsOnce(this.user.recordCloudLimit)
+        }
         await fetch(`${apiBase}/api/logout`, {
           method: 'POST',
           credentials: 'include'
