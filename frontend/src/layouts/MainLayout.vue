@@ -365,7 +365,14 @@ watch(
               :style="navIndicatorStyle"
               aria-hidden="true"
             />
-            <Menu ref="moreMenu" size="big" :model="moreMenuItems" popup />
+            <Menu ref="moreMenu" size="big" :model="moreMenuItems" popup>
+              <template #item="{ item, props }">
+                <a v-ripple v-bind="props.action">
+                  <span class="nav-icon" :class="item.icon" aria-hidden="true" />
+                  <span class="menu-item-label">{{ item.label }}</span>
+                </a>
+              </template>
+            </Menu>
           </nav>
         </div>
         <div v-if="!isMobile" class="actions">

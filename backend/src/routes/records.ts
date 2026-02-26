@@ -86,7 +86,17 @@ async function resolveRecordLimit(groupId: string) {
   return normalizeLimit(group?.recordCloudLimit ?? fallback);
 }
 
-function applyRecordLimit<T extends { updatedAt?: number }>(
+function isDeletedValue(value: unknown) {
+  return (
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    value > 0
+  );
+}
+
+function applyRecordLimit<
+  T extends { updatedAt?: number; deletedAt?: number | null }
+>(
   records: T[],
   limit: number
 ) {
@@ -96,12 +106,18 @@ function applyRecordLimit<T extends { updatedAt?: number }>(
   if (!Number.isFinite(limit) || limit <= 0) {
     return { records: sorted, trimmed: 0 };
   }
-  const total = sorted.length;
+  const active = sorted.filter((item) => !isDeletedValue(item.deletedAt));
+  const total = active.length;
   const trimmed = Math.max(0, total - limit);
   if (!trimmed) {
     return { records: sorted, trimmed: 0 };
   }
-  return { records: sorted.slice(Math.max(0, total - limit)), trimmed };
+  const deleted = sorted.filter((item) => isDeletedValue(item.deletedAt));
+  const recordsWithinLimit = active
+    .slice(Math.max(0, total - limit))
+    .concat(deleted)
+    .sort((a, b) => (a.updatedAt ?? 0) - (b.updatedAt ?? 0));
+  return { records: recordsWithinLimit, trimmed };
 }
 
 function normalizeRecord(input: unknown) {
@@ -587,7 +603,7 @@ async function syncUserRecords(
     const incomingUpdatedAt = record.updatedAt ?? 0;
     const existing = recordMap.get(record.id);
     const existingUpdatedAt = existing?.updatedAt ?? 0;
-    if (!existing || incomingUpdatedAt >= existingUpdatedAt) {
+    if (!existing) {
       nextSync += 1;
       recordMap.set(record.id, {
         record,
@@ -596,7 +612,23 @@ async function syncUserRecords(
           typeof record.deletedAt === "number" ? record.deletedAt : undefined,
         syncSeq: nextSync,
       });
+      continue;
     }
+    if (incomingUpdatedAt < existingUpdatedAt) continue;
+    if (
+      incomingUpdatedAt === existingUpdatedAt &&
+      JSON.stringify(existing.record) === JSON.stringify(record)
+    ) {
+      continue;
+    }
+    nextSync += 1;
+    recordMap.set(record.id, {
+      record,
+      updatedAt: incomingUpdatedAt,
+      deletedAt:
+        typeof record.deletedAt === "number" ? record.deletedAt : undefined,
+      syncSeq: nextSync,
+    });
   }
 
   const { records: merged, trimmed } = applyRecordLimit(
@@ -626,8 +658,11 @@ async function syncUserRecords(
   const changes = merged
     .filter((item) => (item.syncSeq || 0) > sinceValue)
     .map((item) => item.record);
+  const savedCount = merged.filter(
+    (item) => !isDeletedValue(item.deletedAt)
+  ).length;
 
-  return { records: changes, cursor, trimmed, limit };
+  return { records: changes, cursor, trimmed, limit, savedCount };
 }
 
 async function getUserMaxSyncSeq(userId: number) {
@@ -647,17 +682,20 @@ async function trimUserRecordRows(userId: number, limit: number) {
     .select({
       recordId: userRecords.recordId,
       updatedAt: userRecords.updatedAt,
+      deletedAt: userRecords.deletedAt,
     })
     .from(userRecords)
     .where(eq(userRecords.userId, userId))) as Array<{
     recordId: string;
     updatedAt: number | null;
+    deletedAt: number | null;
   }>;
-  if (rows.length <= limit) return 0;
-  const toDelete = rows
+  const activeRows = rows.filter((row) => !isDeletedValue(row.deletedAt));
+  if (activeRows.length <= limit) return 0;
+  const toDelete = activeRows
     .slice()
     .sort((a, b) => (a.updatedAt ?? 0) - (b.updatedAt ?? 0))
-    .slice(0, Math.max(0, rows.length - limit))
+    .slice(0, Math.max(0, activeRows.length - limit))
     .map((item) => item.recordId)
     .filter(Boolean);
   if (toDelete.length === 0) return 0;
@@ -949,14 +987,34 @@ export const registerRecordRoutes = (app: Elysia) =>
         set.status = 400;
         return { error: "Invalid user id" };
       }
+      const limit = await resolveRecordLimit(user.groupId);
       const payload = (body ?? {}) as { ids?: unknown };
       const rawIds = Array.isArray(payload.ids) ? payload.ids : [];
       const ids = rawIds
         .map((id) => (typeof id === "string" ? id.trim() : ""))
         .filter(Boolean)
         .slice(0, 200);
+      const countRows = (await db
+        .select({
+          savedCount: sql<number>`COALESCE(COUNT(*), 0)`,
+        })
+        .from(userRecords)
+        .where(
+          and(
+            eq(userRecords.userId, userId),
+            sql`${userRecords.deletedAt} IS NULL`
+          )
+        )) as Array<{ savedCount: number | null }>;
+      const savedCount = Number(countRows[0]?.savedCount ?? 0);
       if (ids.length === 0) {
-        return { ids: [] };
+        return {
+          ids: [],
+          savedCount:
+            Number.isFinite(savedCount) && savedCount > 0
+              ? Math.floor(savedCount)
+              : 0,
+          limit,
+        };
       }
       const rows = (await db
         .select({ recordId: userRecords.recordId })
@@ -968,5 +1026,12 @@ export const registerRecordRoutes = (app: Elysia) =>
             sql`${userRecords.deletedAt} IS NULL`
           )
         )) as Array<{ recordId: string }>;
-      return { ids: rows.map((row) => row.recordId) };
+      return {
+        ids: rows.map((row) => row.recordId),
+        savedCount:
+          Number.isFinite(savedCount) && savedCount > 0
+            ? Math.floor(savedCount)
+            : 0,
+        limit,
+      };
     });

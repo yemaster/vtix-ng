@@ -28,6 +28,7 @@ export type SyncResult<T extends RecordBase> = {
   downloaded: number
   trimmed: number
   cloudLimit?: number
+  savedCount?: number
   noOp: boolean
 }
 
@@ -36,6 +37,15 @@ export const RECORD_SYNC_CURSOR_KEY = 'vtixRecordSyncCursor'
 export const DEFAULT_MAX_RECORDS = 10
 
 type SyncStorageLike = Pick<VtixStorageLike, 'getItem' | 'setItem'>
+
+function normalizeSyncScope(scope?: string) {
+  return typeof scope === 'string' ? scope.trim() : ''
+}
+
+function getScopedSyncKey(baseKey: string, scope?: string) {
+  const safeScope = normalizeSyncScope(scope)
+  return safeScope ? `${baseKey}:${safeScope}` : baseKey
+}
 
 function normalizeLimit(value?: number) {
   const parsed = Number(value)
@@ -67,30 +77,47 @@ function toSafeNumber(value: unknown) {
   return 0
 }
 
-export function getSyncCursor(storage: SyncStorageLike | null | undefined) {
+export function getSyncCursor(storage: SyncStorageLike | null | undefined, scope?: string) {
   if (!storage) return 0
-  const value = toSafeNumber(storage.getItem(RECORD_SYNC_CURSOR_KEY))
+  const scopedKey = getScopedSyncKey(RECORD_SYNC_CURSOR_KEY, scope)
+  let value = toSafeNumber(storage.getItem(scopedKey))
+  if ((value <= 0 || !Number.isFinite(value)) && normalizeSyncScope(scope)) {
+    value = toSafeNumber(storage.getItem(RECORD_SYNC_CURSOR_KEY))
+  }
   if (value > 1e12) {
     return 0
   }
   return value
 }
 
-export function setSyncCursor(storage: SyncStorageLike | null | undefined, cursor: number) {
+export function setSyncCursor(
+  storage: SyncStorageLike | null | undefined,
+  cursor: number,
+  scope?: string
+) {
   if (!storage) return
   if (!Number.isFinite(cursor) || cursor <= 0) return
-  storage.setItem(RECORD_SYNC_CURSOR_KEY, String(cursor))
+  storage.setItem(getScopedSyncKey(RECORD_SYNC_CURSOR_KEY, scope), String(cursor))
 }
 
-export function getSyncAt(storage: SyncStorageLike | null | undefined) {
+export function getSyncAt(storage: SyncStorageLike | null | undefined, scope?: string) {
   if (!storage) return 0
-  return toSafeNumber(storage.getItem(RECORD_SYNC_AT_KEY))
+  const scopedKey = getScopedSyncKey(RECORD_SYNC_AT_KEY, scope)
+  let value = toSafeNumber(storage.getItem(scopedKey))
+  if ((value <= 0 || !Number.isFinite(value)) && normalizeSyncScope(scope)) {
+    value = toSafeNumber(storage.getItem(RECORD_SYNC_AT_KEY))
+  }
+  return value
 }
 
-export function setSyncAt(storage: SyncStorageLike | null | undefined, timestamp: number) {
+export function setSyncAt(
+  storage: SyncStorageLike | null | undefined,
+  timestamp: number,
+  scope?: string
+) {
   if (!storage) return
   if (!Number.isFinite(timestamp) || timestamp <= 0) return
-  storage.setItem(RECORD_SYNC_AT_KEY, String(timestamp))
+  storage.setItem(getScopedSyncKey(RECORD_SYNC_AT_KEY, scope), String(timestamp))
 }
 
 export function normalizeRecords<T extends RecordBase>(list: T[]) {
@@ -131,6 +158,26 @@ export function getRecordQuality(record: RecordBase) {
 
 function isDeletedRecord(record: RecordBase) {
   return typeof record.deletedAt === 'number' && Number(record.deletedAt) > 0
+}
+
+function dedupeLatestRecords<T extends RecordBase>(records: T[]) {
+  const map = new Map<string, T>()
+  for (const record of records) {
+    if (!record || typeof record.id !== 'string' || !record.id) continue
+    const prev = map.get(record.id)
+    if (!prev || (record.updatedAt ?? 0) >= (prev.updatedAt ?? 0)) {
+      map.set(record.id, record)
+    }
+  }
+  return Array.from(map.values())
+}
+
+function toUploadWithinLimit<T extends RecordBase>(records: T[], limit: number) {
+  if (!records.length) return [] as T[]
+  const sorted = records.slice().sort((a, b) => (a.updatedAt ?? 0) - (b.updatedAt ?? 0))
+  if (!Number.isFinite(limit) || limit <= 0) return sorted
+  if (sorted.length <= limit) return sorted
+  return sorted.slice(Math.max(0, sorted.length - limit))
 }
 
 export function mergeByUpdatedAt<T extends RecordBase>(
@@ -233,24 +280,35 @@ export async function syncRecords<T extends RecordBase>(options: {
     typeof options.localSince === 'number' && Number.isFinite(options.localSince)
       ? options.localSince
       : 0
+  const localActiveCount = localRecords.filter((record) => !isDeletedRecord(record)).length
   const localDelta =
     localSince > 0
-      ? localRecords.filter((record) => (record.updatedAt ?? 0) > localSince)
+      ? localRecords.filter((record) => (record.updatedAt ?? 0) >= localSince)
       : localRecords
-  const uploadRecords =
+  const baseUploadRecords =
     Number.isFinite(limit) && localSince <= 0 && localDelta.length > limit
       ? localDelta
           .slice()
           .sort((a, b) => (a.updatedAt ?? 0) - (b.updatedAt ?? 0))
           .slice(Math.max(0, localDelta.length - limit))
       : localDelta
-  const response = await fetchImpl(`${options.apiBase}/api/records/sync`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials,
-    body: JSON.stringify({ since, records: uploadRecords })
-  })
-  if (!response.ok) {
+  const deletedDeltaCount = localDelta.filter((record) => isDeletedRecord(record)).length
+  const uploadRecords =
+    Number.isFinite(limit) &&
+    limit > 0 &&
+    deletedDeltaCount > 0 &&
+    localActiveCount >= limit
+      ? dedupeLatestRecords(
+          baseUploadRecords.concat(
+            localRecords
+              .filter((record) => !isDeletedRecord(record))
+              .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+              .slice(0, Math.floor(limit))
+          )
+        ).sort((a, b) => (a.updatedAt ?? 0) - (b.updatedAt ?? 0))
+      : baseUploadRecords
+
+  async function parseSyncResponseError(response: Response) {
     let detail = ''
     try {
       const payload = (await response.json()) as { error?: unknown }
@@ -270,21 +328,75 @@ export async function syncRecords<T extends RecordBase>(options: {
         // ignore
       }
     }
-    throw new Error(detail ? `同步失败: ${response.status} (${detail})` : `同步失败: ${response.status}`)
+    return detail
   }
-  const data = (await response.json()) as {
+
+  type SyncResponsePayload = {
     records?: T[]
     cursor?: number
     trimmed?: number
     limit?: number
+    savedCount?: number
   }
-  const remoteRecords = normalizeRecords(Array.isArray(data.records) ? data.records : [])
-  const serverCursor =
-    typeof data.cursor === 'number' && Number.isFinite(data.cursor) ? data.cursor : since
-  const serverTrimmed =
-    typeof data.trimmed === 'number' && Number.isFinite(data.trimmed) ? data.trimmed : 0
-  const cloudLimit =
-    typeof data.limit === 'number' && Number.isFinite(data.limit) ? data.limit : undefined
+  function parseSyncResponse(data: SyncResponsePayload) {
+    const remoteRecords = normalizeRecords(Array.isArray(data.records) ? data.records : [])
+    const serverCursor =
+      typeof data.cursor === 'number' && Number.isFinite(data.cursor) ? data.cursor : since
+    const serverTrimmed =
+      typeof data.trimmed === 'number' && Number.isFinite(data.trimmed) ? data.trimmed : 0
+    const cloudLimit =
+      typeof data.limit === 'number' && Number.isFinite(data.limit) ? data.limit : undefined
+    const savedCount =
+      typeof data.savedCount === 'number' && Number.isFinite(data.savedCount)
+        ? Math.max(0, Math.floor(data.savedCount))
+        : undefined
+    return { remoteRecords, serverCursor, serverTrimmed, cloudLimit, savedCount }
+  }
+
+  let effectiveUploadRecords = uploadRecords
+  const initialResponse = await fetchImpl(`${options.apiBase}/api/records/sync`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials,
+    body: JSON.stringify({ since, records: effectiveUploadRecords })
+  })
+  if (!initialResponse.ok) {
+    const detail = await parseSyncResponseError(initialResponse)
+    throw new Error(detail ? `同步失败: ${initialResponse.status} (${detail})` : `同步失败: ${initialResponse.status}`)
+  }
+  let responsePayload = (await initialResponse.json()) as SyncResponsePayload
+  let { remoteRecords, serverCursor, serverTrimmed, cloudLimit, savedCount } =
+    parseSyncResponse(responsePayload)
+
+  const localActiveRecords = localRecords.filter((record) => !isDeletedRecord(record))
+  const shouldBootstrapUpload =
+    effectiveUploadRecords.length === 0 &&
+    localActiveRecords.length > 0 &&
+    remoteRecords.length === 0 &&
+    savedCount === 0
+  if (shouldBootstrapUpload) {
+    const bootstrapUploadRecords = toUploadWithinLimit(localActiveRecords, limit)
+    if (bootstrapUploadRecords.length > 0) {
+      const retryResponse = await fetchImpl(`${options.apiBase}/api/records/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials,
+        body: JSON.stringify({ since, records: bootstrapUploadRecords })
+      })
+      if (!retryResponse.ok) {
+        const detail = await parseSyncResponseError(retryResponse)
+        throw new Error(detail ? `同步失败: ${retryResponse.status} (${detail})` : `同步失败: ${retryResponse.status}`)
+      }
+      responsePayload = (await retryResponse.json()) as SyncResponsePayload
+      const parsed = parseSyncResponse(responsePayload)
+      remoteRecords = parsed.remoteRecords
+      serverCursor = parsed.serverCursor
+      serverTrimmed = parsed.serverTrimmed
+      cloudLimit = parsed.cloudLimit
+      savedCount = parsed.savedCount
+      effectiveUploadRecords = bootstrapUploadRecords
+    }
+  }
 
   const { merged, conflicts, localNewer, remoteNewer, trimmed } = mergeByUpdatedAt(
     localRecords,
@@ -294,7 +406,7 @@ export async function syncRecords<T extends RecordBase>(options: {
 
   let finalRecords = merged
   let uploaded = false
-  if (uploadRecords.length > 0) {
+  if (effectiveUploadRecords.length > 0) {
     uploaded = true
   }
 
@@ -308,7 +420,7 @@ export async function syncRecords<T extends RecordBase>(options: {
     finalRecords,
     merged,
     remoteRecords,
-    localDelta: uploadRecords,
+    localDelta: effectiveUploadRecords,
     cursor,
     localChanged,
     conflicts,
@@ -318,6 +430,7 @@ export async function syncRecords<T extends RecordBase>(options: {
     downloaded,
     trimmed: trimmedCount,
     cloudLimit,
+    savedCount,
     noOp
   }
 }

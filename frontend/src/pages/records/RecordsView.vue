@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import Button from 'primevue/button'
 import Paginator from 'primevue/paginator'
+import Tag from 'primevue/tag'
 import type { PageState } from 'primevue/paginator'
 import { useToast } from 'primevue/usetoast'
 import { useUserStore } from '../../stores/user'
@@ -51,6 +52,8 @@ const currentPage = ref(1)
 const totalRecords = ref(0)
 const cloudStatus = ref<Record<string, boolean | null>>({})
 const syncingRecordIds = ref(new Set<string>())
+const cloudSavedCount = ref<number | null>(null)
+const cloudLimitOverride = ref<number | null>(null)
 
 const modes = [
   { label: '顺序练习', value: 0 },
@@ -70,7 +73,8 @@ function syncLocalRecords(page = currentPage.value, forceCloud = false) {
   const result = readPracticeRecordPage<PracticeRecord>(targetPage, pageSize.value)
   records.value = result.records
   if (userStore.user) {
-    void refreshCloudStatus(records.value.map((record) => record.id), forceCloud)
+    const ids = records.value.map((record) => record.id)
+    void refreshCloudStatus(ids, forceCloud || ids.length === 0)
   }
 }
 
@@ -176,10 +180,12 @@ async function handleSyncAuto() {
   if (!storage) return
   isSyncing.value = true
   try {
+    const syncStartedAt = Date.now()
+    const syncScope = userStore.user?.id ?? ''
     const localRecords = readPracticeRecords<PracticeRecord>({ includeDeleted: true })
-    const previousCursor = getSyncCursor(storage)
+    const previousCursor = getSyncCursor(storage, syncScope)
     const since = localRecords.length ? previousCursor : 0
-    const localSince = getSyncAt(storage)
+    const localSince = getSyncAt(storage, syncScope)
     const maxRecords = Number.isFinite(Number(userStore.user?.recordCloudLimit))
       ? Number(userStore.user?.recordCloudLimit)
       : undefined
@@ -192,13 +198,19 @@ async function handleSyncAuto() {
       maxRecords,
       trimLocal: false
     })
+    if (typeof result.cloudLimit === 'number' && Number.isFinite(result.cloudLimit)) {
+      cloudLimitOverride.value = Math.floor(result.cloudLimit)
+    }
+    if (typeof result.savedCount === 'number' && Number.isFinite(result.savedCount)) {
+      cloudSavedCount.value = Math.max(0, Math.floor(result.savedCount))
+    }
 
     if (result.remoteRecords.length > 0) {
       upsertPracticeRecords(result.remoteRecords)
     }
     syncLocalRecords(currentPage.value, true)
-    setSyncCursor(storage, result.cursor)
-    setSyncAt(storage, Date.now())
+    setSyncCursor(storage, result.cursor, syncScope)
+    setSyncAt(storage, syncStartedAt, syncScope)
 
     const details = result.noOp
       ? '本地与云端已是最新'
@@ -296,9 +308,11 @@ const recordCount = computed(() => totalRecords.value)
 
 const cloudLimitText = computed(() => {
   if (!userStore.user) return ''
-  const limit = Number(userStore.user.recordCloudLimit)
-  if (!Number.isFinite(limit) || limit === -1) return '云端不限'
-  return `云端最多保留 ${limit} 条`
+  const rawLimit = cloudLimitOverride.value
+  const savedText = `已保存 ${cloudSavedCount.value === null ? '--' : cloudSavedCount.value} 条`
+  if (rawLimit === null) return `云端数据获取中，${savedText}`
+  if (!Number.isFinite(rawLimit) || rawLimit === -1) return `云端不限，${savedText}`
+  return `云端最多保存 ${Math.floor(rawLimit)} 条，${savedText}`
 })
 
 function handlePage(event: PageState) {
@@ -310,11 +324,20 @@ function isRecordSyncing(recordId: string) {
   return syncingRecordIds.value.has(recordId)
 }
 
-function getCloudStatusText(recordId: string) {
+function getCloudStatusLabel(recordId: string) {
+  if (isRecordSyncing(recordId)) return '云端同步中'
   const value = cloudStatus.value[recordId]
-  if (value === true) return '已存档'
-  if (value === false) return '未存档'
-  return '检查中'
+  if (value === true) return '云端已存档'
+  if (value === false) return '云端未存档'
+  return '云端检查中'
+}
+
+function getCloudStatusSeverity(recordId: string) {
+  if (isRecordSyncing(recordId)) return 'info'
+  const value = cloudStatus.value[recordId]
+  if (value === true) return 'success'
+  if (value === false) return 'danger'
+  return 'warn'
 }
 
 function markCloudPending(ids: string[]) {
@@ -327,13 +350,20 @@ function markCloudPending(ids: string[]) {
 }
 
 async function refreshCloudStatus(ids: string[], force = false) {
-  if (!userStore.user || !ids.length) return
+  if (!userStore.user) return
   const target = (force
     ? ids
     : ids.filter((id) => !(id in cloudStatus.value))
   ).slice(0, 200)
-  if (!target.length) return
-  markCloudPending(target)
+  const shouldFetchSummary =
+    force ||
+    target.length > 0 ||
+    cloudSavedCount.value === null ||
+    cloudLimitOverride.value === null
+  if (!shouldFetchSummary) return
+  if (target.length) {
+    markCloudPending(target)
+  }
   try {
     const response = await fetch(`${apiBase}/api/records/meta`, {
       method: 'POST',
@@ -342,13 +372,25 @@ async function refreshCloudStatus(ids: string[], force = false) {
       body: JSON.stringify({ ids: target })
     })
     if (!response.ok) return
-    const data = (await response.json()) as { ids?: string[] }
-    const exists = new Set(Array.isArray(data.ids) ? data.ids : [])
-    const next = { ...cloudStatus.value }
-    target.forEach((id) => {
-      next[id] = exists.has(id)
-    })
-    cloudStatus.value = next
+    const data = (await response.json()) as {
+      ids?: string[]
+      savedCount?: number
+      limit?: number
+    }
+    if (typeof data.savedCount === 'number' && Number.isFinite(data.savedCount)) {
+      cloudSavedCount.value = Math.max(0, Math.floor(data.savedCount))
+    }
+    if (typeof data.limit === 'number' && Number.isFinite(data.limit)) {
+      cloudLimitOverride.value = Math.floor(data.limit)
+    }
+    if (target.length > 0) {
+      const exists = new Set(Array.isArray(data.ids) ? data.ids : [])
+      const next = { ...cloudStatus.value }
+      target.forEach((id) => {
+        next[id] = exists.has(id)
+      })
+      cloudStatus.value = next
+    }
   } catch {
     // ignore
   }
@@ -366,12 +408,14 @@ async function syncSingleRecord(record: PracticeRecord) {
   next.add(record.id)
   syncingRecordIds.value = next
   try {
+    const syncStartedAt = Date.now()
+    const syncScope = userStore.user?.id ?? ''
     const forceUpdatedAt = Date.now()
     const forcedRecord: PracticeRecord = {
       ...record,
       updatedAt: forceUpdatedAt
     }
-    const previousCursor = getSyncCursor(storage)
+    const previousCursor = getSyncCursor(storage, syncScope)
     const response = await fetch(`${apiBase}/api/records/sync`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -381,7 +425,18 @@ async function syncSingleRecord(record: PracticeRecord) {
     if (!response.ok) {
       throw new Error(`同步失败: ${response.status}`)
     }
-    const data = (await response.json()) as { records?: PracticeRecord[]; cursor?: number }
+    const data = (await response.json()) as {
+      records?: PracticeRecord[]
+      cursor?: number
+      savedCount?: number
+      limit?: number
+    }
+    if (typeof data.savedCount === 'number' && Number.isFinite(data.savedCount)) {
+      cloudSavedCount.value = Math.max(0, Math.floor(data.savedCount))
+    }
+    if (typeof data.limit === 'number' && Number.isFinite(data.limit)) {
+      cloudLimitOverride.value = Math.floor(data.limit)
+    }
     const remote = Array.isArray(data.records) ? data.records : []
     if (remote.length > 0) {
       upsertPracticeRecords(remote)
@@ -392,8 +447,8 @@ async function syncSingleRecord(record: PracticeRecord) {
       typeof data.cursor === 'number' && Number.isFinite(data.cursor)
         ? data.cursor
         : previousCursor
-    setSyncCursor(storage, cursor)
-    setSyncAt(storage, Date.now())
+    setSyncCursor(storage, cursor, syncScope)
+    setSyncAt(storage, syncStartedAt, syncScope)
     syncLocalRecords(currentPage.value)
     await refreshCloudStatus([record.id], true)
     toast.add({
@@ -424,6 +479,8 @@ watch(
   () => userStore.user?.id,
   () => {
     cloudStatus.value = {}
+    cloudSavedCount.value = null
+    cloudLimitOverride.value = null
     syncLocalRecords(currentPage.value, true)
   }
 )
@@ -463,12 +520,19 @@ watch(
     <div v-else class="record-list">
       <div v-for="record in records" :key="record.id" class="record-card">
         <div class="record-info">
-          <div class="record-title">{{ record.testTitle ?? `题库 ${record.testId}` }} · {{ getModeLabel(record.practiceMode) }}</div>
+          <div class="record-title-row">
+            <div class="record-title">{{ record.testTitle ?? `题库 ${record.testId}` }} · {{ getModeLabel(record.practiceMode) }}</div>
+            <Tag
+              v-if="userStore.user"
+              class="record-cloud-tag"
+              :value="getCloudStatusLabel(record.id)"
+              :severity="getCloudStatusSeverity(record.id)"
+            />
+          </div>
           <div class="record-meta">
             {{ formatTimestamp(record.updatedAt) }} ·
             用时 {{ formatDuration(record.progress?.timeSpentSeconds ?? 0) }} ·
             进度 {{ getRecordAnsweredCount(record) }}/{{ record.progress?.problemList?.length ?? 0 }}
-            <span v-if="userStore.user"> · 云端{{ getCloudStatusText(record.id) }}</span>
           </div>
           <div class="record-progress">
             <div class="record-progress-bar" aria-hidden="true">
@@ -566,18 +630,33 @@ watch(
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 16px;
 }
 
 .record-info {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.record-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .record-title {
   font-weight: 700;
   color: var(--vtix-text-strong);
+}
+
+.record-cloud-tag :deep(.p-tag) {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 10px;
+  border-radius: 999px;
 }
 
 .record-meta {
@@ -586,8 +665,12 @@ watch(
 }
 
 .record-actions {
-  display: inline-flex;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
+  align-self: center;
+  min-width: 230px;
 }
 
 .record-progress {
@@ -661,9 +744,15 @@ watch(
     align-items: flex-start;
   }
 
+  .record-title-row {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
   .record-actions {
     width: 100%;
-    justify-content: flex-end;
+    justify-content: flex-start;
+    min-width: 0;
   }
 
   .record-progress-bar {

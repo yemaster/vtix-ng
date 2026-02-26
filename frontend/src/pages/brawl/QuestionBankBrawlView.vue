@@ -1330,6 +1330,7 @@ onBeforeUnmount(() => {
   gap: 10px;
   flex-wrap: wrap;
   justify-content: center;
+  margin-top: 10px;
 }
 
 .toolbar {

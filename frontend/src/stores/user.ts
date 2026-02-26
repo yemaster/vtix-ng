@@ -48,7 +48,7 @@ function readLocalRecords(): PracticeRecord[] {
   return readPracticeRecords<PracticeRecord>({ includeDeleted: true })
 }
 
-async function syncPracticeRecordsOnce(cloudLimit?: number) {
+async function syncPracticeRecordsOnce(cloudLimit?: number, syncScope?: string) {
   if (recordSyncing) {
     if (recordSyncPromise) {
       await recordSyncPromise
@@ -60,10 +60,11 @@ async function syncPracticeRecordsOnce(cloudLimit?: number) {
   recordSyncing = true
   recordSyncPromise = (async () => {
     try {
+      const syncStartedAt = Date.now()
       const localRecords = readLocalRecords()
-      const previousCursor = getSyncCursor(storage)
+      const previousCursor = getSyncCursor(storage, syncScope)
       const since = localRecords.length ? previousCursor : 0
-      const localSince = getSyncAt(storage)
+      const localSince = getSyncAt(storage, syncScope)
       const maxRecords = Number.isFinite(Number(cloudLimit)) ? Number(cloudLimit) : undefined
       const result = await syncRecords<PracticeRecord>({
         apiBase,
@@ -77,8 +78,8 @@ async function syncPracticeRecordsOnce(cloudLimit?: number) {
       if (result.remoteRecords.length > 0) {
         upsertPracticeRecords(result.remoteRecords)
       }
-      setSyncCursor(storage, result.cursor)
-      setSyncAt(storage, Date.now())
+      setSyncCursor(storage, result.cursor, syncScope)
+      setSyncAt(storage, syncStartedAt, syncScope)
     } catch (error) {
       console.warn('[vtix] auto sync records failed', error)
     } finally {
@@ -135,7 +136,7 @@ export const useUserStore = defineStore('user', {
         }
         this.user = data.user
         recordLoginTimestamp()
-        void syncPracticeRecordsOnce(this.user?.recordCloudLimit)
+        void syncPracticeRecordsOnce(this.user?.recordCloudLimit, this.user?.id)
         return true
       } catch (error) {
         this.error = error instanceof Error ? error.message : '登录失败'
@@ -167,7 +168,7 @@ export const useUserStore = defineStore('user', {
         }
         this.user = data.user
         recordLoginTimestamp()
-        void syncPracticeRecordsOnce(this.user?.recordCloudLimit)
+        void syncPracticeRecordsOnce(this.user?.recordCloudLimit, this.user?.id)
         return true
       } catch (error) {
         this.error = error instanceof Error ? error.message : '注册失败'
@@ -181,7 +182,7 @@ export const useUserStore = defineStore('user', {
       this.error = ''
       try {
         if (this.user) {
-          await syncPracticeRecordsOnce(this.user.recordCloudLimit)
+          await syncPracticeRecordsOnce(this.user.recordCloudLimit, this.user.id)
         }
         await fetch(`${apiBase}/api/logout`, {
           method: 'POST',

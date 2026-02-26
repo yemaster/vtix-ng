@@ -746,7 +746,7 @@ function loadLocalSyncTime() {
   localSyncErrorDetail.value = ''
   const raw = Number(getStorageItem(LOCAL_SYNC_KEY))
   localSaveAt.value = Number.isFinite(raw) && raw > 0 ? raw : null
-  const cloudRaw = getSyncAt(getVtixStorage())
+  const cloudRaw = getSyncAt(getVtixStorage(), userStore.user?.id ?? '')
   cloudSyncAt.value = Number.isFinite(cloudRaw) && cloudRaw > 0 ? cloudRaw : null
 }
 
@@ -912,10 +912,12 @@ async function syncCloudRecordsFull(options: { bypassThrottle?: boolean } = {}) 
   try {
     const storage = getVtixStorage()
     if (!storage) return
+    const syncScope = userStore.user?.id ?? ''
+    const syncStartedAt = Date.now()
     const localRecords = readRecords({ includeDeleted: true })
-    const previousCursor = getSyncCursor(storage)
+    const previousCursor = getSyncCursor(storage, syncScope)
     const since = localRecords.length ? previousCursor : 0
-    const localSince = getSyncAt(storage)
+    const localSince = getSyncAt(storage, syncScope)
     const maxRecords = Number.isFinite(Number(userStore.user?.recordCloudLimit))
       ? Number(userStore.user?.recordCloudLimit)
       : undefined
@@ -932,9 +934,9 @@ async function syncCloudRecordsFull(options: { bypassThrottle?: boolean } = {}) 
     syncLocalRecords()
     cloudSyncFailed.value = false
     cloudSyncErrorDetail.value = ''
-    setSyncCursor(storage, result.cursor)
+    setSyncCursor(storage, result.cursor, syncScope)
     cloudSyncAt.value = Date.now()
-    setSyncAt(storage, cloudSyncAt.value)
+    setSyncAt(storage, syncStartedAt, syncScope)
     if (progressId.value) {
       const current = readPracticeRecordById<PracticeRecord>(progressId.value)
       if (current && current.testId === testId) {
@@ -959,6 +961,7 @@ async function syncCloudRecords(options: { forceSnapshot?: boolean; bypassThrott
   if (cloudSyncing.value) return
   const storage = getVtixStorage()
   if (!storage) return
+  const syncScope = userStore.user?.id ?? ''
   const activeId = progressId.value
   if (!activeId) return
   const activeRecord = readPracticeRecordById<PracticeRecord>(activeId)
@@ -969,13 +972,14 @@ async function syncCloudRecords(options: { forceSnapshot?: boolean; bypassThrott
   const now = Date.now()
   if (!options.bypassThrottle && now - lastCloudSyncAttempt < 4000) return
   lastCloudSyncAttempt = now
+  const syncStartedAt = now
   cloudSyncing.value = true
   try {
     if (!syncState.checked) {
       syncState.recordExists = await checkCloudRecordExists(normalizedRecord.id)
       syncState.checked = true
     }
-    const previousCursor = getSyncCursor(storage)
+    const previousCursor = getSyncCursor(storage, syncScope)
     let shouldSnapshot = Boolean(options.forceSnapshot) ||
       !syncState.recordExists ||
       !syncState.snapshot ||
@@ -1065,9 +1069,9 @@ async function syncCloudRecords(options: { forceSnapshot?: boolean; bypassThrott
       typeof data.cursor === 'number' && Number.isFinite(data.cursor)
         ? Math.floor(data.cursor)
         : previousCursor
-    setSyncCursor(storage, cursor)
+    setSyncCursor(storage, cursor, syncScope)
     cloudSyncAt.value = Date.now()
-    setSyncAt(storage, cloudSyncAt.value)
+    setSyncAt(storage, syncStartedAt, syncScope)
     cloudSyncFailed.value = false
     cloudSyncErrorDetail.value = ''
 
