@@ -36,7 +36,8 @@ const form = ref({
   id: '',
   name: '',
   email: '',
-  groupId: ''
+  groupId: '',
+  password: ''
 })
 
 const search = ref('')
@@ -46,10 +47,57 @@ const currentPage = ref(1)
 const pageSizeOptions = [8, 16, 32]
 
 const isEditing = computed(() => Boolean(form.value.id))
-const groupOptions = computed(() => [
+const groupFilterOptions = computed(() => [
   { label: '全部', value: 'all' },
   ...groups.value.map((group) => ({ label: group.name, value: group.id }))
 ])
+const groupSelectOptions = computed(() =>
+  groups.value.map((group) => ({ label: group.name, value: group.id }))
+)
+
+const PASSWORD_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+const passwordRefreshing = ref(false)
+let passwordRefreshTimer = 0
+
+function generateRandomPassword(length = 16) {
+  const randomValues = new Uint32Array(length)
+  crypto.getRandomValues(randomValues)
+  return Array.from(randomValues, (value) => PASSWORD_CHARS[value % PASSWORD_CHARS.length]).join('')
+}
+
+function refreshPassword() {
+  form.value.password = generateRandomPassword()
+  passwordRefreshing.value = false
+  window.clearTimeout(passwordRefreshTimer)
+  window.requestAnimationFrame(() => {
+    passwordRefreshing.value = true
+    passwordRefreshTimer = window.setTimeout(() => {
+      passwordRefreshing.value = false
+    }, 480)
+  })
+}
+
+async function readErrorDetail(response: Response) {
+  const status = `HTTP ${response.status}`
+  try {
+    const contentType = response.headers.get('content-type') ?? ''
+    if (contentType.includes('application/json')) {
+      const data = (await response.json()) as { error?: string; message?: string; detail?: string }
+      const detail = data.error || data.message || data.detail
+      if (detail) {
+        return `${detail}（${status}）`
+      }
+    } else {
+      const text = (await response.text()).trim()
+      if (text) {
+        return `${text}（${status}）`
+      }
+    }
+  } catch {
+    // ignore parse errors and use fallback below
+  }
+  return `请求失败（${status}）`
+}
 
 const filteredUsers = computed(() => {
   const keyword = search.value.trim().toLowerCase()
@@ -77,7 +125,8 @@ function resetForm() {
     id: '',
     name: '',
     email: '',
-    groupId: groups.value[0]?.id ?? ''
+    groupId: groups.value[0]?.id ?? '',
+    password: generateRandomPassword()
   }
 }
 
@@ -86,7 +135,8 @@ function startEdit(user: AdminUser) {
     id: user.id,
     name: user.name,
     email: user.email,
-    groupId: user.groupId
+    groupId: user.groupId,
+    password: ''
   }
   showModal.value = true
 }
@@ -96,7 +146,8 @@ function startCreate() {
     id: '',
     name: '',
     email: '',
-    groupId: groups.value[0]?.id ?? ''
+    groupId: groups.value[0]?.id ?? '',
+    password: generateRandomPassword()
   }
   showModal.value = true
 }
@@ -132,7 +183,7 @@ async function loadData() {
     const userData = (await usersRes.json()) as AdminUser[]
     groups.value = Array.isArray(groupData) ? groupData : []
     users.value = Array.isArray(userData) ? userData : []
-    if (!form.value.groupId && groups.value.length) {
+    if ((!form.value.groupId || form.value.groupId === 'all') && groups.value.length) {
       form.value.groupId = groups.value[0]?.id ?? ''
     }
   } catch (error) {
@@ -147,10 +198,12 @@ async function loadData() {
 async function saveUser() {
   saving.value = true
   try {
+    const editing = isEditing.value
     const payload = {
       name: form.value.name.trim(),
       email: form.value.email.trim(),
-      groupId: form.value.groupId
+      groupId: form.value.groupId,
+      password: form.value.password
     }
     if (!payload.name && !payload.email) {
       toast.add({
@@ -161,10 +214,28 @@ async function saveUser() {
       })
       return
     }
-    const url = isEditing.value
+    if (!payload.groupId || payload.groupId === 'all') {
+      toast.add({
+        severity: 'warn',
+        summary: '无法保存',
+        detail: '请选择具体用户组',
+        life: 3000
+      })
+      return
+    }
+    if (!editing && !payload.password) {
+      toast.add({
+        severity: 'warn',
+        summary: '无法保存',
+        detail: '请先生成密码',
+        life: 3000
+      })
+      return
+    }
+    const url = editing
       ? `${apiBase}/api/admin/users/${form.value.id}`
       : `${apiBase}/api/admin/users`
-    const method = isEditing.value ? 'PUT' : 'POST'
+    const method = editing ? 'PUT' : 'POST'
     const response = await fetch(url, {
       method,
       headers: { 'Content-Type': 'application/json' },
@@ -172,14 +243,14 @@ async function saveUser() {
       body: JSON.stringify(payload)
     })
     if (!response.ok) {
-      throw new Error(`保存失败: ${response.status}`)
+      throw new Error(await readErrorDetail(response))
     }
     await loadData()
     closeModal()
     toast.add({
       severity: 'success',
-      summary: isEditing.value ? '保存成功' : '创建成功',
-      detail: isEditing.value ? '用户已更新' : '用户已创建',
+      summary: editing ? '保存成功' : '创建成功',
+      detail: editing ? '用户已更新' : '用户已创建',
       life: 3000
     })
   } catch (error) {
@@ -236,7 +307,7 @@ watch(totalPages, (value) => {
         <span>用户组</span>
         <Select
           v-model="selectedGroup"
-          :options="groupOptions"
+          :options="groupFilterOptions"
           optionLabel="label"
           optionValue="value"
           class="group-filter"
@@ -312,10 +383,32 @@ watch(totalPages, (value) => {
             <InputText v-model="form.email" placeholder="请输入邮箱" />
           </label>
           <label class="field">
+            <span>密码</span>
+            <div class="password-field">
+              <InputText
+                v-model="form.password"
+                readonly
+                class="password-input"
+                :placeholder="isEditing ? '留空表示不修改密码' : ''"
+              />
+              <Button
+                icon="pi pi-sync"
+                severity="secondary"
+                text
+                rounded
+                aria-label="随机生成密码"
+                class="password-refresh-btn"
+                :class="{ 'is-spinning': passwordRefreshing }"
+                @click="refreshPassword"
+              />
+            </div>
+            <span v-if="isEditing" class="field-hint">密码留空表示不修改密码。</span>
+          </label>
+          <label class="field">
             <span>用户组</span>
             <Select
               v-model="form.groupId"
-              :options="groupOptions"
+              :options="groupSelectOptions"
               optionLabel="label"
               optionValue="value"
               placeholder="请选择用户组"
@@ -509,6 +602,34 @@ watch(totalPages, (value) => {
   width: 100%;
 }
 
+.password-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.password-input {
+  flex: 1;
+}
+
+.field-hint {
+  font-size: 12px;
+  color: var(--vtix-text-subtle);
+  font-weight: 400;
+}
+
+.password-refresh-btn :deep(.p-button-icon) {
+  transition: transform 0.25s ease;
+}
+
+.password-refresh-btn:hover :deep(.p-button-icon) {
+  transform: rotate(100deg);
+}
+
+.password-refresh-btn.is-spinning :deep(.p-button-icon) {
+  animation: sync-spin 0.48s ease;
+}
+
 .table-skeleton {
   display: flex;
   flex-direction: column;
@@ -589,6 +710,15 @@ watch(totalPages, (value) => {
   }
   100% {
     background-position: -200% 0;
+  }
+}
+
+@keyframes sync-spin {
+  from {
+    transform: rotate(0);
+  }
+  to {
+    transform: rotate(360deg);
   }
 }
 

@@ -183,6 +183,7 @@ export async function createUserDb(payload: {
   name?: string;
   email?: string;
   groupId?: string;
+  password?: string;
 }) {
   const nameRaw = String(payload.name ?? "").trim();
   const emailRaw = String(payload.email ?? "").trim();
@@ -207,14 +208,18 @@ export async function createUserDb(payload: {
   }
 
   const { map } = await loadGroupMap();
-  const groupId = map.has(String(payload.groupId ?? ""))
-    ? String(payload.groupId)
-    : USER_GROUPS.user.id;
+  const requestedGroupId = String(payload.groupId ?? "").trim();
+  if (requestedGroupId && !map.has(requestedGroupId)) {
+    throw new Error("Group not found");
+  }
+  const groupId = requestedGroupId || USER_GROUPS.user.id;
+  const password = String(payload.password ?? "");
+  const passwordToSave = password || DEFAULT_PASSWORD;
 
   await db.insert(users).values({
     name,
     email: email || null,
-    passwordHash: hashPassword(DEFAULT_PASSWORD),
+    passwordHash: hashPassword(passwordToSave),
     groupId,
     createdAt: now,
     updatedAt: now,
@@ -241,7 +246,7 @@ export async function createUserDb(payload: {
 
 export async function updateUserDb(
   id: string,
-  payload: { name?: string; email?: string; groupId?: string }
+  payload: { name?: string; email?: string; groupId?: string; password?: string }
 ) {
   const userId = Number(id);
   if (!Number.isFinite(userId)) {
@@ -290,18 +295,31 @@ export async function updateUserDb(
   }
 
   const { map } = await loadGroupMap();
-  const groupId = map.has(String(payload.groupId ?? ""))
-    ? String(payload.groupId)
-    : existing.groupId;
+  const requestedGroupId = String(payload.groupId ?? "").trim();
+  if (requestedGroupId && !map.has(requestedGroupId)) {
+    throw new Error("Group not found");
+  }
+  const groupId = requestedGroupId || existing.groupId;
+  const nextPassword = String(payload.password ?? "");
+  const updatePayload: {
+    name: string;
+    email: string | null;
+    groupId: string;
+    updatedAt: number;
+    passwordHash?: string;
+  } = {
+    name: nextName,
+    email: normalizedEmail || null,
+    groupId,
+    updatedAt: Date.now(),
+  };
+  if (nextPassword) {
+    updatePayload.passwordHash = hashPassword(nextPassword);
+  }
 
   await db
     .update(users)
-    .set({
-      name: nextName,
-      email: normalizedEmail || null,
-      groupId,
-      updatedAt: Date.now(),
-    })
+    .set(updatePayload)
     .where(eq(users.id, userId));
 
   const group = map.get(groupId) ?? map.get(USER_GROUPS.user.id);

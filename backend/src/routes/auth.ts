@@ -9,7 +9,7 @@ import {
   updateSessionUser,
   type User,
 } from "../utils/session";
-import { USER_GROUPS } from "../utils/permissions";
+import { PERMISSIONS, USER_GROUPS, hasPermission } from "../utils/permissions";
 import { hashPassword, verifyPassword } from "../utils/password";
 
 const MIN_PASSWORD_LENGTH = 8;
@@ -232,6 +232,10 @@ export const registerAuthRoutes = (app: Elysia) =>
       }
 
       const user = await toSessionUser(existing);
+      if (!hasPermission(user.permissions, PERMISSIONS.LOGIN)) {
+        set.status = 403;
+        return { error: "Login not allowed" };
+      }
       const token = createSession(user);
       set.headers["Set-Cookie"] = makeSessionCookie(token);
       return { user };

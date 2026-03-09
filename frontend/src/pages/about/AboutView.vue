@@ -143,6 +143,7 @@ onMounted(() => {
             <div class="changelog-date">2026-02-26 更新</div>
             <ul>
               <li>新增题库大乱斗模式，可以联机进行好友对决</li>
+              <li>题库大乱斗添加聊天室</li>
               <li>修复了部分已知问题</li>
               <li>优化了部分界面样式</li>
             </ul>

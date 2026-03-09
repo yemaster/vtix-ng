@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, like, or, sql } from "drizzle-orm";
 import type { Socket } from "socket.io";
 import type { Server } from "socket.io";
-import { brawlRecords, db, problemSets } from "../db";
+import { brawlRecords, db, problemSets, users } from "../db";
 import { normalizePage, normalizePageSize } from "../utils/pagination";
 import { getSessionUserByToken, parseCookies } from "../utils/session";
 import { loadProblemSetDetail } from "./problemSets";
@@ -61,6 +61,12 @@ type BrawlProblemSetPageOptions = {
   keyword?: string;
 };
 
+type BrawlUserSpaceOptions = {
+  userName: string;
+  page?: number;
+  pageSize?: number;
+};
+
 type BrawlProblemSetItem = {
   code: string;
   title: string;
@@ -69,6 +75,26 @@ type BrawlProblemSetItem = {
   isPublic: boolean;
   questionCount: number;
   onlineCount: number;
+};
+
+type BrawlUserSummary = {
+  totalMatches: number;
+  wins: number;
+  losses: number;
+  draws: number;
+  winRate: number;
+};
+
+type BrawlUserRecordItem = {
+  id: number;
+  problemSetCode: string;
+  problemSetTitle: string;
+  opponentId: string;
+  opponentName: string;
+  selfScore: number;
+  opponentScore: number;
+  result: "win" | "lose" | "draw";
+  createdAt: number;
 };
 
 const socketAuthById = new Map<string, SocketAuthState>();
@@ -786,6 +812,43 @@ export function initializeBrawlSocketServer(io: Server) {
     emitQueueStatus(auth.userId);
     socket.emit("brawl:lobby-state", buildLobbySnapshot());
 
+    socket.on(
+      "brawl:latency-probe",
+      (_payload: unknown, ack?: () => void) => {
+        if (!resolveSocketAuth(socket)) return;
+        if (typeof ack === "function") {
+          ack();
+        }
+      }
+    );
+
+    socket.on("brawl:lobby-chat-send", (payload: unknown) => {
+      const current = resolveSocketAuth(socket);
+      if (!current) return;
+      const row =
+        payload && typeof payload === "object"
+          ? (payload as Record<string, unknown>)
+          : {};
+      const text = String(row.message ?? row.text ?? "").trim().slice(0, 256);
+      if (!text) return;
+      const setCodeRaw = String(row.setId ?? row.setCode ?? "")
+        .trim()
+        .slice(0, 256);
+      const setTitleRaw = String(row.setTitle ?? "")
+        .trim()
+        .slice(0, 256);
+      const userNameRaw = String(row.userName ?? "").trim();
+      ioServer?.emit("brawl:lobby-chat", {
+        id: crypto.randomUUID(),
+        userId: current.userId,
+        userName: userNameRaw || current.userName,
+        text,
+        setCode: setCodeRaw || null,
+        setTitle: setTitleRaw || null,
+        sentAt: Date.now(),
+      });
+    });
+
     socket.on("brawl:select-set", async (payload: unknown) => {
       const current = resolveSocketAuth(socket);
       if (!current) return;
@@ -932,4 +995,126 @@ export async function loadBrawlProblemSetPage(options?: BrawlProblemSetPageOptio
   }));
 
   return { items, total };
+}
+
+async function resolveBrawlUser(userName: string) {
+  const normalized = String(userName ?? "").trim();
+  if (!normalized) return null;
+  const [row] = (await db
+    .select({ id: users.id, name: users.name })
+    .from(users)
+    .where(eq(users.name, normalized))
+    .limit(1)) as Array<{ id: number; name: string }>;
+  if (!row) return null;
+  return {
+    id: String(row.id),
+    name: row.name,
+  };
+}
+
+export async function loadBrawlUserSpace(options: BrawlUserSpaceOptions) {
+  const user = await resolveBrawlUser(options.userName);
+  if (!user) return null;
+
+  const page = normalizePage(options.page);
+  const pageSize = normalizePageSize(options.pageSize);
+  const offset = (page - 1) * pageSize;
+
+  const whereClause = or(
+    eq(brawlRecords.player1Id, user.id),
+    eq(brawlRecords.player2Id, user.id)
+  );
+
+  const [summaryRow] = (await db
+    .select({
+      totalMatches: sql<number>`COUNT(*)`,
+      wins: sql<number>`COALESCE(SUM(CASE WHEN ${brawlRecords.winnerId} = ${user.id} THEN 1 ELSE 0 END), 0)`,
+      draws: sql<number>`COALESCE(SUM(CASE WHEN ${brawlRecords.winnerId} IS NULL THEN 1 ELSE 0 END), 0)`,
+    })
+    .from(brawlRecords)
+    .where(whereClause)) as Array<{
+    totalMatches: number | null;
+    wins: number | null;
+    draws: number | null;
+  }>;
+
+  const totalMatches = Number(summaryRow?.totalMatches ?? 0);
+  const wins = Number(summaryRow?.wins ?? 0);
+  const draws = Number(summaryRow?.draws ?? 0);
+  const losses = Math.max(0, totalMatches - wins - draws);
+  const winRate = totalMatches > 0 ? Number(((wins / totalMatches) * 100).toFixed(1)) : 0;
+
+  const rows = (await db
+    .select({
+      id: brawlRecords.id,
+      problemSetCode: brawlRecords.problemSetCode,
+      problemSetTitle: brawlRecords.problemSetTitle,
+      player1Id: brawlRecords.player1Id,
+      player1Name: brawlRecords.player1Name,
+      player2Id: brawlRecords.player2Id,
+      player2Name: brawlRecords.player2Name,
+      score1: brawlRecords.score1,
+      score2: brawlRecords.score2,
+      winnerId: brawlRecords.winnerId,
+      createdAt: brawlRecords.createdAt,
+    })
+    .from(brawlRecords)
+    .where(whereClause)
+    .orderBy(desc(brawlRecords.createdAt), desc(brawlRecords.id))
+    .limit(pageSize)
+    .offset(offset)) as Array<{
+    id: number;
+    problemSetCode: string;
+    problemSetTitle: string;
+    player1Id: string;
+    player1Name: string;
+    player2Id: string;
+    player2Name: string;
+    score1: number;
+    score2: number;
+    winnerId: string | null;
+    createdAt: number;
+  }>;
+
+  const records: BrawlUserRecordItem[] = rows.map((row) => {
+    const selfIsPlayer1 = row.player1Id === user.id;
+    const selfScore = Number(selfIsPlayer1 ? row.score1 : row.score2);
+    const opponentScore = Number(selfIsPlayer1 ? row.score2 : row.score1);
+    const opponentId = selfIsPlayer1 ? row.player2Id : row.player1Id;
+    const opponentName = selfIsPlayer1 ? row.player2Name : row.player1Name;
+    const result: "win" | "lose" | "draw" = row.winnerId
+      ? row.winnerId === user.id
+        ? "win"
+        : "lose"
+      : "draw";
+    return {
+      id: Number(row.id ?? 0),
+      problemSetCode: row.problemSetCode,
+      problemSetTitle: row.problemSetTitle,
+      opponentId,
+      opponentName,
+      selfScore,
+      opponentScore,
+      result,
+      createdAt: Number(row.createdAt ?? 0),
+    };
+  });
+
+  const summary: BrawlUserSummary = {
+    totalMatches,
+    wins,
+    losses,
+    draws,
+    winRate,
+  };
+
+  return {
+    userId: user.id,
+    userName: user.name,
+    summary,
+    records,
+    total: totalMatches,
+    page,
+    pageSize,
+  };
 }

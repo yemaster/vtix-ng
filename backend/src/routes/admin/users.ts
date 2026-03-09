@@ -32,6 +32,7 @@ export const registerAdminUserRoutes = (app: Elysia) =>
           name?: string;
           email?: string;
           groupId?: string;
+          password?: string;
         };
         return await createUserDb(payload);
       } catch (error) {
@@ -54,6 +55,7 @@ export const registerAdminUserRoutes = (app: Elysia) =>
           name?: string;
           email?: string;
           groupId?: string;
+          password?: string;
         };
         return await updateUserDb(params.id, payload);
       } catch (error) {

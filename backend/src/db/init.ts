@@ -162,6 +162,20 @@ function ensureSqliteProblemSetStatsColumns(
   }
 }
 
+function ensureSqliteBrawlRecordIndexes(
+  client: ReturnType<typeof assertSqliteClient>
+) {
+  client.exec(
+    "CREATE INDEX IF NOT EXISTS idx_brawl_records_player1_created ON brawl_records(player1_id, created_at DESC);"
+  );
+  client.exec(
+    "CREATE INDEX IF NOT EXISTS idx_brawl_records_player2_created ON brawl_records(player2_id, created_at DESC);"
+  );
+  client.exec(
+    "CREATE INDEX IF NOT EXISTS idx_brawl_records_winner_id ON brawl_records(winner_id);"
+  );
+}
+
 async function ensureMysqlNoticePinnedColumn() {
   try {
     await execMysql(
@@ -319,6 +333,39 @@ async function ensureMysqlProblemSetStatsColumns() {
   }
 }
 
+async function ensureMysqlBrawlRecordIndexes() {
+  try {
+    await execMysql(
+      "CREATE INDEX idx_brawl_records_player1_created ON brawl_records(player1_id, created_at DESC);"
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.toLowerCase().includes("duplicate key name")) {
+      throw error;
+    }
+  }
+  try {
+    await execMysql(
+      "CREATE INDEX idx_brawl_records_player2_created ON brawl_records(player2_id, created_at DESC);"
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.toLowerCase().includes("duplicate key name")) {
+      throw error;
+    }
+  }
+  try {
+    await execMysql(
+      "CREATE INDEX idx_brawl_records_winner_id ON brawl_records(winner_id);"
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.toLowerCase().includes("duplicate key name")) {
+      throw error;
+    }
+  }
+}
+
 async function ensureSqliteTables() {
   const client = assertSqliteClient();
   client.exec("PRAGMA foreign_keys = ON;");
@@ -402,6 +449,7 @@ async function ensureSqliteTables() {
       created_at INTEGER NOT NULL
     );
   `);
+  ensureSqliteBrawlRecordIndexes(client);
   ensureSqliteNoticePinnedColumn(client);
   ensureSqliteMessagesReadColumn(client);
   ensureSqliteUserRecordsDataColumn(client);
@@ -564,6 +612,7 @@ async function ensureMysqlTables() {
       created_at BIGINT NOT NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   `);
+  await ensureMysqlBrawlRecordIndexes();
   await ensureMysqlNoticePinnedColumn();
   await ensureMysqlMessagesReadColumn();
   await ensureMysqlUserRecordsDataColumn();

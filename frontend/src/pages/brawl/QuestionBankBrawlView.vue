@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { io, type Socket } from 'socket.io-client'
 import { useRoute, useRouter } from 'vue-router'
 import Button from 'primevue/button'
@@ -94,6 +94,28 @@ type PendingRoundPayload = {
   question: BrawlQuestion
 }
 
+type LobbyChatPayload = {
+  id?: string
+  userId?: string
+  userName?: string
+  text?: string
+  message?: string
+  setCode?: string | null
+  setId?: string | null
+  setTitle?: string | null
+  sentAt?: number
+}
+
+type LobbyChatMessage = {
+  id: string
+  userId: string
+  userName: string
+  text: string
+  setCode: string | null
+  setTitle: string | null
+  sentAt: number
+}
+
 type BattleCardMode = 'overlay' | 'question' | 'wait'
 type BattleOverlayTone = 'normal' | 'correct' | 'wrong'
 type MatchSnapshotPayload = MatchFoundPayload | MatchResumePayload
@@ -110,6 +132,7 @@ const loading = ref(false)
 const loadError = ref('')
 const items = ref<BrawlSetItem[]>([])
 const onlineCounts = ref<Record<string, number>>({})
+const queueCounts = ref<Record<string, number>>({})
 const totalRecords = ref(0)
 const page = ref(1)
 const pageSize = ref(6)
@@ -117,14 +140,22 @@ const search = ref('')
 const debouncedSearch = ref('')
 let searchTimer: number | null = null
 let queueWaitTimer: number | null = null
+let latencyTimer: number | null = null
+let latencyProbeSeq = 0
 let queueStartedAt: number | null = null
 
 const viewState = ref<'select' | 'matching' | 'battle' | 'result'>('select')
 const selectedSetCode = ref('')
 const connected = ref(false)
+const latencyMs = ref<number | null>(null)
 const queuePosition = ref<number | null>(null)
 const queueWaitSeconds = ref(0)
 const socketError = ref('')
+const chatPanelOpen = ref(false)
+const chatInput = ref('')
+const chatMessages = ref<LobbyChatMessage[]>([])
+const chatScrollRef = ref<HTMLElement | null>(null)
+const chatFloatLayerRef = ref<HTMLElement | null>(null)
 
 const matchId = ref('')
 const targetScore = ref(8)
@@ -157,6 +188,9 @@ const ROUND_BANNER_DURATION_MS = 1000
 const RESULT_BANNER_DELAY_MS = 500
 const RESULT_BANNER_DURATION_MS = 1200
 const OPPONENT_DISCONNECT_WAITING_TEXT = '对手掉线，等待中'
+const CHAT_FIELD_MAX_LEN = 256
+const CHAT_SET_TITLE_DISPLAY_MAX_LEN = 20
+const CHAT_MAX_MESSAGES = 120
 let battleOverlayTimer: number | null = null
 let resultBannerDelayTimer: number | null = null
 let opponentDisconnectTimer: number | null = null
@@ -191,6 +225,24 @@ const displayItems = computed(() =>
 const selectedSet = computed(() =>
   displayItems.value.find((item) => item.code === selectedSetCode.value) ?? null
 )
+const selectedQueueCount = computed(() => {
+  const code = selectedSetCode.value
+  if (!code) return 0
+  return Number(queueCounts.value[code] ?? 0)
+})
+const setTitleByCode = computed(() => {
+  const map = new Map<string, string>()
+  for (const item of displayItems.value) {
+    const code = String(item.code ?? '').trim()
+    const title = String(item.title ?? '').trim()
+    if (!code || !title) continue
+    map.set(code, title)
+  }
+  if (selectedSet.value) {
+    map.set(selectedSet.value.code, selectedSet.value.title)
+  }
+  return map
+})
 
 const selfScore = computed(
   () => scoreBoard.value.find((item) => item.userId === selfUserId.value)?.score ?? 0
@@ -234,6 +286,17 @@ const showSetSelection = computed(
 const showSocketPendingState = computed(
   () => showSetSelection.value && !connected.value
 )
+const latencyText = computed(() => {
+  if (latencyMs.value === null) return '延迟 -- ms'
+  return `延迟 ${latencyMs.value} ms`
+})
+const latencySeverity = computed(() => {
+  const value = latencyMs.value
+  if (value === null) return connected.value ? 'secondary' : 'warn'
+  if (value <= 90) return 'success'
+  if (value <= 180) return 'warn'
+  return 'danger'
+})
 const showEmptySetState = computed(
   () =>
     showSetSelection.value &&
@@ -254,6 +317,16 @@ const queueWaitText = computed(() => {
   const seconds = total % 60
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
 })
+const matchingButtonLabel = computed(() => {
+  const position = queuePosition.value && queuePosition.value > 0 ? String(queuePosition.value) : '-'
+  const totalMatching = Math.max(0, Math.floor(Number(selectedQueueCount.value) || 0))
+  return `正在匹配（${queueWaitText.value}，${position} / ${totalMatching}）`
+})
+const startMatchButtonLabel = computed(() => {
+  const totalMatching = Math.max(0, Math.floor(Number(selectedQueueCount.value) || 0))
+  return `开始匹配（${totalMatching}）`
+})
+const canSendChat = computed(() => Boolean(socket && connected.value && chatInput.value.trim().length > 0))
 
 function startQueueTimer() {
   if (queueStartedAt === null) {
@@ -281,6 +354,126 @@ function stopQueueTimer(reset = true) {
     queueStartedAt = null
     queueWaitSeconds.value = 0
   }
+}
+
+function stopLatencyProbe(reset = true) {
+  if (latencyTimer !== null) {
+    window.clearInterval(latencyTimer)
+    latencyTimer = null
+  }
+  if (reset) {
+    latencyMs.value = null
+  }
+}
+
+function probeLatency() {
+  if (!socket || !connected.value) {
+    latencyMs.value = null
+    return
+  }
+  latencyProbeSeq += 1
+  const probeId = latencyProbeSeq
+  const startedAt = performance.now()
+  const timeoutId = window.setTimeout(() => {
+    if (probeId !== latencyProbeSeq) return
+    latencyMs.value = null
+  }, 5000)
+  socket.emit('brawl:latency-probe', {}, () => {
+    if (probeId !== latencyProbeSeq) return
+    window.clearTimeout(timeoutId)
+    latencyMs.value = Math.max(1, Math.round(performance.now() - startedAt))
+  })
+}
+
+function startLatencyProbe() {
+  stopLatencyProbe(false)
+  probeLatency()
+  latencyTimer = window.setInterval(() => {
+    probeLatency()
+  }, 10_000)
+}
+
+function scrollChatToBottom() {
+  const container = chatScrollRef.value
+  if (!container) return
+  container.scrollTop = container.scrollHeight
+}
+
+function normalizeChatField(value: unknown, maxLen = CHAT_FIELD_MAX_LEN) {
+  return String(value ?? '').trim().slice(0, maxLen)
+}
+
+function truncateWithEllipsis(value: string, maxLen: number) {
+  const chars = Array.from(String(value ?? ''))
+  if (chars.length <= maxLen) return value
+  return `${chars.slice(0, maxLen).join('')}...`
+}
+
+function appendChatMessage(payload: LobbyChatPayload) {
+  const id = normalizeChatField(payload.id) || crypto.randomUUID()
+  const userId = normalizeChatField(payload.userId)
+  const userName = normalizeChatField(payload.userName) || '匿名用户'
+  const text = normalizeChatField(payload.text ?? payload.message)
+  if (!userId || !text) return
+  const setCodeRaw = normalizeChatField(payload.setId ?? payload.setCode)
+  const setTitleRaw = normalizeChatField(payload.setTitle)
+  chatMessages.value = [
+    ...chatMessages.value,
+    {
+      id,
+      userId,
+      userName,
+      text,
+      setCode: setCodeRaw || null,
+      setTitle: setTitleRaw || null,
+      sentAt: Number(payload.sentAt ?? Date.now())
+    }
+  ].slice(-CHAT_MAX_MESSAGES)
+  void nextTick(() => {
+    scrollChatToBottom()
+  })
+}
+
+function resolveChatSetTitle(message: LobbyChatMessage) {
+  if (message.setTitle) return message.setTitle
+  if (!message.setCode) return ''
+  return setTitleByCode.value.get(message.setCode) ?? message.setCode
+}
+
+function resolveChatSetTitleDisplay(message: LobbyChatMessage) {
+  return truncateWithEllipsis(resolveChatSetTitle(message), CHAT_SET_TITLE_DISPLAY_MAX_LEN)
+}
+
+function handleChatSenderClick(message: LobbyChatMessage) {
+  if (!message.setCode) return
+  if (!socket) return
+  if (viewState.value === 'battle' || viewState.value === 'result') return
+  handleSelectSet(message.setCode)
+}
+
+function sendChatMessage() {
+  if (!socket || !connected.value) return
+  const message = normalizeChatField(chatInput.value)
+  if (!message) return
+  const setId = normalizeChatField(selectedSetCode.value)
+  const selectedTitle = normalizeChatField(selectedSet.value?.title ?? '')
+  socket.emit('brawl:lobby-chat-send', {
+    userName: normalizeChatField(userStore.user?.name ?? selfUserName.value ?? '匿名用户'),
+    setTitle: String(selectedTitle).trim(),
+    setId,
+    message
+  })
+  chatInput.value = ''
+}
+
+function handleDocumentPointerDown(event: PointerEvent) {
+  if (!chatPanelOpen.value) return
+  const target = event.target
+  if (!(target instanceof Node)) return
+  const layer = chatFloatLayerRef.value
+  if (!layer) return
+  if (layer.contains(target)) return
+  chatPanelOpen.value = false
 }
 
 function stopOpponentDisconnectCountdown(reset = true) {
@@ -495,7 +688,7 @@ function startMatchOpeningSequence() {
   preMatchIntroReady.value = false
   firstRoundBannerShown.value = false
   revealLocked.value = true
-  setBattleOverlay(`对手为 ${opponentUserName.value || '对手'}，即将开始`)
+  setBattleOverlay(`准备开始，您的对手是 ${opponentUserName.value || '对手'}`)
   clearBattleFlowTimers()
   battleOverlayTimer = window.setTimeout(() => {
     setBattleOverlay('第一题')
@@ -543,7 +736,7 @@ function getChoiceClass(index: number) {
   if (!roundResolved.value) {
     return {
       chosen: selected,
-      locked: isRoundLocked.value
+      locked: isRoundLocked.value || opponentDisconnected.value
     }
   }
   const correct = correctAnswers.value.includes(index)
@@ -589,9 +782,11 @@ function connectSocket() {
   socket.on('connect', () => {
     connected.value = true
     socketError.value = ''
+    startLatencyProbe()
   })
   socket.on('disconnect', () => {
     connected.value = false
+    stopLatencyProbe(true)
     if (viewState.value !== 'matching') {
       stopQueueTimer(true)
     }
@@ -599,8 +794,12 @@ function connectSocket() {
   socket.on('brawl:auth-required', () => {
     toLogin()
   })
-  socket.on('brawl:lobby-state', (payload: { onlineCounts?: Record<string, number> }) => {
+  socket.on('brawl:lobby-state', (payload: { onlineCounts?: Record<string, number>; queueCounts?: Record<string, number> }) => {
     onlineCounts.value = payload?.onlineCounts ?? {}
+    queueCounts.value = payload?.queueCounts ?? {}
+  })
+  socket.on('brawl:lobby-chat', (payload: LobbyChatPayload) => {
+    appendChatMessage(payload)
   })
   socket.on('brawl:error', (payload: { message?: string }) => {
     socketError.value = payload?.message || '操作失败'
@@ -749,6 +948,7 @@ function toggleChoice(index: number) {
   if (battleCardMode.value !== 'question') return
   if (roundResolved.value) return
   if (isRoundLocked.value) return
+  if (opponentDisconnected.value) return
   if (isSingleChoice.value) {
     selectedAnswers.value = [index]
     return
@@ -821,6 +1021,26 @@ watch(search, (value) => {
 })
 
 watch(
+  () => chatPanelOpen.value,
+  (opened) => {
+    if (!opened) return
+    void nextTick(() => {
+      scrollChatToBottom()
+    })
+  }
+)
+
+watch(
+  () => chatMessages.value.length,
+  () => {
+    if (!chatPanelOpen.value) return
+    void nextTick(() => {
+      scrollChatToBottom()
+    })
+  }
+)
+
+watch(
   () => userStore.user,
   (value) => {
     if (!value) {
@@ -834,6 +1054,7 @@ onMounted(() => {
     toLogin()
     return
   }
+  document.addEventListener('pointerdown', handleDocumentPointerDown, true)
   window.addEventListener('keydown', handleBattleKeydown, true)
   connectSocket()
 })
@@ -842,9 +1063,11 @@ onBeforeUnmount(() => {
   if (searchTimer !== null) {
     window.clearTimeout(searchTimer)
   }
+  stopLatencyProbe(true)
   clearBattleFlowTimers()
   stopOpponentDisconnectCountdown(true)
   stopQueueTimer(true)
+  document.removeEventListener('pointerdown', handleDocumentPointerDown, true)
   window.removeEventListener('keydown', handleBattleKeydown, true)
   socket?.disconnect()
   socket = null
@@ -872,13 +1095,8 @@ onBeforeUnmount(() => {
     </header>
 
     <div class="status-row">
-      <Tag :value="connected ? '连接正常' : '连接中'" :severity="connected ? 'success' : 'warning'" />
+      <Tag :value="connected ? `连接正常 ${latencyMs}ms` : '连接中'" :severity="connected ? latencySeverity : 'warn'" />
       <Tag v-if="selectedSetCode" :value="`题库 ${selectedSetCode}`" severity="info" />
-      <Tag
-        v-if="viewState === 'matching'"
-        :value="queuePosition ? `匹配中（${queueWaitText} · 队列第 ${queuePosition} 位）` : `匹配中（${queueWaitText}）`"
-        severity="warning"
-      />
     </div>
 
     <div v-if="loadError || socketError" class="error-box">
@@ -899,26 +1117,26 @@ onBeforeUnmount(() => {
             <div class="selected-eyebrow">已选择题库</div>
             <div class="selected-title">{{ selectedSet.title }}</div>
             <div class="selected-meta">
-              <Tag class="selected-online-tag" :value="`在线 ${selectedSet.onlineCount}`" severity="danger" />
-              <span class="selected-meta-chip">编号 {{ selectedSet.code }}</span>
               <span class="selected-meta-chip">题目 {{ selectedSet.questionCount }}</span>
               <span class="selected-meta-chip">作者 {{ selectedSet.creatorName || '匿名' }}</span>
             </div>
-            <div v-if="viewState === 'matching'" class="matching-tip">
-              {{ queuePosition ? `正在匹配 ${queueWaitText}，当前排队第 ${queuePosition} 位` : `正在匹配对手，已等待 ${queueWaitText}` }}
+            <div class="selected-online-row">
+              <Tag class="selected-online-tag" :value="`在线 ${selectedSet.onlineCount}`" severity="danger" />
+              <Tag class="selected-latency-tag" :value="latencyText" :severity="latencySeverity" />
             </div>
             <div class="selected-actions">
               <Button
                 v-if="viewState !== 'matching'"
-                label="开始匹配"
+                :label="startMatchButtonLabel"
                 icon="pi pi-bolt"
                 @click="startMatch"
               />
               <Button
                 v-else
-                label="取消匹配"
-                severity="secondary"
-                text
+                :label="matchingButtonLabel"
+                icon="pi pi-spin pi-spinner"
+                severity="warn"
+                class="matching-cancel-btn"
                 @click="cancelMatching"
               />
               <Button
@@ -1071,14 +1289,14 @@ onBeforeUnmount(() => {
                 v-if="isSingleChoice"
                 :modelValue="selectedAnswers[0] ?? null"
                 :value="index"
-                :disabled="isRoundLocked || roundResolved"
+                :disabled="isRoundLocked || roundResolved || opponentDisconnected"
                 @update:modelValue="toggleChoice(index)"
               />
               <Checkbox
                 v-else-if="isMultiChoice"
                 :modelValue="selectedAnswers"
                 :value="index"
-                :disabled="isRoundLocked || roundResolved"
+                :disabled="isRoundLocked || roundResolved || opponentDisconnected"
                 @update:modelValue="toggleChoice(index)"
               />
               <span class="choice-label">
@@ -1088,8 +1306,13 @@ onBeforeUnmount(() => {
             </label>
           </div>
           <div class="submit-row">
-            <Button label="确认作答" :disabled="!canConfirm" @click="submitAnswer" />
-            <span v-if="roundHint" class="submit-hint">{{ roundHint }}</span>
+            <template v-if="opponentDisconnected">
+              <span class="submit-waiting">等待对手重新加入...</span>
+            </template>
+            <template v-else>
+              <Button label="确认作答" :disabled="!canConfirm" @click="submitAnswer" />
+              <span v-if="roundHint" class="submit-hint">{{ roundHint }}</span>
+            </template>
           </div>
         </template>
 
@@ -1120,6 +1343,61 @@ onBeforeUnmount(() => {
         </div>
       </section>
     </Transition>
+
+    <div ref="chatFloatLayerRef" class="chat-float-layer">
+      <Transition name="chat-float-pop" mode="out-in">
+        <Button
+          v-if="!chatPanelOpen"
+          key="chat-fab"
+          class="chat-fab-btn"
+          icon="pi pi-comments"
+          size="large"
+          rounded
+          raised
+          severity="contrast"
+          aria-label="打开聊天室"
+          @click="chatPanelOpen = true"
+        />
+        <section v-else key="chat-card" class="chat-float-card">
+          <header class="chat-float-head">
+            <div class="chat-float-title">聊天室</div>
+            <button class="chat-close-btn" type="button" aria-label="关闭聊天室" @click="chatPanelOpen = false">
+              <span class="pi pi-times" aria-hidden="true" />
+            </button>
+          </header>
+          <div ref="chatScrollRef" class="chat-list">
+            <div v-if="chatMessages.length === 0" class="chat-empty">暂无消息，发送第一条吧</div>
+            <article
+              v-for="message in chatMessages"
+              :key="message.id"
+              :class="['chat-item', { self: message.userId === selfUserId }]"
+            >
+              <button
+                v-if="message.setCode"
+                class="chat-sender clickable"
+                type="button"
+                :title="`${message.userName} @${resolveChatSetTitle(message)}`"
+                @click="handleChatSenderClick(message)"
+              >
+                {{ message.userName }} @{{ resolveChatSetTitleDisplay(message) }}
+              </button>
+              <div v-else class="chat-sender">{{ message.userName }}</div>
+              <div class="chat-bubble">{{ message.text }}</div>
+            </article>
+          </div>
+          <form class="chat-input-row" @submit.prevent="sendChatMessage">
+            <InputText
+              v-model="chatInput"
+              maxlength="256"
+              placeholder="输入消息"
+              autocomplete="off"
+              @keydown.enter.prevent="sendChatMessage"
+            />
+            <Button label="发送" :disabled="!canSendChat" @click="sendChatMessage" />
+          </form>
+        </section>
+      </Transition>
+    </div>
   </section>
 </template>
 
@@ -1203,12 +1481,6 @@ onBeforeUnmount(() => {
   color: var(--vtix-text-strong);
 }
 
-.page-title p {
-  margin: 0;
-  font-size: 14px;
-  color: var(--vtix-text-muted);
-}
-
 .page-actions {
   display: flex;
   align-items: center;
@@ -1286,7 +1558,7 @@ onBeforeUnmount(() => {
 }
 
 .selected-title {
-  font-size: clamp(30px, 5vw, 46px);
+  font-size: clamp(26px, 4.3vw, 40px);
   line-height: 1.2;
   font-weight: 800;
   color: var(--vtix-text-strong);
@@ -1315,14 +1587,17 @@ onBeforeUnmount(() => {
   color: var(--vtix-inverse-text) !important;
 }
 
-.matching-tip {
-  border: 1px solid var(--vtix-warning-border);
-  background: var(--vtix-warning-bg);
-  color: var(--vtix-warning-text);
-  border-radius: 999px;
-  padding: 6px 14px;
-  font-size: 13px;
-  font-weight: 700;
+.selected-online-row {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.selected-latency-tag {
+  white-space: nowrap;
 }
 
 .selected-actions {
@@ -1330,7 +1605,14 @@ onBeforeUnmount(() => {
   gap: 10px;
   flex-wrap: wrap;
   justify-content: center;
-  margin-top: 10px;
+  margin-top: 2px;
+}
+
+.selected-actions :deep(.matching-cancel-btn) {
+  background: var(--vtix-warning-bg);
+  border-color: var(--vtix-warning-border);
+  color: var(--vtix-warning-text);
+  font-weight: 700;
 }
 
 .toolbar {
@@ -1767,6 +2049,14 @@ onBeforeUnmount(() => {
   color: var(--vtix-text-muted);
 }
 
+.submit-waiting {
+  width: 100%;
+  text-align: center;
+  color: var(--vtix-warning-text);
+  font-size: 14px;
+  font-weight: 700;
+}
+
 .result-card {
   width: 100%;
   border: 1px solid var(--vtix-info-border);
@@ -1805,6 +2095,154 @@ onBeforeUnmount(() => {
 
 .result-sub {
   color: var(--vtix-text-muted);
+}
+
+.chat-float-layer {
+  position: fixed;
+  right: max(18px, calc((100vw - 1120px) / 2 + 18px));
+  bottom: 76px;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.chat-fab-btn {
+  box-shadow: 0 14px 26px var(--vtix-shadow-strong);
+  transform-origin: right bottom;
+}
+
+.chat-float-card {
+  width: min(360px, calc(100vw - 36px));
+  border: 1px solid var(--vtix-border);
+  border-radius: 14px;
+  background: var(--vtix-surface);
+  box-shadow: var(--vtix-chat-float-shadow) !important;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transform-origin: right bottom;
+}
+
+.chat-float-pop-enter-active,
+.chat-float-pop-leave-active {
+  transition:
+    opacity 180ms ease,
+    transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.chat-float-pop-enter-from,
+.chat-float-pop-leave-to {
+  opacity: 0;
+  transform: translateY(8px) scale(0.96);
+}
+
+.chat-float-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--vtix-border);
+  background: linear-gradient(180deg, var(--vtix-surface-2) 0%, var(--vtix-surface) 100%);
+}
+
+.chat-float-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--vtix-text-strong);
+}
+
+.chat-close-btn {
+  border: none;
+  background: transparent;
+  color: var(--vtix-text-muted);
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.chat-close-btn:hover {
+  background: var(--vtix-surface-3);
+  color: var(--vtix-text-strong);
+}
+
+.chat-list {
+  min-height: 220px;
+  max-height: min(62vh, 520px);
+  overflow: auto;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chat-empty {
+  color: var(--vtix-text-muted);
+  font-size: 13px;
+  text-align: center;
+  padding: 18px 0;
+}
+
+.chat-item {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  align-items: flex-start;
+}
+
+.chat-item.self {
+  align-items: flex-end;
+}
+
+.chat-sender {
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--vtix-text-muted);
+  border: none;
+  background: transparent;
+  padding: 0;
+}
+
+.chat-sender.clickable {
+  cursor: pointer;
+  color: var(--vtix-info-text);
+}
+
+.chat-sender.clickable:hover {
+  text-decoration: underline;
+}
+
+.chat-bubble {
+  max-width: 100%;
+  border: 1px solid var(--vtix-border-strong);
+  background: var(--vtix-surface-2);
+  border-radius: 12px;
+  padding: 8px 10px;
+  color: var(--vtix-text-strong);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-item.self .chat-bubble {
+  background: var(--vtix-primary-50);
+  border-color: var(--vtix-primary-200);
+}
+
+.chat-input-row {
+  border-top: 1px solid var(--vtix-border);
+  padding: 10px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
+.chat-input-row :deep(.p-inputtext) {
+  width: 100%;
 }
 
 @media (max-width: 1000px) {
@@ -1858,6 +2296,15 @@ onBeforeUnmount(() => {
     flex-direction: column;
     gap: 4px;
   }
+
+  .chat-float-layer {
+    right: 18px;
+    bottom: 34px;
+  }
+
+  .chat-float-card {
+    width: min(360px, calc(100vw - 36px));
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1867,6 +2314,8 @@ onBeforeUnmount(() => {
   .lobby-switch-leave-active,
   .overlay-fade-enter-active,
   .overlay-fade-leave-active,
+  .chat-float-pop-enter-active,
+  .chat-float-pop-leave-active,
   .brawl-card-enter-active,
   .brawl-card-leave-active,
   .brawl-card-move {

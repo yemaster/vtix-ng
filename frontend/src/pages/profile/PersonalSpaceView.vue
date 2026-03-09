@@ -2,6 +2,8 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Button from 'primevue/button'
+import Paginator from 'primevue/paginator'
+import type { PageState } from 'primevue/paginator'
 import TabMenu from 'primevue/tabmenu'
 import Tag from 'primevue/tag'
 import { useUserStore } from '../../stores/user'
@@ -37,6 +39,36 @@ type QuestionBankItem = {
   questionCount: number
 }
 
+type BrawlSummary = {
+  totalMatches: number
+  wins: number
+  losses: number
+  draws: number
+  winRate: number
+}
+
+type BrawlRecordItem = {
+  id: number
+  problemSetCode: string
+  problemSetTitle: string
+  opponentId: string
+  opponentName: string
+  selfScore: number
+  opponentScore: number
+  result: 'win' | 'lose' | 'draw'
+  createdAt: number
+}
+
+type BrawlUserSpaceResponse = {
+  userId: string
+  userName: string
+  summary: BrawlSummary
+  records: BrawlRecordItem[]
+  total: number
+  page: number
+  pageSize: number
+}
+
 const apiBase = import.meta.env.VITE_API_BASE ?? 'http://localhost:3000'
 const userStore = useUserStore()
 const router = useRouter()
@@ -44,18 +76,23 @@ const route = useRoute()
 
 type SpaceTab = {
   label: string
-  value?: 'profile' | 'practice' | 'banks'
+  value?: 'profile' | 'practice' | 'brawl' | 'banks'
   route?: { name: string }
 }
 
 const tabs: SpaceTab[] = [
   { label: '个人信息', value: 'profile' },
   { label: '练习情况', value: 'practice' },
+  { label: '对局记录', value: 'brawl' },
   { label: '我的题库', value: 'banks' },
   { label: '做题记录', route: { name: 'records' } },
   { label: '错题管理', route: { name: 'wrong-problems' } }
 ]
 const activeTab = ref('profile')
+const activeTabIndex = computed(() => {
+  const index = tabs.findIndex((tab) => tab.value === activeTab.value)
+  return index < 0 ? 0 : index
+})
 
 const tabItems = tabs.map((tab) => ({
   label: tab.label,
@@ -218,6 +255,114 @@ const totalMinutes = computed(() =>
 )
 const totalRecords = computed(() => records.value.length)
 
+const brawlSummary = ref<BrawlSummary>({
+  totalMatches: 0,
+  wins: 0,
+  losses: 0,
+  draws: 0,
+  winRate: 0
+})
+const brawlRecords = ref<BrawlRecordItem[]>([])
+const brawlLoading = ref(false)
+const brawlError = ref('')
+const brawlPage = ref(1)
+const brawlPageSize = ref(6)
+const brawlTotal = ref(0)
+const brawlPageSizeOptions = [6, 12, 24]
+
+const brawlWinRateText = computed(() => {
+  if (!isSelf.value) return '--'
+  if (brawlSummary.value.totalMatches <= 0) return '暂无'
+  return `${brawlSummary.value.winRate.toFixed(1)}%`
+})
+
+function normalizeBrawlSummary(input: unknown): BrawlSummary {
+  const row = (input ?? {}) as Partial<BrawlSummary>
+  const totalMatches = Number(row.totalMatches ?? 0)
+  const wins = Number(row.wins ?? 0)
+  const losses = Number(row.losses ?? 0)
+  const draws = Number(row.draws ?? 0)
+  const winRateRaw = Number(row.winRate ?? 0)
+  return {
+    totalMatches: Number.isFinite(totalMatches) ? Math.max(0, totalMatches) : 0,
+    wins: Number.isFinite(wins) ? Math.max(0, wins) : 0,
+    losses: Number.isFinite(losses) ? Math.max(0, losses) : 0,
+    draws: Number.isFinite(draws) ? Math.max(0, draws) : 0,
+    winRate: Number.isFinite(winRateRaw) ? Math.max(0, Math.min(100, winRateRaw)) : 0
+  }
+}
+
+function normalizeBrawlRecord(input: unknown): BrawlRecordItem | null {
+  if (!input || typeof input !== 'object') return null
+  const row = input as Partial<BrawlRecordItem>
+  const resultValue = row.result === 'win' || row.result === 'lose' || row.result === 'draw' ? row.result : 'draw'
+  return {
+    id: Number(row.id ?? 0),
+    problemSetCode: String(row.problemSetCode ?? ''),
+    problemSetTitle: String(row.problemSetTitle ?? ''),
+    opponentId: String(row.opponentId ?? ''),
+    opponentName: String(row.opponentName ?? '未知对手'),
+    selfScore: Number(row.selfScore ?? 0),
+    opponentScore: Number(row.opponentScore ?? 0),
+    result: resultValue,
+    createdAt: Number(row.createdAt ?? 0)
+  }
+}
+
+function resultLabel(result: BrawlRecordItem['result']) {
+  if (result === 'win') return '胜'
+  if (result === 'lose') return '负'
+  return '平'
+}
+
+async function loadBrawlSpace() {
+  if (!routeName.value) return
+  brawlLoading.value = true
+  brawlError.value = ''
+  try {
+    const params = new URLSearchParams({
+      name: routeName.value,
+      page: String(brawlPage.value),
+      pageSize: String(brawlPageSize.value)
+    })
+    const response = await fetch(`${apiBase}/api/brawl/user-space?${params.toString()}`)
+    if (!response.ok) {
+      throw new Error(`加载失败: ${response.status}`)
+    }
+    const data = (await response.json()) as BrawlUserSpaceResponse
+    brawlSummary.value = normalizeBrawlSummary(data.summary)
+    brawlRecords.value = Array.isArray(data.records)
+      ? data.records
+        .map((item) => normalizeBrawlRecord(item))
+        .filter((item): item is BrawlRecordItem => Boolean(item))
+      : []
+    const totalHeader = response.headers.get('x-total-count')
+    const total = totalHeader ? Number(totalHeader) : Number(data.total ?? NaN)
+    brawlTotal.value = Number.isFinite(total) ? Math.max(0, total) : brawlSummary.value.totalMatches
+  } catch (error) {
+    brawlSummary.value = {
+      totalMatches: 0,
+      wins: 0,
+      losses: 0,
+      draws: 0,
+      winRate: 0
+    }
+    brawlRecords.value = []
+    brawlTotal.value = 0
+    brawlError.value = error instanceof Error ? error.message : '加载失败'
+  } finally {
+    brawlLoading.value = false
+  }
+}
+
+function handleBrawlPage(event: PageState) {
+  if (typeof event.rows === 'number') {
+    brawlPageSize.value = event.rows
+  }
+  brawlPage.value = (event.page ?? 0) + 1
+  void loadBrawlSpace()
+}
+
 const banks = ref<QuestionBankItem[]>([])
 const banksLoading = ref(false)
 const banksError = ref('')
@@ -268,6 +413,8 @@ watch(
   () => {
     loadLoginInfo()
     syncPractice()
+    brawlPage.value = 1
+    void loadBrawlSpace()
     if (activeTab.value === 'banks') {
       void loadBanks()
     }
@@ -278,11 +425,15 @@ watch(activeTab, (value) => {
   if (value === 'banks') {
     void loadBanks()
   }
+  if (value === 'brawl') {
+    void loadBrawlSpace()
+  }
 })
 
 onMounted(() => {
   loadLoginInfo()
   syncPractice()
+  void loadBrawlSpace()
 })
 </script>
 
@@ -290,7 +441,9 @@ onMounted(() => {
   <section class="space-page">
     <header class="space-header">
       <div class="profile-card">
-        <div class="profile-avatar">{{ displayName.slice(0, 1) }}</div>
+        <div class="profile-avatar-wrap">
+          <div class="profile-avatar">{{ displayName.slice(0, 1) }}</div>
+        </div>
         <div class="profile-main">
           <div class="profile-title">
             <div>
@@ -325,13 +478,13 @@ onMounted(() => {
         <div class="stat-value">{{ totalRecords }} 次</div>
       </div>
       <div class="stat-item">
-        <div class="stat-label">本次登录</div>
-        <div class="stat-value">{{ loginInfoText.current }}</div>
+        <div class="stat-label">乱斗胜率</div>
+        <div class="stat-value">{{ brawlWinRateText }}</div>
       </div>
     </div>
 
     <div class="space-tabs-wrap">
-      <TabMenu class="space-tabs" :model="tabItems" />
+      <TabMenu class="space-tabs" :model="tabItems" :activeIndex="activeTabIndex" />
     </div>
 
     <transition name="tab-slide" mode="out-in">
@@ -353,38 +506,34 @@ onMounted(() => {
             <p>登录后即可查看个人资料与学习统计。</p>
             <Button label="立即登录" size="small" @click="router.push({ name: 'login' })" />
           </div>
-          <div v-else class="info-grid">
-            <div class="info-item">
-              <div class="info-label">用户名</div>
-              <div class="info-value">{{ displayName }}</div>
+          <div v-else class="info-simple">
+            <div class="info-line">
+              <span class="info-label">用户名</span>
+              <span class="info-value">{{ displayName }}</span>
             </div>
-            <div class="info-item">
-              <div class="info-label">用户组</div>
-              <div class="info-value">
-                {{ isSelf ? userStore.user?.groupName || '未分组' : '对外已隐藏' }}
-              </div>
+            <div class="info-line">
+              <span class="info-label">用户组</span>
+              <span class="info-value">{{ isSelf ? userStore.user?.groupName || '未分组' : '对外已隐藏' }}</span>
             </div>
-            <div class="info-item">
-              <div class="info-label">邮箱</div>
-              <div class="info-value">
-                {{ isSelf ? userStore.user?.email || '未填写邮箱' : '对外已隐藏' }}
-              </div>
+            <div class="info-line">
+              <span class="info-label">邮箱</span>
+              <span class="info-value">{{ isSelf ? userStore.user?.email || '未填写邮箱' : '对外已隐藏' }}</span>
             </div>
-            <div class="info-item">
-              <div class="info-label">访问权限</div>
-              <div class="info-value">{{ isSelf ? '仅自己可见' : '公开资料' }}</div>
+            <div class="info-line">
+              <span class="info-label">访问权限</span>
+              <span class="info-value">{{ isSelf ? '仅自己可见' : '公开资料' }}</span>
             </div>
           </div>
         </div>
         <div class="panel-card">
           <div class="panel-title">登录信息</div>
           <div v-if="!isSelf" class="panel-empty">对外已隐藏</div>
-          <div v-else class="info-list">
-            <div class="info-row">
+          <div v-else class="info-simple">
+            <div class="info-line">
               <span>本次登录</span>
               <span>{{ loginInfoText.current }}</span>
             </div>
-            <div class="info-row">
+            <div class="info-line">
               <span>上次登录</span>
               <span>{{ loginInfoText.previous }}</span>
             </div>
@@ -425,6 +574,53 @@ onMounted(() => {
           </div>
         </div>
       </div>
+      </section>
+
+      <section v-else-if="activeTab === 'brawl'" key="brawl" class="tab-panel">
+      <div class="brawl-head">
+        <div class="panel-title">大乱斗对局记录</div>
+        <div class="brawl-summary-inline">
+          <span>总场次 {{ brawlSummary.totalMatches }}</span>
+          <span>胜率 {{ brawlSummary.totalMatches > 0 ? `${brawlSummary.winRate.toFixed(1)}%` : '暂无' }}</span>
+        </div>
+      </div>
+      <div v-if="brawlError" class="panel-card panel-empty">
+        <p>{{ brawlError }}</p>
+        <Button label="重试" size="small" severity="secondary" text @click="loadBrawlSpace" />
+      </div>
+      <div v-else-if="brawlLoading && brawlRecords.length === 0" class="panel-card panel-empty">
+        加载中...
+      </div>
+      <div v-else-if="brawlRecords.length === 0" class="panel-card panel-empty">
+        暂无对局记录
+      </div>
+      <div v-else class="brawl-record-list">
+        <article v-for="record in brawlRecords" :key="record.id" :class="['brawl-record-card', `is-${record.result}`]">
+          <div class="brawl-record-head">
+            <div class="brawl-record-title">{{ record.problemSetTitle || record.problemSetCode }}</div>
+          </div>
+          <div class="brawl-card-main">
+            <div class="brawl-opponent">
+              <span class="brawl-opponent-label">对手</span>
+              <span class="brawl-opponent-name">{{ record.opponentName }}</span>
+            </div>
+            <div :class="['brawl-score', `is-${record.result}`]">{{ record.selfScore }} : {{ record.opponentScore }}</div>
+          </div>
+          <div class="brawl-record-foot">
+            <span class="brawl-time">{{ formatTimestamp(record.createdAt) }}</span>
+          </div>
+          <div :class="['brawl-result-float', `is-${record.result}`]">{{ resultLabel(record.result) }}</div>
+        </article>
+      </div>
+      <Paginator
+        v-if="brawlTotal > 0"
+        :first="(brawlPage - 1) * brawlPageSize"
+        :rows="brawlPageSize"
+        :totalRecords="brawlTotal"
+        :rowsPerPageOptions="brawlPageSizeOptions"
+        template="PrevPageLink PageLinks NextPageLink RowsPerPageSelect"
+        @page="handleBrawlPage"
+      />
       </section>
 
       <section v-else-if="activeTab === 'banks'" key="banks" class="tab-panel">
@@ -522,22 +718,33 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 16px;
-  background: var(--vtix-surface);
-  border: 1px solid var(--vtix-border);
-  border-radius: 16px;
-  padding: 16px 18px;
-  box-shadow: 0 10px 24px var(--vtix-shadow-soft);
+  background:
+    radial-gradient(120% 140% at 100% 0%, color-mix(in srgb, var(--vtix-primary-200) 42%, transparent), transparent 58%),
+    var(--vtix-surface);
+  border: 1px solid color-mix(in srgb, var(--vtix-primary-200) 55%, var(--vtix-border));
+  border-radius: 20px;
+  padding: 18px 20px;
+  box-shadow: 0 14px 30px var(--vtix-shadow-soft);
+}
+
+.profile-avatar-wrap {
+  width: 72px;
+  height: 72px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, var(--vtix-primary-100), var(--vtix-primary-300));
+  display: grid;
+  place-items: center;
 }
 
 .profile-avatar {
-  width: 52px;
-  height: 52px;
-  border-radius: 16px;
-  background: var(--vtix-primary-100);
-  border: 1px solid var(--vtix-primary-200);
-  color: var(--vtix-primary-700);
+  width: 56px;
+  height: 56px;
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--vtix-surface) 86%, transparent);
+  border: 1px solid color-mix(in srgb, var(--vtix-primary-200) 70%, var(--vtix-border));
+  color: var(--vtix-primary-800);
   font-weight: 800;
-  font-size: 22px;
+  font-size: 24px;
   display: grid;
   place-items: center;
 }
@@ -752,20 +959,24 @@ onMounted(() => {
   color: var(--vtix-text-muted);
 }
 
-.info-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
-}
-
-.info-item {
-  background: var(--vtix-surface-2);
-  border-radius: 12px;
-  padding: 10px 12px;
-  border: 1px solid var(--vtix-border-strong);
+.info-simple {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+}
+
+.info-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 11px 0;
+  border-bottom: 1px dashed var(--vtix-border);
+  color: var(--vtix-text-muted);
+  font-size: 13px;
+}
+
+.info-line:last-child {
+  border-bottom: none;
 }
 
 .info-label {
@@ -776,25 +987,6 @@ onMounted(() => {
 .info-value {
   font-weight: 700;
   color: var(--vtix-text-strong);
-}
-
-.info-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.info-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px;
-  border: 1px solid var(--vtix-border);
-  border-radius: 12px;
-  background: var(--vtix-surface-2);
-  color: var(--vtix-text-muted);
-  font-size: 13px;
 }
 
 .chart-grid {
@@ -842,6 +1034,153 @@ onMounted(() => {
   font-size: 12px;
   color: var(--vtix-text-muted);
   font-weight: 700;
+}
+
+.brawl-summary-inline {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: var(--vtix-text-subtle);
+  font-size: 12px;
+}
+
+.brawl-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.brawl-record-list {
+  display: grid;
+  gap: 12px;
+}
+
+.brawl-record-card {
+  border: 1px solid color-mix(in srgb, var(--vtix-border) 70%, var(--vtix-primary-200));
+  border-radius: 16px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--vtix-surface) 84%, var(--vtix-primary-100)), var(--vtix-surface));
+  box-shadow: 0 8px 20px var(--vtix-shadow-soft);
+  position: relative;
+  overflow: hidden;
+}
+
+.brawl-record-card.is-win {
+  border-color: color-mix(in srgb, #1fb877 72%, var(--vtix-border));
+}
+
+.brawl-record-card.is-lose {
+  border-color: color-mix(in srgb, #df5656 72%, var(--vtix-border));
+}
+
+.brawl-record-card.is-draw {
+  border-color: color-mix(in srgb, #d6a03a 66%, var(--vtix-border));
+}
+
+.brawl-record-head {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+}
+
+.brawl-record-title {
+  color: var(--vtix-text-strong);
+  font-weight: 700;
+}
+
+.brawl-card-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  z-index: 1;
+}
+
+.brawl-opponent {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.brawl-opponent-label {
+  font-size: 12px;
+  color: var(--vtix-text-subtle);
+}
+
+.brawl-opponent-name {
+  color: var(--vtix-text-strong);
+  font-weight: 700;
+}
+
+.brawl-score {
+  font-size: 36px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.03em;
+}
+
+.brawl-score.is-win {
+  color: #0e9c61;
+}
+
+.brawl-score.is-lose {
+  color: #cf4a4a;
+}
+
+.brawl-score.is-draw {
+  color: #c18a1f;
+}
+
+.brawl-result-float {
+  position: absolute;
+  right: 12px;
+  bottom: -6px;
+  font-size: 88px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  pointer-events: none;
+  user-select: none;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+.brawl-result-float.is-win {
+  background-image: linear-gradient(140deg, rgba(14, 156, 97, 0.32), rgba(14, 156, 97, 0.04));
+}
+
+.brawl-result-float.is-lose {
+  background-image: linear-gradient(140deg, rgba(207, 74, 74, 0.3), rgba(207, 74, 74, 0.04));
+}
+
+.brawl-result-float.is-draw {
+  background-image: linear-gradient(140deg, rgba(193, 138, 31, 0.28), rgba(193, 138, 31, 0.04));
+}
+
+.brawl-record-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  min-height: 22px;
+  z-index: 1;
+}
+
+.brawl-time {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--vtix-text-subtle);
+  white-space: nowrap;
 }
 
 .bank-grid {
