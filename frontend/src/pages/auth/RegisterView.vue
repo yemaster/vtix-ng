@@ -22,7 +22,7 @@ async function handleSubmit() {
     toast.add({
       severity: 'warn',
       summary: '信息不完整',
-      detail: '请填写姓名、邮箱与密码',
+      detail: '请填写用户名、邮箱与密码',
       life: 3000
     })
     return
@@ -57,17 +57,17 @@ async function handleSubmit() {
       <div class="auth-card">
         <div class="card-title">
           <span>账号注册</span>
-          <small>填写信息后即可开始练习</small>
+          <small>用户名用于登录和个人空间展示</small>
         </div>
 
         <form class="form" autocomplete="on" @submit.prevent="handleSubmit">
           <label class="field">
-            <span>姓名</span>
+            <span>用户名</span>
             <InputText
               v-model="name"
               name="name"
               type="text"
-              placeholder="你的名字"
+              placeholder="请输入用户名"
               required
             />
           </label>
