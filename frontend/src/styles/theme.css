@@ -23,6 +23,7 @@
   --vtix-text-muted: #64748b;
   --vtix-text-subtle: #94a3b8;
   --vtix-inverse-text: #ffffff;
+  --vtix-select-text: #ffffff;
   --vtix-ink: #0f172a;
   --vtix-brand-dot-start: #1f2937;
   --vtix-brand-dot-end: #4b5563;
@@ -95,6 +96,7 @@
   --vtix-text-muted: #94a3b8;
   --vtix-text-subtle: #64748b;
   --vtix-inverse-text: #f8fafc;
+  --vtix-select-text: #000000;
   --vtix-ink: #1f2937;
   --vtix-brand-dot-start: #38bdf8;
   --vtix-brand-dot-end: #0ea5e9;
@@ -194,6 +196,7 @@
   --vtix-text-muted: #64748b;
   --vtix-text-subtle: #94a3b8;
   --vtix-inverse-text: #ffffff;
+  --vtix-select-text: #ffffff;
   --vtix-ink: #0f172a;
   --vtix-brand-dot-start: #1f2937;
   --vtix-brand-dot-end: #4b5563;
