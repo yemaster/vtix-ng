@@ -171,7 +171,7 @@ onMounted(() => {
 }
 
 .page-head h1 {
-  margin: 8px 0 6px;
+  margin: 4px 0 6px;
   font-size: 28px;
   color: var(--vtix-text-strong);
 }
@@ -192,6 +192,7 @@ onMounted(() => {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--vtix-text-subtle);
+  margin-top: 4px;
 }
 
 .status {

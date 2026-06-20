@@ -1,9 +1,13 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Button from 'primevue/button'
+import Card from 'primevue/card'
 import InputText from 'primevue/inputtext'
 import Paginator from 'primevue/paginator'
 import type { PageState } from 'primevue/paginator'
+import Tab from 'primevue/tab'
+import TabList from 'primevue/tablist'
+import Tabs from 'primevue/tabs'
 import Tag from 'primevue/tag'
 import { useRouter } from 'vue-router'
 import { formatDateTime, formatRelativeTimeFromNow } from '../../utils/datetime'
@@ -264,19 +268,6 @@ watch(selectedCategory, () => {
       <div class="search">
         <InputText v-model="search" placeholder="搜索标题、编号或年份" />
       </div>
-      <div class="tags">
-        <Button
-          v-for="category in categories"
-          :key="category"
-          type="button"
-          :label="category"
-          :severity="selectedCategory === category ? 'primary' : 'secondary'"
-          :outlined="selectedCategory !== category"
-          size="small"
-          class="tag-btn"
-          @click="selectedCategory = category"
-        />
-      </div>
     </div>
 
     <div v-if="loadError" class="status">
@@ -288,58 +279,74 @@ watch(selectedCategory, () => {
       <Button label="重新加载" severity="danger" text size="small" @click="loadItems" />
     </div>
 
-    <div class="cards">
-      <article v-if="isLoading" v-for="n in pageSize" :key="`skeleton-${n}`" class="card skeleton">
-        <div class="skeleton-line lg"></div>
-        <div class="skeleton-line sm"></div>
-        <div class="skeleton-tags">
-          <span class="skeleton-pill"></span>
-          <span class="skeleton-pill"></span>
-          <span class="skeleton-pill"></span>
-        </div>
-        <div class="skeleton-count"></div>
-      </article>
-      <div
-        v-else
-        v-for="item in items"
-        :key="item.id"
-        :class="['card', 'card-link', 'p-ripple', { recommended: item.recommendedRank !== null }]"
-        v-ripple
-        @click="handleCardClick($event, item.code)"
-      >
-        <div class="card-top">
-          <div class="card-main">
-            <div class="card-title">{{ item.title }}</div>
-            <div class="card-info">
-              <div class="pill-group">
-                <Tag v-for="category in item.categories" :key="category" :value="category" rounded />
-              </div>
-              <div class="card-meta">
-                <span class="meta-owner">by {{ item.creatorName || '匿名' }}</span>
-                <span class="meta-time" v-tooltip.bottom="formatFullTime(item.updatedAt ?? 0)">
-                  @{{ formatRelativeTime(item.updatedAt ?? 0) }}
-                </span>
+    <Card class="question-list-card">
+      <template #content>
+        <Tabs v-model:value="selectedCategory" scrollable class="category-tabs">
+          <TabList>
+            <Tab v-for="category in categories" :key="category" :value="category">
+              {{ category }}
+            </Tab>
+          </TabList>
+        </Tabs>
+
+        <div v-if="isLoading" class="question-list">
+          <div v-for="n in pageSize" :key="`skeleton-${n}`" class="question-row skeleton">
+            <div class="count skeleton-count"></div>
+            <div class="question-main">
+              <div class="skeleton-line lg"></div>
+              <div class="skeleton-line sm"></div>
+              <div class="skeleton-tags">
+                <span class="skeleton-pill"></span>
+                <span class="skeleton-pill"></span>
+                <span class="skeleton-pill"></span>
               </div>
             </div>
           </div>
-          <div class="count">
-            <div class="count-value">{{ item.questionCount }}</div>
-            <div class="count-label">题目数</div>
-          </div>
         </div>
-      </div>
-    </div>
-    <div v-if="!isLoading && items.length === 0" class="empty">暂无匹配题库</div>
 
-    <div class="pagination">
-      <Paginator
-        :first="(currentPage - 1) * pageSize"
-        :rows="pageSize"
-        :totalRecords="totalRecords"
-        template="PrevPageLink PageLinks NextPageLink"
-        @page="handlePage"
-      />
-    </div>
+        <div v-else-if="items.length === 0" class="empty">暂无匹配题库</div>
+
+        <div v-else class="question-list">
+          <button
+            v-for="item in items"
+            :key="item.id"
+            type="button"
+            :class="['question-row', 'p-ripple', { recommended: item.recommendedRank !== null }]"
+            v-ripple
+            @click="handleCardClick($event, item.code)"
+          >
+            <div class="count">
+              <div class="count-value">{{ item.questionCount }}</div>
+              <div class="count-label">题目数</div>
+            </div>
+            <div class="question-main">
+              <div class="question-title">{{ item.title }}</div>
+              <div class="question-info">
+                <div class="pill-group">
+                  <Tag v-for="category in item.categories" :key="category" :value="category" rounded />
+                </div>
+                <div class="question-meta">
+                  <span class="meta-owner">by {{ item.creatorName || '匿名' }}</span>
+                  <span class="meta-time" v-tooltip.bottom="formatFullTime(item.updatedAt ?? 0)">
+                    @{{ formatRelativeTime(item.updatedAt ?? 0) }}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </button>
+        </div>
+
+        <Paginator
+          v-if="totalRecords > 0"
+          class="question-paginator"
+          :first="(currentPage - 1) * pageSize"
+          :rows="pageSize"
+          :totalRecords="totalRecords"
+          template="PrevPageLink PageLinks NextPageLink"
+          @page="handlePage"
+        />
+      </template>
+    </Card>
   </section>
 </template>
 
@@ -365,7 +372,7 @@ watch(selectedCategory, () => {
 
 
 .page-head h1 {
-  margin: 8px 0 6px;
+  margin: 4px 0 6px;
   font-size: 32px;
   color: var(--vtix-text-strong);
 }
@@ -375,6 +382,7 @@ watch(selectedCategory, () => {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--vtix-text-subtle);
+  margin-top: 4px;
 }
 
 .status {
@@ -418,78 +426,89 @@ watch(selectedCategory, () => {
 
 .filters {
   display: flex;
-  flex-direction: column;
-  gap: 12px;
+  margin: 4px 0 8px;
 }
 
 .search :deep(.p-inputtext) {
   width: 100%;
 }
 
-.tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+.search {
+  width: 100%;
 }
 
-.tag-btn :deep(.p-button) {
-  border-radius: 999px;
+.question-list-card {
+  overflow: hidden;
 }
 
-.cards {
+.question-list-card :deep(.p-card-body) {
+  gap: 0;
+  padding: 0;
+}
+
+.question-list-card :deep(.p-card-content) {
+  padding: 0;
+}
+
+.category-tabs {
+  border-bottom: 1px solid var(--vtix-border);
+}
+
+.category-tabs :deep(.p-tablist-tab-list) {
+  background: transparent;
+  padding-left: 12px;
+}
+
+.category-tabs :deep(.p-tab) {
+  padding: 10px 18px;
+  font-size: 14px;
+}
+
+.question-list {
   display: flex;
   flex-direction: column;
-  gap: 16px;
 }
 
-.card {
-  background: var(--vtix-surface);
-  border: 1px solid var(--vtix-border);
-  border-radius: 16px;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  box-shadow: 0 16px 30px var(--vtix-shadow);
+.question-row {
   position: relative;
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 18px;
+  width: 100%;
+  min-height: 78px;
+  padding: 22px 18px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
 }
 
-.card.recommended {
-  border-color: var(--vtix-primary-500);
+button.question-row {
+  cursor: pointer;
+  font: inherit;
+  transition: background 0.18s ease;
 }
 
-.card.recommended::after {
+button.question-row:hover {
+  background: var(--vtix-surface-2);
+}
+
+.question-row + .question-row {
+  border-top: 1px solid var(--vtix-border);
+}
+
+.question-row.recommended::before {
   content: '';
   position: absolute;
-  top: 10px;
-  right: 10px;
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: #ef4444;
-  box-shadow: 0 0 0 3px var(--vtix-surface);
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 3px;
+  background: var(--vtix-primary-500);
 }
 
-.card-link {
-  text-decoration: none;
-  color: inherit;
-  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
-}
-
-.card-link:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 18px 36px var(--vtix-shadow-strong);
-}
-
-.card.recommended.card-link:hover {
-  border-color: var(--vtix-primary-600);
-  box-shadow: 0 18px 36px var(--vtix-shadow-accent-strong);
-}
-
-.card.skeleton {
-  position: relative;
+.question-row.skeleton {
   overflow: hidden;
-  background: var(--vtix-surface-2);
 }
 
 .skeleton-line {
@@ -524,46 +543,39 @@ watch(selectedCategory, () => {
 }
 
 .skeleton-count {
-  width: 64px;
-  height: 48px;
-  border-radius: 12px;
+  width: 54px;
+  height: 38px;
+  border-radius: 10px;
+  align-self: center;
   background: linear-gradient(90deg, var(--vtix-border-strong), var(--vtix-surface-2), var(--vtix-border-strong));
   background-size: 200% 100%;
   animation: shimmer 1.6s infinite;
 }
 
-.card-top {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  align-items: stretch;
-  flex: 1;
-}
-
-.card-main {
-  flex: 1;
+.question-main {
   min-width: 0;
   display: flex;
   flex-direction: column;
 }
 
-.card-title {
-  font-weight: 700;
+.question-title {
+  font-weight: 400;
   color: var(--vtix-text);
   font-size: 22px;
   line-height: 1.3;
   margin: 0;
 }
 
-.card-info {
+.question-info {
   margin-top: auto;
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
   padding-top: 8px;
 }
 
-.card-meta {
+.question-meta {
   color: var(--vtix-text-subtle);
   font-size: 12px;
   display: flex;
@@ -594,29 +606,31 @@ watch(selectedCategory, () => {
 
 
 .count {
-  text-align: center;
-  min-width: 88px;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
+  text-align: center;
 }
 
 .count-label {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--vtix-text-subtle);
-  margin-top: 4px;
+  margin-top: 8px;
 }
 
 .count-value {
-  font-size: 42px;
-  font-weight: 800;
+  font-size: 29px;
+  line-height: 1.05;
+  font-weight: 400;
   color: var(--vtix-text);
 }
 
 .empty {
   text-align: center;
   color: var(--vtix-text-subtle);
+  padding: 32px 18px;
 }
 
 @keyframes shimmer {
@@ -628,29 +642,22 @@ watch(selectedCategory, () => {
   }
 }
 
-.pagination {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-top: 8px;
+.question-paginator {
+  border-top: 1px solid var(--vtix-border);
+  border-radius: 0;
+  padding: 6px 10px;
+  font-size: 12px;
 }
 
-.pagination :deep(.p-paginator) {
-  border: none;
-  background: transparent;
-  gap: 8px;
+.question-paginator :deep(.p-paginator-page),
+.question-paginator :deep(.p-paginator-next),
+.question-paginator :deep(.p-paginator-prev) {
+  min-width: 2rem;
+  height: 2rem;
 }
 
-.pagination :deep(.p-paginator-page),
-.pagination :deep(.p-paginator-prev),
-.pagination :deep(.p-paginator-next) {
-  min-width: 32px;
-  height: 32px;
-  border-radius: 10px;
-}
-
-.pagination :deep(.p-paginator-pages .p-paginator-page) {
-  font-size: 14px;
+.question-paginator :deep(.p-select) {
+  height: 2rem;
 }
 
 @media (max-width: 968px) {
@@ -664,12 +671,18 @@ watch(selectedCategory, () => {
     font-size: 28px;
   }
 
-  .cards {
-    gap: 12px;
+  .question-row {
+    grid-template-columns: 62px minmax(0, 1fr);
+    gap: 14px;
+    padding: 18px 14px;
   }
 
-  .card-title {
+  .question-title {
     font-size: 20px;
+  }
+
+  .count-value {
+    font-size: 25px;
   }
 }
 </style>

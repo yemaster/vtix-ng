@@ -2,9 +2,10 @@
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import Button from 'primevue/button'
+import Card from 'primevue/card'
+import DataView from 'primevue/dataview'
 import Paginator from 'primevue/paginator'
 import type { PageState } from 'primevue/paginator'
-import Tag from 'primevue/tag'
 
 type NoticeItem = {
   id: string
@@ -37,6 +38,23 @@ function formatFullTime(timestamp: number) {
   const hours = String(date.getHours()).padStart(2, '0')
   const minutes = String(date.getMinutes()).padStart(2, '0')
   return `${year}-${month}-${day} ${hours}:${minutes}`
+}
+
+function formatRelativeTime(timestamp: number) {
+  if (!Number.isFinite(timestamp) || timestamp <= 0) {
+    return '--'
+  }
+  const diff = Date.now() - timestamp
+  if (diff < 60 * 1000) {
+    return '刚刚'
+  }
+  if (diff < 60 * 60 * 1000) {
+    return `${Math.floor(diff / (60 * 1000))} 分钟前`
+  }
+  if (diff < 24 * 60 * 60 * 1000) {
+    return `${Math.floor(diff / (60 * 60 * 1000))} 小时前`
+  }
+  return `${Math.floor(diff / (24 * 60 * 60 * 1000))} 天前`
 }
 
 async function loadNotices() {
@@ -93,10 +111,9 @@ onMounted(() => {
       <div>
         <div class="eyebrow">通知公告</div>
         <h1>公告列表</h1>
-        <p>查看全部公告内容与发布时间。</p>
       </div>
       <div class="head-actions">
-        <Button label="返回首页" severity="secondary" outlined @click="router.push({ name: 'home' })" />
+        <Button label="返回首页" severity="secondary" text @click="router.push({ name: 'home' })" />
       </div>
     </header>
 
@@ -105,40 +122,41 @@ onMounted(() => {
       <div class="status-detail">{{ loadError }}</div>
     </div>
 
-    <section v-else class="notice-card">
-      <div v-if="loading" class="loading">加载中...</div>
-      <div v-else-if="notices.length === 0" class="empty">暂无公告</div>
-      <div v-else class="table-wrap">
-        <table class="notice-table">
-          <thead>
-            <tr>
-              <th>标题</th>
-              <th>发布人</th>
-              <th>发布时间</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="item in notices" :key="item.id" :class="{ pinned: item.isPinned }">
-              <td>
-                <RouterLink class="notice-link" :to="{ name: 'notice-detail', params: { id: item.id } }">
-                  <span class="notice-title">{{ item.title }}</span>
-                  <Tag v-if="item.isPinned" value="置顶" severity="secondary" rounded />
+    <Card v-else class="notice-card">
+      <template #content>
+        <div v-if="loading" class="loading">加载中...</div>
+        <DataView v-else :value="notices" data-key="id" class="compact-data-view">
+          <template #empty>
+            <div class="empty">暂无公告</div>
+          </template>
+          <template #list="slotProps">
+            <div class="list">
+              <div v-for="item in slotProps.items" :key="item.id" :class="['list-row', 'notice-row', { pinned: item.isPinned }]">
+                <RouterLink class="list-main vertical" :to="{ name: 'notice-detail', params: { id: item.id } }">
+                  <span class="list-title">{{ item.title }}</span>
+                  <span class="list-meta">
+                    {{ item.authorName || '管理员' }} @
+                    <time v-tooltip.bottom="formatFullTime(item.createdAt)">
+                      {{ formatRelativeTime(item.createdAt) }}
+                    </time>
+                  </span>
                 </RouterLink>
-              </td>
-              <td class="notice-meta">{{ item.authorName }}</td>
-              <td class="notice-time" v-tooltip.bottom="formatFullTime(item.createdAt)">
-                {{ formatFullTime(item.createdAt) }}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-    <template v-if="totalRecords > 0">
-      <Paginator :first="(page - 1) * pageSize" :rows="pageSize" :totalRecords="totalRecords"
-        :rowsPerPageOptions="pageSizeOptions" template="PrevPageLink PageLinks NextPageLink RowsPerPageSelect"
-        @page="handlePage" />
-    </template>
+              </div>
+            </div>
+          </template>
+        </DataView>
+        <Paginator
+          v-if="totalRecords > 0"
+          class="notice-paginator"
+          :first="(page - 1) * pageSize"
+          :rows="pageSize"
+          :totalRecords="totalRecords"
+          :rowsPerPageOptions="pageSizeOptions"
+          template="PrevPageLink PageLinks NextPageLink RowsPerPageSelect"
+          @page="handlePage"
+        />
+      </template>
+    </Card>
   </section>
 </template>
 
@@ -157,14 +175,9 @@ onMounted(() => {
 }
 
 .page-head h1 {
-  margin: 8px 0 6px;
+  margin: 4px 0 6px;
   font-size: 30px;
   color: var(--vtix-text-strong);
-}
-
-.page-head p {
-  margin: 0;
-  color: var(--vtix-text-muted);
 }
 
 .eyebrow {
@@ -172,6 +185,7 @@ onMounted(() => {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--vtix-text-subtle);
+  margin-top: 4px;
 }
 
 .head-actions {
@@ -181,75 +195,102 @@ onMounted(() => {
 }
 
 .notice-card {
-  background: var(--vtix-surface);
-  border: 1px solid var(--vtix-border);
-  border-radius: 16px;
-  padding: 18px;
+  overflow: hidden;
+  --notice-list-x: 18px;
+  --notice-list-y: 14px;
+}
+
+.notice-card :deep(.p-card-body) {
+  gap: 0;
+  padding: 0;
+}
+
+.notice-card :deep(.p-card-content) {
+  padding: 0;
+}
+
+.compact-data-view :deep(.p-dataview-content) {
+  background: transparent;
+}
+
+.compact-data-view :deep(.p-dataview-empty-message) {
+  padding: 0;
+}
+
+.list {
   display: flex;
   flex-direction: column;
-  gap: 14px;
 }
 
-.table-wrap {
-  overflow: auto;
+.list-row {
+  position: relative;
+  min-height: 58px;
+  padding-block: var(--notice-list-y);
+  padding-inline: var(--notice-list-x);
 }
 
-.notice-table {
-  width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
-  font-size: 13px;
+.list-row + .list-row {
+  border-top: 1px solid var(--vtix-border);
 }
 
-.notice-table th {
-  text-align: left;
-  font-size: 12px;
-  color: var(--vtix-text-subtle);
-  font-weight: 500;
-  padding: 10px;
-  border-bottom: 1px solid var(--vtix-border);
-  background: var(--vtix-surface-2);
-  position: sticky;
+.notice-row.pinned::before {
+  content: '';
+  position: absolute;
+  left: 0;
   top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--vtix-primary-500);
 }
 
-.notice-table td {
-  padding: 10px;
-  border-bottom: 1px dashed var(--vtix-border);
-  vertical-align: middle;
-}
-
-.notice-table tr.pinned td {
-  background: var(--vtix-surface-3);
-}
-
-.notice-table tr:hover td {
-  background: var(--vtix-surface-3);
-}
-
-.notice-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  text-decoration: none;
+.list-main {
+  display: flex;
+  min-width: 0;
   color: inherit;
-  font-weight: 500;
+  text-decoration: none;
 }
 
-.notice-link :deep(.p-tag) {
-  font-size: 11px;
+.list-main.vertical {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
 }
 
-.notice-title {
-  color: var(--vtix-text);
+.list-title {
+  max-width: 100%;
+  color: var(--vtix-text-strong);
   font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.notice-meta,
-.notice-time {
+.list-meta {
   color: var(--vtix-text-muted);
   font-size: 12px;
   white-space: nowrap;
+}
+
+.list-main:hover .list-title {
+  color: var(--vtix-primary-700);
+}
+
+.notice-paginator {
+  border-top: 1px solid var(--vtix-border);
+  border-radius: 0;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.notice-paginator :deep(.p-paginator-page),
+.notice-paginator :deep(.p-paginator-next),
+.notice-paginator :deep(.p-paginator-prev) {
+  min-width: 2rem;
+  height: 2rem;
+}
+
+.notice-paginator :deep(.p-select) {
+  height: 2rem;
 }
 
 .loading,
@@ -257,7 +298,7 @@ onMounted(() => {
   color: var(--vtix-text-subtle);
   text-align: center;
   font-size: 13px;
-  padding: 16px 0;
+  padding: 18px;
 }
 
 .status {

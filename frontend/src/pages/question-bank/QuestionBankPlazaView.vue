@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import Button from 'primevue/button'
+import Card from 'primevue/card'
 import InputText from 'primevue/inputtext'
 import Paginator from 'primevue/paginator'
 import type { PageState } from 'primevue/paginator'
@@ -292,81 +293,85 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="cards">
-      <article v-if="isLoading" v-for="n in pageSize" :key="`skeleton-${n}`" class="card skeleton">
-        <div class="skeleton-line lg"></div>
-        <div class="skeleton-line sm"></div>
-        <div class="skeleton-tags">
-          <span class="skeleton-pill"></span>
-          <span class="skeleton-pill"></span>
-          <span class="skeleton-pill"></span>
-        </div>
-        <div class="skeleton-count"></div>
-      </article>
-      <div
+      <Card v-if="isLoading" v-for="n in pageSize" :key="`skeleton-${n}`" class="plaza-card skeleton">
+        <template #content>
+          <div class="skeleton-line lg"></div>
+          <div class="skeleton-line sm"></div>
+          <div class="skeleton-tags">
+            <span class="skeleton-pill"></span>
+            <span class="skeleton-pill"></span>
+            <span class="skeleton-pill"></span>
+          </div>
+          <div class="skeleton-count"></div>
+        </template>
+      </Card>
+      <Card
         v-else
         v-for="item in items"
         :key="item.id"
-        :class="['card', 'card-link', 'p-ripple', { recommended: item.recommendedRank !== null }]"
+        :class="['plaza-card', 'card-link', 'p-ripple', { recommended: item.recommendedRank !== null }]"
         v-ripple
         @click="handleCardClick($event, item.code)"
       >
-        <div class="card-top">
-          <div class="card-main">
-            <div class="card-title">{{ item.title }}</div>
-            <div class="card-info">
-              <div class="card-info-meta">
-                <div v-if="item.categories.length" class="pill-group">
-                  <Tag v-for="category in item.categories.slice(0, 3)" :key="category" :value="category" rounded />
-                  <span v-if="item.categories.length > 3" class="pill-more">+{{ item.categories.length - 3 }}</span>
-                </div>
-                <div class="card-meta">
-                  <div class="card-meta-line card-meta-stats">
-                    <span class="meta-views-inline">
-                      <span class="pi pi-eye" aria-hidden="true"></span>
-                      <span>{{ item.viewCount }}</span>
-                    </span>
-                    <span class="meta-sep" aria-hidden="true">·</span>
-                    <button
-                      type="button"
-                      :disabled="reacting[item.code]"
-                      :class="['react-text-link', { active: item.reaction === 1 }]"
-                      @click="handleReactionClick($event, item, 1)"
-                      @pointerdown.stop
-                    >
-                      <span class="pi pi-thumbs-up" aria-hidden="true"></span>
-                      <span>{{ item.likeCount }}</span>
-                    </button>
-                    <span class="meta-sep" aria-hidden="true">·</span>
-                    <button
-                      type="button"
-                      :disabled="reacting[item.code]"
-                      :class="['react-text-link', 'dislike', { active: item.reaction === -1 }]"
-                      @click="handleReactionClick($event, item, -1)"
-                      @pointerdown.stop
-                    >
-                      <span class="pi pi-thumbs-down" aria-hidden="true"></span>
-                      <span>{{ item.dislikeCount }}</span>
-                    </button>
+        <template #content>
+          <div class="card-top">
+            <div class="card-main">
+              <div class="card-title">{{ item.title }}</div>
+              <div class="card-info">
+                <div class="card-info-meta">
+                  <div v-if="item.categories.length" class="pill-group">
+                    <Tag v-for="category in item.categories.slice(0, 3)" :key="category" :value="category" rounded />
+                    <span v-if="item.categories.length > 3" class="pill-more">+{{ item.categories.length - 3 }}</span>
                   </div>
-                  <div class="card-meta-line">
-                    <span class="meta-owner">by {{ item.creatorName || '匿名' }}</span>
-                    <span class="meta-sep" aria-hidden="true">·</span>
-                    <span class="meta-time" v-tooltip.bottom="formatFullTime(item.updatedAt ?? 0)">
-                      @{{ formatRelativeTime(item.updatedAt ?? 0) }}
-                    </span>
+                  <div class="card-meta">
+                    <div class="card-meta-line card-meta-stats">
+                      <span class="meta-views-inline">
+                        <span class="pi pi-eye" aria-hidden="true"></span>
+                        <span>{{ item.viewCount }}</span>
+                      </span>
+                      <span class="meta-sep" aria-hidden="true">·</span>
+                      <button
+                        type="button"
+                        :disabled="reacting[item.code]"
+                        :class="['react-text-link', { active: item.reaction === 1 }]"
+                        @click="handleReactionClick($event, item, 1)"
+                        @pointerdown.stop
+                      >
+                        <span class="pi pi-thumbs-up" aria-hidden="true"></span>
+                        <span>{{ item.likeCount }}</span>
+                      </button>
+                      <span class="meta-sep" aria-hidden="true">·</span>
+                      <button
+                        type="button"
+                        :disabled="reacting[item.code]"
+                        :class="['react-text-link', 'dislike', { active: item.reaction === -1 }]"
+                        @click="handleReactionClick($event, item, -1)"
+                        @pointerdown.stop
+                      >
+                        <span class="pi pi-thumbs-down" aria-hidden="true"></span>
+                        <span>{{ item.dislikeCount }}</span>
+                      </button>
+                    </div>
+                    <div class="card-meta-line">
+                      <span class="meta-owner">by {{ item.creatorName || '匿名' }}</span>
+                      <span class="meta-sep" aria-hidden="true">·</span>
+                      <span class="meta-time" v-tooltip.bottom="formatFullTime(item.updatedAt ?? 0)">
+                        @{{ formatRelativeTime(item.updatedAt ?? 0) }}
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
-          <div class="card-side">
-            <div class="count">
-              <div class="count-value">{{ item.questionCount }}</div>
-              <div class="count-label">题目数</div>
+            <div class="card-side">
+              <div class="count">
+                <div class="count-value">{{ item.questionCount }}</div>
+                <div class="count-label">题目数</div>
+              </div>
             </div>
           </div>
-        </div>
-      </div>
+        </template>
+      </Card>
     </div>
     <div v-if="!isLoading && items.length === 0" class="empty">暂无非公开题库</div>
 
@@ -403,7 +408,7 @@ onBeforeUnmount(() => {
 }
 
 .page-head h1 {
-  margin: 8px 0 6px;
+  margin: 4px 0 6px;
   font-size: 28px;
   color: var(--vtix-text-strong);
 }
@@ -413,6 +418,7 @@ onBeforeUnmount(() => {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--vtix-text-subtle);
+  margin-top: 4px;
 }
 
 .status {
@@ -483,23 +489,27 @@ onBeforeUnmount(() => {
   column-gap: 16px;
 }
 
-.card {
-  background: var(--vtix-surface);
-  border: 1px solid var(--vtix-border);
-  border-radius: 16px;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  box-shadow: 0 16px 30px var(--vtix-shadow);
+.plaza-card {
   position: relative;
   break-inside: avoid;
   margin-bottom: 16px;
+  overflow: hidden;
 }
 
-.card.recommended {
-  border-color: var(--vtix-primary-500);
-  box-shadow: 0 16px 30px var(--vtix-shadow-accent);
+.plaza-card :deep(.p-card-body) {
+  padding: 16px;
+}
+
+.plaza-card :deep(.p-card-content) {
+  padding: 0;
+}
+
+.plaza-card.recommended::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--vtix-primary-500);
 }
 
 .card-link {
@@ -510,17 +520,11 @@ onBeforeUnmount(() => {
 
 .card-link:hover {
   transform: translateY(-2px);
-  box-shadow: 0 18px 36px var(--vtix-shadow-strong);
 }
 
-.card.recommended.card-link:hover {
-  box-shadow: 0 18px 36px var(--vtix-shadow-accent-strong);
-}
-
-.card.skeleton {
+.plaza-card.skeleton {
   position: relative;
   overflow: hidden;
-  background: var(--vtix-surface-2);
 }
 
 .skeleton-line {

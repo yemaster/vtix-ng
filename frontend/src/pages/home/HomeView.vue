@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import Button from 'primevue/button'
-import Tag from 'primevue/tag'
+import Card from 'primevue/card'
+import DataView from 'primevue/dataview'
 import { readPracticeRecords } from '../../base/practiceRecords'
 
 type PracticeRecord = {
@@ -37,7 +38,6 @@ type NoticeItem = {
 type StatsResponse = {
     totalSets: number
     questionCount: number
-    recommendedCount: number
 }
 
 type RecommendedSet = {
@@ -51,33 +51,8 @@ type RecommendedSet = {
 
 const statsData = ref<StatsResponse>({
     totalSets: 0,
-    questionCount: 0,
-    recommendedCount: 0
+    questionCount: 0
 })
-
-const stats = computed(() => [
-    {
-        title: '题库总量',
-        value: formatStatValue(statsData.value.totalSets),
-        detail: '覆盖公开题库',
-        delta: '公开',
-        tone: 'indigo'
-    },
-    {
-        title: '题目总数',
-        value: formatStatValue(statsData.value.questionCount),
-        detail: '持续更新中',
-        delta: '累计',
-        tone: 'emerald'
-    },
-    {
-        title: '推荐题库',
-        value: formatStatValue(statsData.value.recommendedCount),
-        detail: '重点优先练习',
-        delta: '推荐',
-        tone: 'amber'
-    }
-])
 
 const modes = [
     { label: '顺序练习', value: 0 },
@@ -95,6 +70,8 @@ const recommendedTimeline = computed(() =>
     }))
 )
 
+const featuredRecommended = computed(() => recommendedTimeline.value.slice(0, 5))
+
 const recentRecords = computed(() =>
     records.value
         .slice()
@@ -102,26 +79,27 @@ const recentRecords = computed(() =>
         .slice(0, 3)
 )
 
-const pinnedNotices = computed(() => notices.value.filter((item) => item.isPinned))
+const homeNotices = computed(() =>
+    notices.value
+        .slice()
+        .sort((a, b) => {
+            if (a.isPinned !== b.isPinned) {
+                return a.isPinned ? -1 : 1
+            }
+            return b.createdAt - a.createdAt
+        })
+        .slice(0, 5)
+)
 
 const heroStats = computed(() => {
     const todayStart = getTodayStart()
     const practiceToday = records.value.filter((item) => item.updatedAt >= todayStart).length
-    const practiceTotal = records.value.length
-    const totalSeconds = records.value.reduce(
-        (sum, item) => sum + (item.progress?.timeSpentSeconds ?? 0),
-        0
-    )
     return [
         { label: '今日练习', value: formatStatValue(practiceToday) },
-        { label: '累计练习', value: formatStatValue(practiceTotal) },
-        { label: '累计时长', value: formatDuration(totalSeconds) }
+        { label: '题库', value: formatStatValue(statsData.value.totalSets) },
+        { label: '题目', value: formatStatValue(statsData.value.questionCount) }
     ]
 })
-
-const topGridRef = ref<HTMLElement | null>(null)
-const heroRef = ref<HTMLElement | null>(null)
-let heroResizeObserver: ResizeObserver | null = null
 
 function getModeLabel(value: number) {
     return modes.find((item) => item.value === value)?.label ?? '练习'
@@ -202,14 +180,12 @@ async function loadStats() {
         const data = (await response.json()) as StatsResponse
         statsData.value = {
             totalSets: Number.isFinite(data.totalSets) ? data.totalSets : 0,
-            questionCount: Number.isFinite(data.questionCount) ? data.questionCount : 0,
-            recommendedCount: Number.isFinite(data.recommendedCount) ? data.recommendedCount : 0
+            questionCount: Number.isFinite(data.questionCount) ? data.questionCount : 0
         }
     } catch {
         statsData.value = {
             totalSets: 0,
-            questionCount: 0,
-            recommendedCount: 0
+            questionCount: 0
         }
     }
 }
@@ -238,7 +214,7 @@ async function loadNotices() {
 
 async function loadRecommended() {
     try {
-        const response = await fetch(`${apiBase}/api/problem-sets/recommended?limit=12`)
+        const response = await fetch(`${apiBase}/api/problem-sets/recommended?limit=8`)
         if (!response.ok) {
             throw new Error(`加载失败: ${response.status}`)
         }
@@ -267,164 +243,125 @@ onMounted(() => {
     void loadStats()
     void loadNotices()
     void loadRecommended()
-    if (typeof ResizeObserver !== 'undefined') {
-        heroResizeObserver = new ResizeObserver(() => {
-            syncBannerHeight()
-        })
-        if (heroRef.value) {
-            heroResizeObserver.observe(heroRef.value)
-        }
-        syncBannerHeight()
-    } else {
-        syncBannerHeight()
-        window.addEventListener('resize', syncBannerHeight)
-    }
 })
-
-onUnmounted(() => {
-    if (heroResizeObserver) {
-        heroResizeObserver.disconnect()
-        heroResizeObserver = null
-    } else {
-        window.removeEventListener('resize', syncBannerHeight)
-    }
-})
-
-function syncBannerHeight() {
-    const height = heroRef.value?.getBoundingClientRect().height
-    if (!height || !topGridRef.value) return
-    topGridRef.value.style.setProperty('--banner-height', `${Math.ceil(height)}px`)
-}
 </script>
 
 <template>
   <section class="page">
-    <div ref="topGridRef" class="top-grid">
-      <div ref="heroRef" class="hero-card">
-        <div class="eyebrow">VTIX 答题自测</div>
-        <h1>机考随心练</h1>
-        <div class="hero-actions">
-          <Button label="进入题库" @click="router.push({ name: 'question-bank' })" />
-          <Button label="开始练习" severity="secondary" outlined @click="router.push({ name: 'question-bank' })" />
-        </div>
-        <div class="hero-meta">
-          <div v-for="item in heroStats" :key="item.label">
-            <div class="meta-label">{{ item.label }}</div>
-            <div class="meta-value">{{ item.value }}</div>
-          </div>
+    <header class="page-head">
+      <div>
+        <div class="eyebrow">VSTC TI X</div>
+        <h1>在线题库练习</h1>
+        <div class="page-actions">
+          <Button label="开始练习" icon="pi pi-play-circle" severity="secondary" text @click="router.push({ name: 'question-bank' })" />
+          <Button label="题库广场" icon="pi pi-th-large" severity="secondary" text @click="router.push({ name: 'question-bank-plaza' })" />
+          <Button label="错题本" icon="pi pi-bookmark" severity="secondary" text @click="router.push({ name: 'wrong-problems' })" />
         </div>
       </div>
+      <dl class="metric-line">
+        <div v-for="item in heroStats" :key="item.label">
+          <dt>{{ item.label }}</dt>
+          <dd>{{ item.value }}</dd>
+        </div>
+      </dl>
+    </header>
 
-      <section class="notice-spotlight">
-        <div class="panel notice-panel">
-          <div class="panel-head">
-            <div>
-              <div class="panel-eyebrow">公告通知</div>
-              <h2>置顶公告</h2>
+    <div class="content-grid">
+      <main class="main-column">
+        <Card class="home-card">
+          <template #title>
+            <div class="card-title-row">
+              <span>公告</span>
+              <Button label="全部" severity="secondary" text size="small" @click="router.push({ name: 'notices' })" />
             </div>
-            <div class="panel-actions">
-              <button type="button" class="panel-link" @click="router.push({ name: 'notices' })">查看全部</button>
-            </div>
-          </div>
-          <div v-if="pinnedNotices.length === 0" class="notice-empty">
-            暂无置顶公告
-            <RouterLink class="notice-more" :to="{ name: 'notices' }">查看全部公告</RouterLink>
-          </div>
-          <div v-else class="notice-table-wrap">
-            <table class="notice-table">
-              <thead>
-                <tr>
-                  <th>标题</th>
-                  <th>发布人</th>
-                  <th>时间</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="item in pinnedNotices" :key="item.id" :class="{ 'is-pinned': item.isPinned }">
-                  <td>
-                    <RouterLink class="notice-link" :to="{ name: 'notice-detail', params: { id: item.id } }">
-                      <span class="notice-title">{{ item.title }}</span>
-                      <Tag v-if="item.isPinned" value="置顶" severity="secondary" rounded />
+          </template>
+          <template #content>
+            <DataView :value="homeNotices" data-key="id" class="compact-data-view">
+              <template #empty>
+                <div class="empty">暂无公告</div>
+              </template>
+              <template #list="slotProps">
+                <div class="list">
+                  <div v-for="item in slotProps.items" :key="item.id" :class="['list-row', 'notice-row', { pinned: item.isPinned }]">
+                    <RouterLink class="list-main vertical" :to="{ name: 'notice-detail', params: { id: item.id } }">
+                      <span class="list-title">{{ item.title }}</span>
+                      <span class="list-meta">
+                        {{ item.authorName || '管理员' }} @
+                        <time v-tooltip.bottom="formatFullTime(item.createdAt)">
+                          {{ formatRelativeTime(item.createdAt) }}
+                        </time>
+                      </span>
                     </RouterLink>
-                  </td>
-                  <td class="notice-meta">{{ item.authorName || '管理员' }}</td>
-                  <td class="notice-time" v-tooltip.bottom="formatFullTime(item.createdAt)">
-                    {{ formatRelativeTime(item.createdAt) }}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-    </div>
-
-    <div class="grid stats-grid">
-      <div v-for="stat in stats" :key="stat.title" class="stat-card">
-        <div class="stat-top">
-          <div class="stat-label">{{ stat.title }}</div>
-          <span :class="['stat-tag', `is-${stat.tone}`]">{{ stat.delta }}</span>
-        </div>
-        <div class="stat-value">{{ stat.value }}</div>
-        <div class="stat-detail">{{ stat.detail }}</div>
-      </div>
-    </div>
-
-    <div class="panel-row">
-      <div class="panel">
-        <div class="panel-head">
-          <div>
-            <div class="panel-eyebrow">做题记录</div>
-            <h2>最近练习</h2>
-          </div>
-          <button type="button" class="panel-link" @click="router.push({ name: 'records' })">查看全部</button>
-        </div>
-        <div class="record-preview" v-if="recentRecords.length">
-          <button
-            v-for="record in recentRecords"
-            :key="record.id"
-            type="button"
-            class="record-row"
-            @click="router.push({ name: 'test', params: { id: record.testId }, query: { record: record.id } })"
-          >
-            <div>
-              <div class="record-title">{{ getModeLabel(record.practiceMode) }}</div>
-              <div class="record-meta">
-                {{ record.testTitle ?? `题库 ${record.testId}` }} · {{ formatTimestamp(record.updatedAt) }}
-              </div>
+                  </div>
+                </div>
+              </template>
+            </DataView>
+          </template>
+        </Card>
+        <Card class="home-card">
+          <template #title>
+            <div class="card-title-row">
+              <span>推荐题库</span>
+              <Button label="全部" severity="secondary" text size="small" @click="router.push({ name: 'question-bank' })" />
             </div>
-            <div class="record-stats">
-              <span>用时 {{ formatDuration(record.progress.timeSpentSeconds ?? 0) }}</span>
-              <span>
-                进度 {{ (record.progress.currentProblemId ?? 0) + 1 }}/{{ record.progress.problemList?.length ?? 0 }}
-              </span>
-            </div>
-          </button>
-        </div>
-        <div v-else class="record-empty">暂无记录</div>
-      </div>
+          </template>
+          <template #content>
+            <DataView :value="featuredRecommended" data-key="code" class="compact-data-view">
+              <template #empty>
+                <div class="empty">暂无推荐题库</div>
+              </template>
+              <template #list="slotProps">
+                <div class="list">
+                  <RouterLink v-for="item in slotProps.items" :key="item.code" class="list-row action-row" :to="`/t/${item.code}`">
+                    <span class="list-main vertical">
+                      <span class="list-title">{{ item.name }}</span>
+                      <span class="list-meta">{{ item.date }}</span>
+                    </span>
+                  </RouterLink>
+                </div>
+              </template>
+            </DataView>
+          </template>
+        </Card>
+      </main>
 
-      <div class="panel">
-        <div class="panel-head">
-          <div>
-            <div class="panel-eyebrow">练习安排</div>
-            <h2>推荐题库</h2>
-          </div>
-          <Tag value="重点练习" severity="secondary" rounded />
-        </div>
-        <div v-if="recommendedTimeline.length === 0" class="record-empty">暂无推荐题库</div>
-        <ul v-else class="timeline">
-          <li v-for="item in recommendedTimeline" :key="item.code" class="timeline-item">
-            <RouterLink class="timeline-link" :to="`/t/${item.code}`">
-              <div>
-                <div class="timeline-name">{{ item.name }}</div>
-                <div class="timeline-date">{{ item.date }}</div>
-              </div>
-              <Tag value="推荐" severity="secondary" rounded />
-            </RouterLink>
-          </li>
-        </ul>
-      </div>
+      <aside class="side-column">
+        <Card class="home-card">
+          <template #title>
+            <div class="card-title-row">
+              <span>最近练习</span>
+              <Button label="全部" severity="secondary" text size="small" @click="router.push({ name: 'records' })" />
+            </div>
+          </template>
+          <template #content>
+            <DataView :value="recentRecords" data-key="id" class="compact-data-view">
+              <template #empty>
+                <div class="empty">暂无记录</div>
+              </template>
+              <template #list="slotProps">
+                <div class="list">
+                  <button
+                    v-for="record in slotProps.items"
+                    :key="record.id"
+                    type="button"
+                    class="list-row action-row"
+                    @click="router.push({ name: 'test', params: { id: record.testId }, query: { record: record.id } })"
+                  >
+                    <span class="list-main vertical">
+                      <span class="list-title">{{ getModeLabel(record.practiceMode) }}</span>
+                      <span class="list-meta">{{ record.testTitle ?? `题库 ${record.testId}` }} · {{ formatTimestamp(record.updatedAt) }}</span>
+                    </span>
+                    <span class="record-stats">
+                      <span>{{ formatDuration(record.progress.timeSpentSeconds ?? 0) }}</span>
+                      <span>{{ (record.progress.currentProblemId ?? 0) + 1 }}/{{ record.progress.problemList?.length ?? 0 }}</span>
+                    </span>
+                  </button>
+                </div>
+              </template>
+            </DataView>
+          </template>
+        </Card>
+      </aside>
     </div>
   </section>
 </template>
@@ -433,438 +370,263 @@ function syncBannerHeight() {
 .page {
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  --card-radius: 14px;
-  --card-border: var(--vtix-border);
+  gap: 24px;
+  --home-list-x: 1.1rem;
+  --home-list-y: 11px;
 }
 
-.top-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.9fr);
+.page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
   gap: 16px;
-  align-items: start;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--vtix-border);
+  padding-top: 8px;
 }
 
-.hero-card {
-  background: var(--vtix-surface);
-  border: 1px solid var(--card-border);
-  border-radius: var(--card-radius);
-  padding: 28px;
+.home-card {
+  min-width: 0;
+}
+
+.home-card :deep(.p-card-body) {
+  gap: 1rem;
+  padding: 1.1rem 0;
+}
+
+.home-card :deep(.p-card-title) {
+  color: var(--vtix-text-strong);
+  font-size: 1.05rem;
+  font-weight: 800;
+  line-height: 1.35;
+  padding: 0 1.1rem;
+}
+
+.home-card :deep(.p-card-content) {
+  padding: 0;
+}
+
+.page-head h1 {
+  margin: 4px 0 6px;
+  color: var(--vtix-text-strong);
+  font-size: 30px;
 }
 
 .eyebrow {
   font-size: 12px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--vtix-text-muted);
-  margin-bottom: 8px;
-}
-
-h1 {
-  margin: 0 0 10px;
-  color: var(--vtix-text-strong);
-  font-size: 32px;
-  letter-spacing: -0.02em;
-}
-
-p {
-  margin: 0 0 18px;
-  color: var(--vtix-text-muted);
-  max-width: 720px;
-}
-
-.hero-actions {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 18px;
-}
-
-.hero-meta {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 8px;
-}
-
-.meta-label {
-  font-size: 12px;
-  color: var(--vtix-text-muted);
-  letter-spacing: 0.02em;
-}
-
-.meta-value {
-  font-weight: 800;
-  color: var(--vtix-text-strong);
-  font-size: 20px;
-  margin-top: 4px;
-}
-
-.meta-value.positive {
-  color: var(--vtix-success-text);
-}
-
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px;
-}
-
-.stats-grid {
-  margin-top: 2px;
-}
-
-.stat-card {
-  background: var(--vtix-surface);
-  border: 1px solid var(--card-border);
-  border-radius: var(--card-radius);
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.stat-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.stat-label {
-  color: var(--vtix-text-muted);
-  font-size: 13px;
-}
-
-.stat-tag {
-  font-size: 11px;
-  font-weight: 700;
-  padding: 3px 8px;
-  border-radius: 999px;
-  border: 1px solid transparent;
-  background: var(--vtix-surface-3);
-  color: var(--vtix-text-muted);
-}
-
-.stat-tag.is-indigo {
-  background: var(--vtix-primary-100);
-  color: var(--vtix-primary-700);
-  border-color: var(--vtix-primary-200);
-}
-
-.stat-tag.is-emerald {
-  background: var(--vtix-primary-100);
-  color: var(--vtix-primary-700);
-  border-color: var(--vtix-primary-200);
-}
-
-.stat-tag.is-amber {
-  background: var(--vtix-primary-100);
-  color: var(--vtix-primary-700);
-  border-color: var(--vtix-primary-200);
-}
-
-.stat-value {
-  font-size: 28px;
-  color: var(--vtix-text-strong);
-  font-weight: 800;
-}
-
-.stat-detail {
-  color: var(--vtix-text-muted);
-  font-size: 12px;
-}
-
-.panel-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 12px;
-}
-
-.notice-spotlight {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  height: 100%;
-}
-
-.panel.notice-panel {
-  background: var(--vtix-surface);
-  position: relative;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  height: var(--banner-height, auto);
-  min-height: 0;
-}
-
-.panel {
-  background: var(--vtix-surface);
-  border: 1px solid var(--card-border);
-  border-radius: var(--card-radius);
-  padding: 18px;
-}
-
-.panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.panel-eyebrow {
-  font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--vtix-text-subtle);
-  margin-bottom: 4px;
+  margin-top: 4px;
 }
 
-.panel h2 {
-  margin: 0;
-  color: var(--vtix-text-strong);
-  font-size: 20px;
-}
-
-.panel-head :deep(.p-tag) {
-  font-size: 12px;
-}
-
-.panel-link {
-  border: none;
-  background: transparent;
-  color: var(--vtix-primary-600);
-  font-weight: 700;
-  cursor: pointer;
-  padding: 0;
-  text-decoration: none;
-}
-
-.panel-actions {
+.page-actions {
   display: inline-flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 8px;
 }
 
-.record-preview {
+.metric-line {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
+  align-items: flex-start;
+  gap: 24px;
+  margin: 0;
 }
 
-.record-row {
-  text-align: left;
-  border: none;
-  cursor: pointer;
-  width: 100%;
+.metric-line div {
+  min-width: 68px;
+}
+
+.metric-line dt {
+  color: var(--vtix-text-muted);
+  font-size: 0.76rem;
+  line-height: 1.2;
+  margin: 0 0 5px;
+}
+
+.metric-line dd {
+  margin: 0;
+  color: var(--vtix-text-strong);
+  font-size: 1.05rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.card-title-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  background: var(--vtix-surface-4);
-  border: 1px dashed var(--card-border);
-  border-radius: var(--card-radius);
-  padding: 12px;
+  gap: 1rem;
 }
 
-.record-row:hover {
-  border-color: var(--vtix-primary-200);
-  background: var(--vtix-primary-50);
+.content-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.24fr) minmax(320px, 0.76fr);
+  gap: 24px;
+  align-items: start;
 }
 
-.record-title {
+.main-column,
+.side-column {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+}
+
+.compact-data-view :deep(.p-dataview-content) {
+  background: transparent;
+}
+
+.compact-data-view :deep(.p-dataview-empty-message) {
+  padding: 0;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+}
+
+.list-row {
+  min-height: 52px;
+  padding-block: var(--home-list-y);
+  padding-inline: var(--home-list-x);
+}
+
+.list-row:first-child {
+  padding-top: 0;
+}
+
+.list-row:last-child {
+  padding-bottom: 0;
+}
+
+.list-row + .list-row {
+  border-top: 1px solid var(--vtix-border);
+}
+
+.action-row {
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+}
+
+.action-row,
+.notice-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1rem;
+  width: 100%;
+}
+
+.notice-row {
+  position: relative;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.notice-row.pinned::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: 0;
+  background: var(--vtix-primary-500);
+}
+
+.notice-row.pinned {
+  padding-left: var(--home-list-x);
+}
+
+.action-row:hover {
+  color: var(--vtix-primary-700);
+}
+
+.list-main {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 0.5rem;
+  color: inherit;
+  text-decoration: none;
+}
+
+.list-main.vertical {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+}
+
+.list-title {
+  color: var(--vtix-text-strong);
   font-weight: 700;
-  color: var(--vtix-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
 }
 
-.record-meta {
+.action-row:hover .list-title {
+  color: var(--vtix-primary-700);
+}
+
+.list-meta,
+.record-stats {
   color: var(--vtix-text-muted);
-  font-size: 12px;
-  margin-top: 4px;
+  font-size: 0.8rem;
+  white-space: nowrap;
 }
 
 .record-stats {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  color: var(--vtix-text-muted);
-  font-size: 12px;
+  gap: 0.2rem;
   text-align: right;
 }
 
-.record-stats span {
-  white-space: nowrap;
-}
-
-.record-empty {
+.empty {
   color: var(--vtix-text-subtle);
   text-align: center;
-  font-size: 13px;
-  padding: 12px 0;
-}
-
-.timeline {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  max-height: 360px;
-  overflow-y: auto;
-}
-
-.timeline-item {
-  padding: 12px;
-  border-radius: var(--card-radius);
-  background: var(--vtix-surface-4);
-  border: 1px dashed var(--card-border);
-}
-
-.timeline-link {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  text-decoration: none;
-  color: inherit;
-}
-
-.timeline-name {
-  color: var(--vtix-text);
-  font-weight: 700;
-}
-
-.timeline-date {
-  color: var(--vtix-text-muted);
-  font-size: 13px;
-}
-
-.notice-table-wrap {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-}
-
-.notice-table {
-  width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
-  font-size: 13px;
-}
-
-.notice-table th {
-  text-align: left;
-  font-size: 12px;
-  color: var(--vtix-text-subtle);
-  font-weight: 500;
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--card-border);
-  background: var(--vtix-surface-2);
-  position: sticky;
-  top: 0;
-}
-
-.notice-table td {
-  padding: 10px;
-  border-bottom: 1px dashed var(--card-border);
-  vertical-align: middle;
-}
-
-.notice-table tr.is-pinned td {
-  background: var(--vtix-surface-3);
-}
-
-.notice-table tr:hover td {
-  background: var(--vtix-surface-2);
-}
-
-.notice-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  text-decoration: none;
-  color: inherit;
-  font-weight: 500;
-}
-
-.notice-link :deep(.p-tag) {
-  font-size: 11px;
-}
-
-.notice-title {
-  color: var(--vtix-text);
-  font-weight: 700;
-}
-
-.notice-meta {
-  color: var(--vtix-text-muted);
-  font-size: 12px;
-  white-space: nowrap;
-}
-
-.notice-time {
-  color: var(--vtix-text-muted);
-  font-size: 12px;
-  white-space: nowrap;
-}
-
-.notice-empty {
-  color: var(--vtix-text-subtle);
-  text-align: center;
-  font-size: 13px;
-  padding: 12px 0;
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-}
-
-.notice-more {
-  color: var(--vtix-primary-600);
-  text-decoration: none;
-  font-weight: 500;
+  font-size: 0.875rem;
+  padding: 1.75rem 0;
 }
 
 @media (max-width: 768px) {
-  .top-grid {
+  .content-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .hero-card,
-  .panel.notice-panel {
-    height: auto;
-  }
-
-  .notice-table th,
-  .notice-table td {
-    padding: 8px;
-  }
-
-  .hero-meta {
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  }
-
-  .panel-head {
-    align-items: flex-start;
-  }
-
-  .record-row {
+  .page-head {
     flex-direction: column;
-    align-items: flex-start;
+  }
+
+  .metric-line {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1rem;
+  }
+
+  .content-grid {
+    gap: 24px;
+  }
+
+  .action-row,
+  .notice-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.35rem;
   }
 
   .record-stats {
     text-align: left;
-  }
-
-  .notice-link {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .notice-time {
-    margin-left: 0;
   }
 }
 </style>

@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Button from 'primevue/button'
+import Card from 'primevue/card'
 import Paginator from 'primevue/paginator'
 import type { PageState } from 'primevue/paginator'
 import TabMenu from 'primevue/tabmenu'
@@ -76,36 +77,22 @@ const route = useRoute()
 
 type SpaceTab = {
   label: string
-  value?: 'profile' | 'practice' | 'brawl' | 'banks'
-  route?: { name: string }
+  value: 'profile' | 'practice' | 'brawl' | 'banks'
 }
 
-const tabs: SpaceTab[] = [
+const selfTabs: SpaceTab[] = [
   { label: '个人信息', value: 'profile' },
   { label: '练习情况', value: 'practice' },
   { label: '对局记录', value: 'brawl' },
-  { label: '我的题库', value: 'banks' },
-  { label: '做题记录', route: { name: 'records' } },
-  { label: '错题管理', route: { name: 'wrong-problems' } }
+  { label: '我的题库', value: 'banks' }
 ]
-const activeTab = ref('profile')
-const activeTabIndex = computed(() => {
-  const index = tabs.findIndex((tab) => tab.value === activeTab.value)
-  return index < 0 ? 0 : index
-})
 
-const tabItems = tabs.map((tab) => ({
-  label: tab.label,
-  command: () => {
-    if (tab.value) {
-      activeTab.value = tab.value
-      return
-    }
-    if (tab.route) {
-      router.push(tab.route)
-    }
-  }
-}))
+const publicTabs: SpaceTab[] = [
+  { label: '个人信息', value: 'profile' },
+  { label: '他的题库', value: 'banks' }
+]
+
+const activeTab = ref<SpaceTab['value']>('profile')
 
 const lastLoginAt = ref<number | null>(null)
 const prevLoginAt = ref<number | null>(null)
@@ -127,6 +114,21 @@ const isSelf = computed(() => {
   if (!currentName || !routeName.value) return false
   return currentName === routeName.value
 })
+
+const tabs = computed(() => (isSelf.value ? selfTabs : publicTabs))
+const activeTabIndex = computed(() => {
+  const index = tabs.value.findIndex((tab) => tab.value === activeTab.value)
+  return index < 0 ? 0 : index
+})
+
+const tabItems = computed(() =>
+  tabs.value.map((tab) => ({
+    label: tab.label,
+    command: () => {
+      activeTab.value = tab.value
+    }
+  }))
+)
 
 function loadLoginInfo() {
   if (!isSelf.value) {
@@ -166,12 +168,8 @@ function formatRelativeTime(timestamp: number) {
 }
 
 const loginInfoText = computed(() => ({
-  current: isSelf.value ? formatTimestamp(lastLoginAt.value) : '对外已隐藏',
-  previous: isSelf.value
-    ? prevLoginAt.value
-      ? formatTimestamp(prevLoginAt.value)
-      : '首次登录'
-    : '对外已隐藏'
+  current: formatTimestamp(lastLoginAt.value),
+  previous: prevLoginAt.value ? formatTimestamp(prevLoginAt.value) : '首次登录'
 }))
 
 const records = ref<PracticeRecord[]>([])
@@ -271,7 +269,6 @@ const brawlTotal = ref(0)
 const brawlPageSizeOptions = [6, 12, 24]
 
 const brawlWinRateText = computed(() => {
-  if (!isSelf.value) return '--'
   if (brawlSummary.value.totalMatches <= 0) return '暂无'
   return `${brawlSummary.value.winRate.toFixed(1)}%`
 })
@@ -367,6 +364,22 @@ const banks = ref<QuestionBankItem[]>([])
 const banksLoading = ref(false)
 const banksError = ref('')
 
+const headerStats = computed(() => {
+  if (isSelf.value) {
+    return [
+      { label: '练习时长', value: `${totalMinutes.value} 分钟` },
+      { label: '完成题目', value: `${totalAnswered.value} 题` },
+      { label: '记录次数', value: `${totalRecords.value} 次` },
+      { label: '乱斗胜率', value: brawlWinRateText.value }
+    ]
+  }
+  return [
+    { label: '公开题库', value: banksLoading.value ? '--' : `${banks.value.length} 个` },
+    { label: '对局场次', value: `${brawlSummary.value.totalMatches} 场` },
+    { label: '乱斗胜率', value: brawlWinRateText.value }
+  ]
+})
+
 async function loadBanks() {
   if (!routeName.value) return
   banksLoading.value = true
@@ -411,11 +424,14 @@ async function loadBanks() {
 watch(
   () => [userStore.user?.id, routeName.value],
   () => {
+    if (!tabs.value.some((tab) => tab.value === activeTab.value)) {
+      activeTab.value = 'profile'
+    }
     loadLoginInfo()
     syncPractice()
     brawlPage.value = 1
     void loadBrawlSpace()
-    if (activeTab.value === 'banks') {
+    if (!isSelf.value || activeTab.value === 'banks') {
       void loadBanks()
     }
   }
@@ -434,266 +450,255 @@ onMounted(() => {
   loadLoginInfo()
   syncPractice()
   void loadBrawlSpace()
+  if (!isSelf.value) {
+    void loadBanks()
+  }
 })
 </script>
 
 <template>
   <section class="space-page">
-    <header class="space-header">
-      <div class="profile-card">
-        <div class="profile-avatar-wrap">
-          <div class="profile-avatar">{{ displayName.slice(0, 1) }}</div>
-        </div>
-        <div class="profile-main">
-          <div class="profile-title">
-            <div>
-              <div class="profile-label">个人空间</div>
-              <h1>{{ displayName }}</h1>
-            </div>
+    <header class="page-head">
+      <div>
+        <div class="eyebrow">个人空间</div>
+        <h1>{{ displayName }} 的空间</h1>
+      </div>
+    </header>
+
+    <Card class="space-content-card">
+      <template #content>
+        <div class="space-card-head">
+          <div class="space-user-main">
+            <div class="space-user-name">{{ displayName }}</div>
             <div class="profile-tags">
               <Tag :value="isSelf ? userStore.user?.groupName || '未分组' : '访客'" rounded />
               <Tag :value="isSelf ? 'Active' : 'Public'" :severity="isSelf ? 'success' : 'info'" rounded />
             </div>
           </div>
-          <div class="profile-sub">
-            <span class="profile-email">{{ isSelf ? userStore.user?.email || '未填写邮箱' : '对外已隐藏' }}</span>
-            <span class="profile-divider">·</span>
-            <span>{{ isSelf ? '你的学习数据仅自己可见' : '访客视图，仅展示公开信息' }}</span>
-          </div>
+          <dl class="card-stats">
+            <div v-for="item in headerStats" :key="item.label">
+              <dt>{{ item.label }}</dt>
+              <dd>{{ item.value }}</dd>
+            </div>
+          </dl>
         </div>
-      </div>
-    </header>
 
-    <div v-if="isSelf" class="stat-strip">
-      <div class="stat-item">
-        <div class="stat-label">练习时长</div>
-        <div class="stat-value">{{ totalMinutes }} 分钟</div>
-      </div>
-      <div class="stat-item">
-        <div class="stat-label">完成题目</div>
-        <div class="stat-value">{{ totalAnswered }} 题</div>
-      </div>
-      <div class="stat-item">
-        <div class="stat-label">记录次数</div>
-        <div class="stat-value">{{ totalRecords }} 次</div>
-      </div>
-      <div class="stat-item">
-        <div class="stat-label">乱斗胜率</div>
-        <div class="stat-value">{{ brawlWinRateText }}</div>
-      </div>
-    </div>
+        <div class="space-tabs-wrap">
+          <TabMenu class="space-tabs" :model="tabItems" :activeIndex="activeTabIndex" />
+        </div>
 
-    <div class="space-tabs-wrap">
-      <TabMenu class="space-tabs" :model="tabItems" :activeIndex="activeTabIndex" />
-    </div>
-
-    <transition name="tab-slide" mode="out-in">
-      <section v-if="activeTab === 'profile'" key="profile" class="tab-panel">
-      <div class="panel-grid">
-        <div class="panel-card">
-          <div class="panel-head">
-            <div class="panel-title">基本信息</div>
-            <Button
-              v-if="isSelf && userStore.user"
-              label="编辑资料"
-              size="small"
-              severity="secondary"
-              text
-              @click="router.push({ name: 'user-edit', params: { name: userStore.user.name } })"
-            />
-          </div>
-          <div v-if="!userStore.user && isSelf" class="panel-empty">
-            <p>登录后即可查看个人资料与学习统计。</p>
-            <Button label="立即登录" size="small" @click="router.push({ name: 'login' })" />
-          </div>
-          <div v-else class="info-simple">
-            <div class="info-line">
-              <span class="info-label">用户名</span>
-              <span class="info-value">{{ displayName }}</span>
-            </div>
-            <div class="info-line">
-              <span class="info-label">用户组</span>
-              <span class="info-value">{{ isSelf ? userStore.user?.groupName || '未分组' : '对外已隐藏' }}</span>
-            </div>
-            <div class="info-line">
-              <span class="info-label">邮箱</span>
-              <span class="info-value">{{ isSelf ? userStore.user?.email || '未填写邮箱' : '对外已隐藏' }}</span>
-            </div>
-            <div class="info-line">
-              <span class="info-label">访问权限</span>
-              <span class="info-value">{{ isSelf ? '仅自己可见' : '公开资料' }}</span>
-            </div>
-          </div>
-        </div>
-        <div class="panel-card">
-          <div class="panel-title">登录信息</div>
-          <div v-if="!isSelf" class="panel-empty">对外已隐藏</div>
-          <div v-else class="info-simple">
-            <div class="info-line">
-              <span>本次登录</span>
-              <span>{{ loginInfoText.current }}</span>
-            </div>
-            <div class="info-line">
-              <span>上次登录</span>
-              <span>{{ loginInfoText.previous }}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-      </section>
-
-      <section v-else-if="activeTab === 'practice'" key="practice" class="tab-panel">
-      <div v-if="!isSelf" class="panel-card panel-empty">
-        <p>练习数据已对外隐藏。</p>
-      </div>
-      <div v-else class="chart-grid">
-        <div class="panel-card">
-          <div class="panel-title">近 7 天练习时长（分钟）</div>
-          <div class="chart-bars">
-            <div v-for="day in aggregatedDays" :key="`${day.key}-time`" class="chart-bar">
-              <div
-                class="bar-fill"
-                :style="{ height: `${Math.round((day.minutes / maxMinutes) * 100)}%` }"
-              ></div>
-              <div class="bar-label">{{ day.label }}</div>
-              <div class="bar-value">{{ day.minutes }}</div>
-            </div>
-          </div>
-        </div>
-        <div class="panel-card">
-          <div class="panel-title">近 7 天完成题目数</div>
-          <div class="chart-bars">
-            <div v-for="day in aggregatedDays" :key="`${day.key}-count`" class="chart-bar">
-              <div
-                class="bar-fill accent"
-                :style="{ height: `${Math.round((day.answered / maxAnswered) * 100)}%` }"
-              ></div>
-              <div class="bar-label">{{ day.label }}</div>
-              <div class="bar-value">{{ day.answered }}</div>
-            </div>
-          </div>
-        </div>
-      </div>
-      </section>
-
-      <section v-else-if="activeTab === 'brawl'" key="brawl" class="tab-panel">
-      <div class="brawl-head">
-        <div class="panel-title">大乱斗对局记录</div>
-        <div class="brawl-summary-inline">
-          <span>总场次 {{ brawlSummary.totalMatches }}</span>
-          <span>胜率 {{ brawlSummary.totalMatches > 0 ? `${brawlSummary.winRate.toFixed(1)}%` : '暂无' }}</span>
-        </div>
-      </div>
-      <div v-if="brawlError" class="panel-card panel-empty">
-        <p>{{ brawlError }}</p>
-        <Button label="重试" size="small" severity="secondary" text @click="loadBrawlSpace" />
-      </div>
-      <div v-else-if="brawlLoading && brawlRecords.length === 0" class="panel-card panel-empty">
-        加载中...
-      </div>
-      <div v-else-if="brawlRecords.length === 0" class="panel-card panel-empty">
-        暂无对局记录
-      </div>
-      <div v-else class="brawl-record-list">
-        <article v-for="record in brawlRecords" :key="record.id" :class="['brawl-record-card', `is-${record.result}`]">
-          <div class="brawl-record-head">
-            <div class="brawl-record-title">{{ record.problemSetTitle || record.problemSetCode }}</div>
-          </div>
-          <div class="brawl-card-main">
-            <div class="brawl-opponent">
-              <span class="brawl-opponent-label">对手</span>
-              <span class="brawl-opponent-name">{{ record.opponentName }}</span>
-            </div>
-            <div :class="['brawl-score', `is-${record.result}`]">{{ record.selfScore }} : {{ record.opponentScore }}</div>
-          </div>
-          <div class="brawl-record-foot">
-            <span class="brawl-time">{{ formatTimestamp(record.createdAt) }}</span>
-          </div>
-          <div :class="['brawl-result-float', `is-${record.result}`]">{{ resultLabel(record.result) }}</div>
-        </article>
-      </div>
-      <Paginator
-        v-if="brawlTotal > 0"
-        :first="(brawlPage - 1) * brawlPageSize"
-        :rows="brawlPageSize"
-        :totalRecords="brawlTotal"
-        :rowsPerPageOptions="brawlPageSizeOptions"
-        template="PrevPageLink PageLinks NextPageLink RowsPerPageSelect"
-        @page="handleBrawlPage"
-      />
-      </section>
-
-      <section v-else-if="activeTab === 'banks'" key="banks" class="tab-panel">
-      <div v-if="isSelf && !userStore.user" class="panel-card panel-empty">
-        <p>登录后可查看你创建的题库。</p>
-        <Button label="立即登录" size="small" @click="router.push({ name: 'login' })" />
-      </div>
-      <div v-else-if="banksLoading" class="bank-grid">
-        <div v-for="n in 4" :key="n" class="bank-card skeleton">
-          <div class="skeleton-line lg"></div>
-          <div class="skeleton-line sm"></div>
-          <div class="skeleton-tags">
-            <span class="skeleton-pill"></span>
-            <span class="skeleton-pill"></span>
-          </div>
-          <div class="skeleton-count"></div>
-        </div>
-      </div>
-      <div v-else-if="banksError" class="panel-card panel-empty">
-        <p>{{ banksError }}</p>
-        <Button label="重试" size="small" severity="secondary" text @click="loadBanks" />
-      </div>
-      <div v-else-if="banks.length === 0" class="panel-card panel-empty">
-        <p>{{ isSelf ? '暂无已创建的题库。' : '该用户暂未公开题库。' }}</p>
-        <Button
-          v-if="isSelf"
-          label="创建题库"
-          size="small"
-          @click="router.push({ name: 'admin-question-bank-create' })"
-        />
-      </div>
-      <div v-else class="bank-grid">
-        <div
-          v-for="bank in banks"
-          :key="bank.id"
-          class="bank-card bank-card-link p-ripple"
-          v-ripple
-          @click="handleBankClick($event, bank.code)"
-        >
-          <div class="bank-card-top">
-            <div class="bank-card-main">
-              <div class="bank-title">{{ bank.title }}</div>
-              <div class="bank-info">
-                <div class="bank-tags">
-                  <Tag v-for="tag in bank.categories" :key="tag" :value="tag" rounded />
-                  <span v-if="bank.categories.length === 0" class="bank-tag-empty">无标签</span>
-                </div>
-                <div class="bank-meta">
-                  <span class="meta-year">{{ bank.year }} 年</span>
-                  <span class="meta-time" v-tooltip.bottom="formatFullTime(bank.updatedAt ?? 0)">
-                    @{{ formatRelativeTime(bank.updatedAt ?? 0) }}
-                  </span>
-                </div>
-                <div v-if="isSelf" class="bank-actions">
+        <transition name="tab-slide" mode="out-in">
+          <section v-if="activeTab === 'profile'" key="profile" class="tab-panel">
+            <div class="panel-grid">
+              <div class="panel-card">
+                <div class="panel-head">
+                  <div class="panel-title">基本信息</div>
                   <Button
-                    label="编辑"
+                    v-if="isSelf && userStore.user"
+                    label="编辑资料"
                     size="small"
                     severity="secondary"
                     text
-                    @click.stop.prevent="router.push({ name: 'admin-question-bank-edit', params: { code: bank.code } })"
+                    @click="router.push({ name: 'user-edit', params: { name: userStore.user.name } })"
                   />
+                </div>
+                <div v-if="!userStore.user && isSelf" class="panel-empty">
+                  <p>登录后即可查看个人资料与学习统计。</p>
+                  <Button label="立即登录" size="small" @click="router.push({ name: 'login' })" />
+                </div>
+                <div v-else class="info-simple">
+                  <div class="info-line">
+                    <span class="info-label">用户名</span>
+                    <span class="info-value">{{ displayName }}</span>
+                  </div>
+                  <div v-if="isSelf" class="info-line">
+                    <span class="info-label">用户组</span>
+                    <span class="info-value">{{ userStore.user?.groupName || '未分组' }}</span>
+                  </div>
+                  <div v-if="isSelf" class="info-line">
+                    <span class="info-label">邮箱</span>
+                    <span class="info-value">{{ userStore.user?.email || '未填写邮箱' }}</span>
+                  </div>
+                  <div v-else class="info-line">
+                    <span class="info-label">用户身份</span>
+                    <span class="info-value">公开用户</span>
+                  </div>
+                </div>
+              </div>
+              <div v-if="isSelf" class="panel-card">
+                <div class="panel-title">登录信息</div>
+                <div class="info-simple">
+                  <div class="info-line">
+                    <span>本次登录</span>
+                    <span>{{ loginInfoText.current }}</span>
+                  </div>
+                  <div class="info-line">
+                    <span>上次登录</span>
+                    <span>{{ loginInfoText.previous }}</span>
+                  </div>
                 </div>
               </div>
             </div>
-            <div class="bank-count">
-              <div class="bank-count-value">{{ bank.questionCount }}</div>
-              <div class="bank-count-label">题目数</div>
+          </section>
+
+          <section v-else-if="activeTab === 'practice'" key="practice" class="tab-panel">
+            <div class="chart-grid">
+              <div class="panel-card">
+                <div class="panel-title">近 7 天练习时长（分钟）</div>
+                <div class="chart-bars">
+                  <div v-for="day in aggregatedDays" :key="`${day.key}-time`" class="chart-bar">
+                    <div
+                      class="bar-fill"
+                      :style="{ height: `${Math.round((day.minutes / maxMinutes) * 100)}%` }"
+                    ></div>
+                    <div class="bar-label">{{ day.label }}</div>
+                    <div class="bar-value">{{ day.minutes }}</div>
+                  </div>
+                </div>
+              </div>
+              <div class="panel-card">
+                <div class="panel-title">近 7 天完成题目数</div>
+                <div class="chart-bars">
+                  <div v-for="day in aggregatedDays" :key="`${day.key}-count`" class="chart-bar">
+                    <div
+                      class="bar-fill accent"
+                      :style="{ height: `${Math.round((day.answered / maxAnswered) * 100)}%` }"
+                    ></div>
+                    <div class="bar-label">{{ day.label }}</div>
+                    <div class="bar-value">{{ day.answered }}</div>
+                  </div>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-      </div>
-      </section>
-    </transition>
+          </section>
+
+          <section v-else-if="activeTab === 'brawl'" key="brawl" class="tab-panel">
+            <div class="brawl-head">
+              <div class="panel-title">大乱斗对局记录</div>
+              <div class="brawl-summary-inline">
+                <span>总场次 {{ brawlSummary.totalMatches }}</span>
+                <span>胜率 {{ brawlSummary.totalMatches > 0 ? `${brawlSummary.winRate.toFixed(1)}%` : '暂无' }}</span>
+              </div>
+            </div>
+            <div v-if="brawlError" class="panel-card panel-empty">
+              <p>{{ brawlError }}</p>
+              <Button label="重试" size="small" severity="secondary" text @click="loadBrawlSpace" />
+            </div>
+            <div v-else-if="brawlLoading && brawlRecords.length === 0" class="panel-card panel-empty">
+              加载中...
+            </div>
+            <div v-else-if="brawlRecords.length === 0" class="panel-card panel-empty">暂无对局记录</div>
+            <div v-else class="brawl-record-list">
+              <article
+                v-for="record in brawlRecords"
+                :key="record.id"
+                class="brawl-record-row"
+              >
+                <div class="brawl-record-head">
+                  <div class="brawl-record-title">{{ record.problemSetTitle || record.problemSetCode }}</div>
+                </div>
+                <div class="brawl-card-main">
+                  <div :class="['brawl-score', `is-${record.result}`]">
+                    {{ record.selfScore }} : {{ record.opponentScore }}
+                  </div>
+                  <div class="brawl-opponent">
+                    <span class="brawl-opponent-label">对手</span>
+                    <span class="brawl-opponent-name">{{ record.opponentName }}</span>
+                  </div>
+                </div>
+                <div class="brawl-record-foot">
+                  <span class="brawl-time">{{ formatTimestamp(record.createdAt) }}</span>
+                </div>
+                <div :class="['brawl-result-float', `is-${record.result}`]">{{ resultLabel(record.result) }}</div>
+              </article>
+            </div>
+            <Paginator
+              v-if="brawlTotal > 0"
+              class="brawl-paginator"
+              :first="(brawlPage - 1) * brawlPageSize"
+              :rows="brawlPageSize"
+              :totalRecords="brawlTotal"
+              :rowsPerPageOptions="brawlPageSizeOptions"
+              template="PrevPageLink PageLinks NextPageLink RowsPerPageSelect"
+              @page="handleBrawlPage"
+            />
+          </section>
+
+          <section v-else-if="activeTab === 'banks'" key="banks" class="tab-panel">
+            <div v-if="isSelf && !userStore.user" class="panel-card panel-empty">
+              <p>登录后可查看你创建的题库。</p>
+              <Button label="立即登录" size="small" @click="router.push({ name: 'login' })" />
+            </div>
+            <div v-else-if="banksLoading" class="bank-list">
+              <div v-for="n in 4" :key="n" class="bank-row skeleton">
+                <div class="bank-count skeleton-count"></div>
+                <div class="bank-main">
+                  <div class="skeleton-line lg"></div>
+                  <div class="skeleton-line sm"></div>
+                  <div class="skeleton-tags">
+                    <span class="skeleton-pill"></span>
+                    <span class="skeleton-pill"></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div v-else-if="banksError" class="panel-card panel-empty">
+              <p>{{ banksError }}</p>
+              <Button label="重试" size="small" severity="secondary" text @click="loadBanks" />
+            </div>
+            <div v-else-if="banks.length === 0" class="panel-card panel-empty">
+              <p>{{ isSelf ? '暂无已创建的题库。' : '该用户暂未公开题库。' }}</p>
+              <Button
+                v-if="isSelf"
+                label="创建题库"
+                size="small"
+                @click="router.push({ name: 'admin-question-bank-create' })"
+              />
+            </div>
+            <div v-else class="bank-list">
+              <div
+                v-for="bank in banks"
+                :key="bank.id"
+                class="bank-row bank-row-link p-ripple"
+                v-ripple
+                @click="handleBankClick($event, bank.code)"
+              >
+                <div class="bank-count">
+                  <div class="bank-count-value">{{ bank.questionCount }}</div>
+                  <div class="bank-count-label">题目数</div>
+                </div>
+                <div class="bank-main">
+                  <div class="bank-title">{{ bank.title }}</div>
+                  <div class="bank-info">
+                    <div class="bank-tags">
+                      <Tag v-for="tag in bank.categories" :key="tag" :value="tag" rounded />
+                      <span v-if="bank.categories.length === 0" class="bank-tag-empty">无标签</span>
+                    </div>
+                    <div class="bank-meta">
+                      <span class="meta-year">{{ bank.year }} 年</span>
+                      <span class="meta-time" v-tooltip.bottom="formatFullTime(bank.updatedAt ?? 0)">
+                        @{{ formatRelativeTime(bank.updatedAt ?? 0) }}
+                      </span>
+                    </div>
+                    <div v-if="isSelf" class="bank-actions">
+                      <Button
+                        label="编辑"
+                        size="small"
+                        severity="secondary"
+                        text
+                        @click.stop.prevent="
+                          router.push({ name: 'admin-question-bank-edit', params: { code: bank.code } })
+                        "
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </transition>
+      </template>
+    </Card>
   </section>
 </template>
 
@@ -701,140 +706,101 @@ onMounted(() => {
 .space-page {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 22px;
 }
 
-.space-header {
+.page-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
+  gap: 24px;
   flex-wrap: wrap;
+  padding-top: 8px;
 }
 
-.profile-card {
-  flex: 1;
-  min-width: 260px;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  background:
-    radial-gradient(120% 140% at 100% 0%, color-mix(in srgb, var(--vtix-primary-200) 42%, transparent), transparent 58%),
-    var(--vtix-surface);
-  border: 1px solid color-mix(in srgb, var(--vtix-primary-200) 55%, var(--vtix-border));
-  border-radius: 20px;
-  padding: 18px 20px;
-  box-shadow: 0 14px 30px var(--vtix-shadow-soft);
-}
-
-.profile-avatar-wrap {
-  width: 72px;
-  height: 72px;
-  border-radius: 20px;
-  background: linear-gradient(135deg, var(--vtix-primary-100), var(--vtix-primary-300));
-  display: grid;
-  place-items: center;
-}
-
-.profile-avatar {
-  width: 56px;
-  height: 56px;
-  border-radius: 18px;
-  background: color-mix(in srgb, var(--vtix-surface) 86%, transparent);
-  border: 1px solid color-mix(in srgb, var(--vtix-primary-200) 70%, var(--vtix-border));
-  color: var(--vtix-primary-800);
-  font-weight: 800;
-  font-size: 24px;
-  display: grid;
-  place-items: center;
-}
-
-.profile-main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.profile-title {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.profile-label {
+.eyebrow {
   font-size: 11px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--vtix-text-subtle);
+  margin-top: 4px;
 }
 
-.profile-title h1 {
-  margin: 4px 0 0;
-  font-size: 28px;
+.page-head h1 {
+  margin: 2px 0 0;
+  font-size: 26px;
+  line-height: 1.25;
   color: var(--vtix-text-strong);
-  font-family: 'Space Grotesk', 'SF Pro Display', 'Segoe UI', sans-serif;
+}
+
+.space-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 28px 18px 22px;
+  min-height: 126px;
+}
+
+.space-user-main {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.space-user-name {
+  color: var(--vtix-text-strong);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.25;
 }
 
 .profile-tags {
-  display: flex;
+  display: inline-flex;
   gap: 6px;
   flex-wrap: wrap;
 }
 
-.profile-sub {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  font-size: 12px;
-  color: var(--vtix-text-muted);
-}
-
-.profile-email {
-  font-weight: 500;
-  color: var(--vtix-text-muted);
-}
-
-.profile-divider {
-  color: var(--vtix-text-subtle);
-}
-
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.stat-strip {
+.card-stats {
+  align-self: flex-end;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 12px;
-  background: var(--vtix-surface);
-  border: 1px solid var(--vtix-border);
-  border-radius: 16px;
-  padding: 12px 14px;
-  box-shadow: 0 10px 20px var(--vtix-shadow-soft);
+  grid-template-columns: repeat(4, auto);
+  gap: 10px 20px;
+  margin: 0;
+  text-align: right;
 }
 
-.stat-item {
+.card-stats div {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
 }
 
-.stat-label {
+.card-stats dt {
+  margin: 0;
   font-size: 12px;
   color: var(--vtix-text-subtle);
 }
 
-.stat-value {
-  font-weight: 800;
+.card-stats dd {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.2;
   color: var(--vtix-text-strong);
+}
+
+.space-content-card {
+  overflow: hidden;
+}
+
+.space-content-card :deep(.p-card-body) {
+  padding: 0;
+}
+
+.space-content-card :deep(.p-card-content) {
+  padding: 0;
 }
 
 .space-tabs :deep(.p-tabmenu-nav) {
@@ -846,9 +812,9 @@ onMounted(() => {
   -webkit-overflow-scrolling: touch;
   border: none;
   background: transparent;
-  gap: 10px;
-  padding-bottom: 6px;
-  margin-bottom: -6px;
+  gap: 6px;
+  padding: 10px 18px 0;
+  margin: 0;
 }
 
 .space-tabs-wrap {
@@ -921,23 +887,25 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  padding: 18px;
 }
 
 .panel-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(240px, 0.8fr);
-  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 22px;
 }
 
 .panel-card {
-  background: var(--vtix-surface);
-  border: 1px solid var(--vtix-border);
-  border-radius: 16px;
-  padding: 18px;
-  box-shadow: 0 12px 24px var(--vtix-shadow-soft);
   display: flex;
   flex-direction: column;
   gap: 14px;
+  min-width: 0;
+}
+
+.panel-grid > .panel-card + .panel-card {
+  border-left: 1px solid var(--vtix-border);
+  padding-left: 22px;
 }
 
 .panel-title {
@@ -1016,13 +984,13 @@ onMounted(() => {
 .bar-fill {
   width: 100%;
   border-radius: 10px 10px 6px 6px;
-  background: linear-gradient(180deg, var(--vtix-primary-400), var(--vtix-primary-700));
+  background: var(--vtix-primary-500);
   min-height: 6px;
   transition: height 0.3s ease;
 }
 
 .bar-fill.accent {
-  background: linear-gradient(180deg, var(--vtix-primary-500), var(--vtix-primary-800));
+  background: var(--vtix-primary-700);
 }
 
 .bar-label {
@@ -1053,34 +1021,24 @@ onMounted(() => {
 }
 
 .brawl-record-list {
-  display: grid;
-  gap: 12px;
+  display: flex;
+  flex-direction: column;
+  margin-right: -18px;
+  margin-left: -18px;
+  border-top: 1px solid var(--vtix-border);
 }
 
-.brawl-record-card {
-  border: 1px solid color-mix(in srgb, var(--vtix-border) 70%, var(--vtix-primary-200));
-  border-radius: 16px;
-  padding: 16px;
+.brawl-record-row {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--vtix-surface) 84%, var(--vtix-primary-100)), var(--vtix-surface));
-  box-shadow: 0 8px 20px var(--vtix-shadow-soft);
+  padding: 16px 18px;
   position: relative;
   overflow: hidden;
 }
 
-.brawl-record-card.is-win {
-  border-color: color-mix(in srgb, #1fb877 72%, var(--vtix-border));
-}
-
-.brawl-record-card.is-lose {
-  border-color: color-mix(in srgb, #df5656 72%, var(--vtix-border));
-}
-
-.brawl-record-card.is-draw {
-  border-color: color-mix(in srgb, #d6a03a 66%, var(--vtix-border));
+.brawl-record-row + .brawl-record-row {
+  border-top: 1px solid var(--vtix-border);
 }
 
 .brawl-record-head {
@@ -1098,8 +1056,8 @@ onMounted(() => {
 .brawl-card-main {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 14px;
+  justify-content: flex-start;
+  gap: 18px;
   flex-wrap: wrap;
   z-index: 1;
 }
@@ -1141,7 +1099,7 @@ onMounted(() => {
 
 .brawl-result-float {
   position: absolute;
-  right: 12px;
+  right: 0;
   bottom: -6px;
   font-size: 88px;
   font-weight: 900;
@@ -1149,22 +1107,18 @@ onMounted(() => {
   letter-spacing: 0.08em;
   pointer-events: none;
   user-select: none;
-  color: transparent;
-  -webkit-text-fill-color: transparent;
-  -webkit-background-clip: text;
-  background-clip: text;
 }
 
 .brawl-result-float.is-win {
-  background-image: linear-gradient(140deg, rgba(14, 156, 97, 0.32), rgba(14, 156, 97, 0.04));
+  color: color-mix(in srgb, var(--vtix-success-solid) 28%, transparent);
 }
 
 .brawl-result-float.is-lose {
-  background-image: linear-gradient(140deg, rgba(207, 74, 74, 0.3), rgba(207, 74, 74, 0.04));
+  color: color-mix(in srgb, var(--vtix-danger-solid) 28%, transparent);
 }
 
 .brawl-result-float.is-draw {
-  background-image: linear-gradient(140deg, rgba(193, 138, 31, 0.28), rgba(193, 138, 31, 0.04));
+  color: color-mix(in srgb, var(--vtix-warning-solid) 30%, transparent);
 }
 
 .brawl-record-foot {
@@ -1183,61 +1137,72 @@ onMounted(() => {
   white-space: nowrap;
 }
 
-.bank-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 16px;
+.brawl-paginator {
+  margin: 0 -18px -18px;
+  border-top: 1px solid var(--vtix-border);
+  border-radius: 0;
+  padding: 6px 10px;
+  font-size: 12px;
 }
 
-.bank-card {
-  background: var(--vtix-surface);
-  border: 1px solid var(--vtix-border);
-  border-radius: 16px;
-  padding: 16px;
+.brawl-paginator :deep(.p-paginator-page),
+.brawl-paginator :deep(.p-paginator-next),
+.brawl-paginator :deep(.p-paginator-prev) {
+  min-width: 2rem;
+  height: 2rem;
+}
+
+.brawl-paginator :deep(.p-select) {
+  height: 2rem;
+}
+
+.bank-list {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  position: relative;
-  box-shadow: 0 16px 30px var(--vtix-shadow);
+  margin: -18px;
 }
 
-.bank-card-link {
-  text-decoration: none;
+.bank-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 18px;
+  width: 100%;
+  min-height: 78px;
+  padding: 22px 18px;
+  border: 0;
+  background: transparent;
   color: inherit;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  text-align: left;
+}
+
+.bank-row + .bank-row {
+  border-top: 1px solid var(--vtix-border);
+}
+
+.bank-row-link {
   cursor: pointer;
+  transition: background 0.18s ease;
 }
 
-.bank-card-link:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 18px 36px var(--vtix-shadow-strong);
-}
-
-.bank-card.skeleton {
-  position: relative;
-  overflow: hidden;
+.bank-row-link:hover {
   background: var(--vtix-surface-2);
 }
 
-.bank-card-top {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  align-items: stretch;
-  flex: 1;
+.bank-row.skeleton {
+  overflow: hidden;
 }
 
-.bank-card-main {
-  flex: 1;
+.bank-main {
   min-width: 0;
   display: flex;
   flex-direction: column;
 }
 
 .bank-title {
-  font-weight: 700;
+  font-weight: 400;
   color: var(--vtix-text);
-  font-size: 20px;
+  font-size: 22px;
   line-height: 1.3;
   margin: 0;
 }
@@ -1245,15 +1210,17 @@ onMounted(() => {
 .bank-info {
   margin-top: auto;
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding-top: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding-top: 8px;
 }
 
 .bank-meta {
   color: var(--vtix-text-subtle);
   font-size: 12px;
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
   line-height: 1.5;
@@ -1272,10 +1239,6 @@ onMounted(() => {
 .meta-year,
 .meta-time {
   font-weight: 400;
-}
-
-.meta-year {
-  color: var(--vtix-text-muted);
 }
 
 .meta-time {
@@ -1297,41 +1260,38 @@ onMounted(() => {
 }
 
 .bank-count {
-  text-align: center;
-  min-width: 88px;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
+  text-align: center;
 }
 
 .bank-count-value {
-  font-size: 42px;
-  font-weight: 800;
+  font-size: 29px;
+  line-height: 1.05;
+  font-weight: 400;
   color: var(--vtix-text);
 }
 
 .bank-count-label {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--vtix-text-subtle);
-  margin-top: 4px;
+  margin-top: 8px;
 }
 
 .skeleton-count {
   width: 64px;
   height: 48px;
   border-radius: 12px;
-  background: linear-gradient(90deg, var(--vtix-border-strong), var(--vtix-surface-2), var(--vtix-border-strong));
-  background-size: 200% 100%;
-  animation: shimmer 1.6s infinite;
+  background: var(--vtix-surface-3);
 }
 
 .skeleton-line {
   height: 14px;
   border-radius: 999px;
-  background: linear-gradient(90deg, var(--vtix-border-strong), var(--vtix-surface-2), var(--vtix-border-strong));
-  background-size: 200% 100%;
-  animation: shimmer 1.6s infinite;
+  background: var(--vtix-surface-3);
 }
 
 .skeleton-line.lg {
@@ -1352,32 +1312,67 @@ onMounted(() => {
   width: 48px;
   height: 18px;
   border-radius: 999px;
-  background: linear-gradient(90deg, var(--vtix-border-strong), var(--vtix-surface-2), var(--vtix-border-strong));
-  background-size: 200% 100%;
-  animation: shimmer 1.6s infinite;
-}
-
-@keyframes shimmer {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
-  }
+  background: var(--vtix-surface-3);
 }
 
 @media (max-width: 900px) {
-  .space-header {
+  .page-head {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .space-card-head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 20px;
+    min-height: 0;
+    padding: 24px 18px 20px;
+  }
+
+  .profile-tags {
+    justify-content: flex-start;
+  }
+
+  .card-stats {
+    align-self: stretch;
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    text-align: left;
   }
 
   .panel-grid {
     grid-template-columns: 1fr;
   }
 
+  .panel-grid > .panel-card + .panel-card {
+    border-left: 0;
+    border-top: 1px solid var(--vtix-border);
+    padding-top: 18px;
+    padding-left: 0;
+  }
+
+  .brawl-record-row {
+    align-items: flex-start;
+  }
+
   .chart-bars {
     height: 140px;
+  }
+}
+
+@media (max-width: 648px) {
+  .bank-row {
+    grid-template-columns: 62px minmax(0, 1fr);
+    gap: 14px;
+    padding: 18px 14px;
+  }
+
+  .bank-title {
+    font-size: 20px;
+  }
+
+  .bank-count-value {
+    font-size: 25px;
   }
 }
 </style>

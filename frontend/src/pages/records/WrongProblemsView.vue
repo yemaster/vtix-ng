@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import Button from 'primevue/button'
+import Card from 'primevue/card'
 import Checkbox from 'primevue/checkbox'
 import Select from 'primevue/select'
 import InputText from 'primevue/inputtext'
@@ -8,7 +9,7 @@ import Paginator from 'primevue/paginator'
 import type { PageState } from 'primevue/paginator'
 import { useToast } from 'primevue/usetoast'
 import { useUserStore } from '../../stores/user'
-import type { ProblemType } from '../../base/ProblemTypes'
+import type { ChooseProblemType, ProblemType } from '../../base/ProblemTypes'
 import {
   getWrongProblemsByUser,
   mergeWrongProblemsByUser,
@@ -224,35 +225,43 @@ function getTypeLabel(problem: ProblemType) {
   return map[problem.type] ?? '题目'
 }
 
-function formatChoiceAnswer(problem: ProblemType, answers: number[]) {
-  if (!('choices' in problem)) return ''
-  return answers
-    .map((index) => {
-      const label = choicesLabels[index] ?? String(index + 1)
-      const content = problem.choices?.[index] ?? ''
-      return `${label}.${content}`
-    })
-    .join('，')
+function hasChoices(problem: ProblemType): problem is ChooseProblemType {
+  return 'choices' in problem && Array.isArray(problem.choices)
 }
 
-function formatCorrectAnswer(problem: ProblemType) {
-  if (problem.type === 3) {
+function getProblemChoices(problem: ProblemType) {
+  return hasChoices(problem) ? Array.from(problem.choices) : []
+}
+
+function getCorrectIndices(problem: ProblemType) {
+  if (problem.type === 1 || problem.type === 4) {
+    return [problem.answer]
+  }
+  if (problem.type === 2) {
     return problem.answer
   }
-  if (Array.isArray(problem.answer)) {
-    return formatChoiceAnswer(problem, problem.answer)
-  }
-  return formatChoiceAnswer(problem, [problem.answer])
+  return []
 }
 
-function formatUserAnswer(problem: ProblemType, answer: (number | string)[] | null) {
-  if (!answer || !answer.length) return '未作答'
-  if (problem.type === 3) {
-    return String(answer[0] ?? '')
+function getUserSelectedIndices(answer: (number | string)[] | null) {
+  if (!answer) return []
+  return answer.filter((value): value is number => typeof value === 'number')
+}
+
+function getWrongChoiceClass(problem: ProblemType, answer: (number | string)[] | null, index: number) {
+  const correct = getCorrectIndices(problem).includes(index)
+  const selected = getUserSelectedIndices(answer).includes(index)
+  return {
+    correct: selected && correct,
+    wrong: selected && !correct,
+    missed: !selected && correct,
+    incorrect: !correct
   }
-  const numbers = answer.filter((value): value is number => typeof value === 'number')
-  if (!numbers.length) return '未作答'
-  return formatChoiceAnswer(problem, numbers)
+}
+
+function formatFillUserAnswer(answer: (number | string)[] | null) {
+  if (!answer || !answer.length) return '未提交'
+  return String(answer[0] ?? '') || '未提交'
 }
 </script>
 
@@ -276,69 +285,81 @@ function formatUserAnswer(problem: ProblemType, answer: (number | string)[] | nu
       <Select v-model="selectedType" :options="typeOptions" optionLabel="label" optionValue="value" />
     </div>
 
-    <div v-if="filteredRecords.length === 0" class="empty">暂无错题</div>
+    <Card class="wrong-list-card">
+      <template #content>
+        <div v-if="filteredRecords.length === 0" class="empty">暂无错题</div>
 
-    <div v-else class="wrong-list">
-      <div class="wrong-toolbar">
-        <div class="toolbar-info">
-          <label class="select-all">
-            <Checkbox :binary="true" :modelValue="allSelected" @update:modelValue="toggleSelectAll" />
-            <span>全选</span>
-          </label>
-          <span class="selected-count">已选 {{ selectedCount }} 项</span>
-        </div>
-        <div class="toolbar-actions">
-          <Button label="删除选中" size="small" severity="danger" text :disabled="selectedCount === 0"
-            @click="handleDeleteSelected" />
-          <Button label="全部清空" size="small" severity="danger" outlined @click="handleDeleteAll" />
-        </div>
-      </div>
-
-      <div v-for="record in pagedRecords" :key="record.id" class="wrong-card">
-        <div class="wrong-header">
-          <label class="select-item">
-            <Checkbox :binary="true" :modelValue="selectedIds.has(record.id)"
-              @update:modelValue="toggleSelect(record.id)" />
-          </label>
-          <div class="wrong-title">
-            <div class="title-main">
-              {{ record.problem.content }}
-              <span class="type-badge">{{ getTypeLabel(record.problem) }}</span>
+        <div v-else class="wrong-list">
+          <div class="wrong-toolbar">
+            <div class="toolbar-info">
+              <label class="select-all">
+                <Checkbox :binary="true" :modelValue="allSelected" @update:modelValue="toggleSelectAll" />
+                <span>全选</span>
+              </label>
+              <span class="selected-count">已选 {{ selectedCount }} 项</span>
             </div>
-            <div class="title-meta">{{ formatTimestamp(record.updatedAt) }}</div>
-          </div>
-          <Button label="删除" size="small" severity="danger" text class="delete-btn"
-            @click="() => { removeWrongProblemsByIds(userId, [record.id]); loadRecords() }" />
-        </div>
-
-        <div class="wrong-body">
-          <div class="wrong-answers">
-            <div>
-              <span class="answer-label">正确答案：</span>
-              <span>{{ formatCorrectAnswer(record.problem) }}</span>
-            </div>
-            <div>
-              <span class="answer-label">作答：</span>
-              <span>{{ formatUserAnswer(record.problem, record.userAnswer) }}</span>
-            </div>
-            <div>
-              <span class="answer-label">来源：</span>
-              <span>{{ record.testTitle || `题库 ${record.testId}` }}</span>
+            <div class="toolbar-actions">
+              <Button label="删除选中" size="small" severity="danger" text :disabled="selectedCount === 0"
+                @click="handleDeleteSelected" />
+              <Button label="全部清空" size="small" severity="danger" outlined @click="handleDeleteAll" />
             </div>
           </div>
-        </div>
-      </div>
 
-      <div class="pagination">
-        <Paginator
-          :first="(currentPage - 1) * pageSize"
-          :rows="pageSize"
-          :totalRecords="filteredRecords.length"
-          template="PrevPageLink PageLinks NextPageLink"
-          @page="handlePage"
-        />
-      </div>
-    </div>
+          <div v-for="record in pagedRecords" :key="record.id" class="wrong-card">
+            <label class="select-item">
+              <Checkbox :binary="true" :modelValue="selectedIds.has(record.id)"
+                @update:modelValue="toggleSelect(record.id)" />
+            </label>
+            <div class="wrong-main">
+              <div class="wrong-header">
+                <div class="wrong-title">
+                  <div class="title-main">
+                    {{ record.problem.content }}
+                    <span class="type-badge">{{ getTypeLabel(record.problem) }}</span>
+                  </div>
+                  <div class="title-meta">
+                    {{ record.testTitle || `题库 ${record.testId}` }} @ {{ formatTimestamp(record.updatedAt) }}
+                  </div>
+                </div>
+                <Button label="删除" size="small" severity="danger" text class="delete-btn"
+                  @click="() => { removeWrongProblemsByIds(userId, [record.id]); loadRecords() }" />
+              </div>
+
+              <div class="wrong-body">
+                <div v-if="hasChoices(record.problem)" class="wrong-choices">
+                  <div
+                    v-for="(choice, idx) in getProblemChoices(record.problem)"
+                    :key="`${record.id}-${idx}`"
+                    :class="['wrong-choice-row', getWrongChoiceClass(record.problem, record.userAnswer, idx)]"
+                  >
+                    <span class="choice-label">{{ choicesLabels[idx] ?? String(idx + 1) }}. {{ choice }}</span>
+                  </div>
+                </div>
+                <div v-else class="fill-result">
+                  <div>
+                    <span class="fill-label">标准答案</span>
+                    <span>{{ record.problem.type === 3 ? record.problem.answer : '无需选择' }}</span>
+                  </div>
+                  <div>
+                    <span class="fill-label">提交内容</span>
+                    <span>{{ formatFillUserAnswer(record.userAnswer) }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <Paginator
+            class="wrong-paginator"
+            :first="(currentPage - 1) * pageSize"
+            :rows="pageSize"
+            :totalRecords="filteredRecords.length"
+            template="PrevPageLink PageLinks NextPageLink"
+            @page="handlePage"
+          />
+        </div>
+      </template>
+    </Card>
   </section>
 </template>
 
@@ -367,7 +388,7 @@ function formatUserAnswer(problem: ProblemType, answer: (number | string)[] | nu
 }
 
 .page-head h1 {
-  margin: 8px 0 6px;
+  margin: 4px 0 6px;
   font-size: 28px;
   color: var(--vtix-text-strong);
 }
@@ -382,6 +403,7 @@ function formatUserAnswer(problem: ProblemType, answer: (number | string)[] | nu
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--vtix-text-subtle);
+  margin-top: 4px;
 }
 
 .filters {
@@ -399,7 +421,19 @@ function formatUserAnswer(problem: ProblemType, answer: (number | string)[] | nu
 .wrong-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+}
+
+.wrong-list-card {
+  overflow: hidden;
+}
+
+.wrong-list-card :deep(.p-card-body) {
+  gap: 0;
+  padding: 0;
+}
+
+.wrong-list-card :deep(.p-card-content) {
+  padding: 0;
 }
 
 .wrong-toolbar {
@@ -409,6 +443,8 @@ function formatUserAnswer(problem: ProblemType, answer: (number | string)[] | nu
   gap: 12px;
   color: var(--vtix-text-muted);
   font-size: 13px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--vtix-border);
 }
 
 .toolbar-info {
@@ -440,25 +476,33 @@ function formatUserAnswer(problem: ProblemType, answer: (number | string)[] | nu
 }
 
 .wrong-card {
-  background: var(--vtix-surface);
-  border: 1px solid var(--vtix-border);
-  border-radius: 16px;
-  padding: 14px 18px;
-  box-shadow: 0 12px 24px var(--vtix-shadow);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  padding: 18px;
+}
+
+.wrong-card + .wrong-card {
+  border-top: 1px solid var(--vtix-border);
 }
 
 .wrong-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
 }
 
 .select-item {
   display: inline-flex;
   align-items: center;
+  padding-top: 2px;
+}
+
+.wrong-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .wrong-title {
@@ -503,15 +547,63 @@ function formatUserAnswer(problem: ProblemType, answer: (number | string)[] | nu
   white-space: pre-wrap;
 }
 
-.wrong-answers {
+.wrong-choices {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
+}
+
+.wrong-choice-row {
+  border: 1px solid var(--vtix-border-strong);
+  background: var(--vtix-surface);
+  padding: 8px 10px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  color: var(--vtix-text-strong);
+  font-size: 13px;
+  line-height: 1.45;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.wrong-choice-row.correct {
+  background: var(--vtix-success-bg);
+  border-color: var(--vtix-success-solid);
+}
+
+.wrong-choice-row.wrong {
+  background: var(--vtix-surface);
+  border-color: var(--vtix-danger-solid);
+}
+
+.wrong-choice-row.missed {
+  background: var(--vtix-warning-bg);
+  border-color: var(--vtix-warning-solid);
+}
+
+.wrong-choice-row.incorrect .choice-label {
+  color: var(--vtix-text-subtle);
+  opacity: 0.55;
+}
+
+.choice-label {
+  flex: 1;
+  text-align: left;
+  display: block;
+  width: 100%;
+}
+
+.fill-result {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   color: var(--vtix-text-muted);
   font-size: 13px;
 }
 
-.answer-label {
+.fill-label {
+  display: inline-block;
+  min-width: 64px;
   font-weight: 700;
   color: var(--vtix-text-strong);
 }
@@ -523,31 +615,25 @@ function formatUserAnswer(problem: ProblemType, answer: (number | string)[] | nu
 .empty {
   color: var(--vtix-text-subtle);
   text-align: center;
+  padding: 32px 18px;
 }
 
-.pagination {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-top: 8px;
+.wrong-paginator {
+  border-top: 1px solid var(--vtix-border);
+  border-radius: 0;
+  padding: 6px 10px;
+  font-size: 12px;
 }
 
-.pagination :deep(.p-paginator) {
-  border: none;
-  background: transparent;
-  gap: 8px;
+.wrong-paginator :deep(.p-paginator-page),
+.wrong-paginator :deep(.p-paginator-next),
+.wrong-paginator :deep(.p-paginator-prev) {
+  min-width: 2rem;
+  height: 2rem;
 }
 
-.pagination :deep(.p-paginator-page),
-.pagination :deep(.p-paginator-prev),
-.pagination :deep(.p-paginator-next) {
-  min-width: 32px;
-  height: 32px;
-  border-radius: 10px;
-}
-
-.pagination :deep(.p-paginator-pages .p-paginator-page) {
-  font-size: 14px;
+.wrong-paginator :deep(.p-select) {
+  height: 2rem;
 }
 
 @media (max-width: 900px) {

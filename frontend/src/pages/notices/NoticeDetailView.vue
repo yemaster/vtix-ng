@@ -2,6 +2,8 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Button from 'primevue/button'
+import Card from 'primevue/card'
+import Divider from 'primevue/divider'
 
 type NoticeDetail = {
   id: string
@@ -20,11 +22,10 @@ const loading = ref(false)
 const loadError = ref('')
 const notice = ref<NoticeDetail | null>(null)
 
-const createdTimeText = computed(() => formatFullTime(notice.value?.createdAt ?? 0))
 const metaText = computed(() => {
   const author = notice.value?.authorName ?? '--'
-  const created = createdTimeText.value || '--'
-  return `发布人：${author} · 发布时间：${created}`
+  const created = formatFullTime(notice.value?.createdAt ?? 0)
+  return `${author} @ ${created}`
 })
 const markdownHtml = computed(() => renderMarkdown(notice.value?.content ?? ''))
 
@@ -186,10 +187,9 @@ watch(notice, (current) => {
       <div>
         <div class="eyebrow">通知公告</div>
         <h1>{{ notice?.title || (loading ? '加载中' : '公告详情') }}</h1>
-        <p>{{ metaText }}</p>
       </div>
       <div class="head-actions">
-        <Button label="返回" severity="secondary" outlined @click="router.back()" />
+        <Button label="返回" severity="secondary" text @click="router.back()" />
       </div>
     </header>
 
@@ -198,18 +198,22 @@ watch(notice, (current) => {
       <div class="status-detail">{{ loadError }}</div>
     </div>
 
-    <section v-else class="notice-card">
-      <div v-if="loading" class="notice-skeleton">
-        <div class="skeleton-line title"></div>
-        <div class="skeleton-line meta"></div>
-        <div class="skeleton-block"></div>
-        <div class="skeleton-block short"></div>
-      </div>
-      <div v-else-if="notice" class="notice-content">
-        <div class="notice-body p-typography" v-html="markdownHtml"></div>
-      </div>
-      <div v-else class="empty">暂无公告</div>
-    </section>
+    <Card v-else class="notice-card">
+      <template #content>
+        <div v-if="loading" class="notice-skeleton">
+          <div class="skeleton-line title"></div>
+          <div class="skeleton-line meta"></div>
+          <div class="skeleton-block"></div>
+          <div class="skeleton-block short"></div>
+        </div>
+        <div v-else-if="notice" class="notice-content">
+          <div class="notice-body p-typography" v-html="markdownHtml"></div>
+          <Divider />
+          <div class="notice-meta">{{ metaText }}</div>
+        </div>
+        <div v-else class="empty">暂无公告</div>
+      </template>
+    </Card>
   </section>
 </template>
 
@@ -228,14 +232,9 @@ watch(notice, (current) => {
 }
 
 .page-head h1 {
-  margin: 8px 0 6px;
+  margin: 4px 0 6px;
   font-size: 30px;
   color: var(--vtix-text-strong);
-}
-
-.page-head p {
-  margin: 0;
-  color: var(--vtix-text-muted);
 }
 
 .eyebrow {
@@ -243,6 +242,7 @@ watch(notice, (current) => {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--vtix-text-subtle);
+  margin-top: 4px;
 }
 
 .head-actions {
@@ -252,15 +252,30 @@ watch(notice, (current) => {
 }
 
 .notice-card {
-  background: var(--vtix-surface);
-  border: 1px solid var(--vtix-border);
-  border-radius: 16px;
-  padding: 24px;
-  box-shadow: 0 20px 30px var(--vtix-shadow);
   min-height: 220px;
 }
 
+.notice-card :deep(.p-card-body) {
+  padding: 24px;
+}
+
+.notice-meta {
+  color: var(--vtix-text-muted);
+  font-size: 12px;
+}
+
+.notice-content {
+  min-height: 172px;
+  display: flex;
+  flex-direction: column;
+}
+
+.notice-content :deep(.p-divider) {
+  margin: 18px 0 14px;
+}
+
 .notice-body {
+  flex: 1;
   line-height: 1.7;
   color: var(--vtix-text-strong);
 }
@@ -362,7 +377,7 @@ watch(notice, (current) => {
     flex-direction: column;
   }
 
-  .notice-card {
+  .notice-card :deep(.p-card-body) {
     padding: 18px;
   }
 }

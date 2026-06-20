@@ -1017,7 +1017,10 @@ export const registerRecordRoutes = (app: Elysia) =>
         };
       }
       const rows = (await db
-        .select({ recordId: userRecords.recordId })
+        .select({
+          recordId: userRecords.recordId,
+          updatedAt: userRecords.updatedAt,
+        })
         .from(userRecords)
         .where(
           and(
@@ -1025,9 +1028,16 @@ export const registerRecordRoutes = (app: Elysia) =>
             inArray(userRecords.recordId, ids),
             sql`${userRecords.deletedAt} IS NULL`
           )
-        )) as Array<{ recordId: string }>;
+        )) as Array<{ recordId: string; updatedAt: number | null }>;
       return {
         ids: rows.map((row) => row.recordId),
+        records: rows.map((row) => ({
+          id: row.recordId,
+          updatedAt:
+            typeof row.updatedAt === "number" && Number.isFinite(row.updatedAt)
+              ? row.updatedAt
+              : null,
+        })),
         savedCount:
           Number.isFinite(savedCount) && savedCount > 0
             ? Math.floor(savedCount)

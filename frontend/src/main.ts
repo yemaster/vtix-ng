@@ -2,6 +2,7 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import PrimeVue from 'primevue/config'
 import Aura from '@primeuix/themes/aura'
+import ConfirmationService from 'primevue/confirmationservice'
 import ToastService from 'primevue/toastservice'
 import App from './App.vue'
 import Ripple from 'primevue/ripple'
@@ -55,6 +56,7 @@ app.use(PrimeVue, {
         }
     }
 })
+app.use(ConfirmationService)
 app.use(ToastService)
 app.directive('ripple', Ripple)
 app.directive('tooltip', Tooltip)

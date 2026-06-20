@@ -140,6 +140,15 @@ onMounted(() => {
 
         <div class="changelog-list">
           <article class="changelog-item">
+            <div class="changelog-date">2026-06-20 更新</div>
+            <ul>
+              <li>记录导入时，如果有冲突，可以选择 覆盖、保留两者、取消。</li>
+              <li>添加“不会”按钮。</li>
+              <li>优化了部分文字表述</li>
+              <li>优化了部分界面样式</li>
+            </ul>
+          </article>
+          <article class="changelog-item">
             <div class="changelog-date">2026-02-26 更新</div>
             <ul>
               <li>新增题库大乱斗模式，可以联机进行好友对决</li>
@@ -260,7 +269,7 @@ onMounted(() => {
 }
 
 .intro-block h1 {
-  margin: 8px 0 6px;
+  margin: 4px 0 6px;
   font-size: 30px;
   color: var(--vtix-text-strong);
 }
@@ -275,6 +284,7 @@ onMounted(() => {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--vtix-text-subtle);
+  margin-top: 4px;
 }
 
 .intro-text {

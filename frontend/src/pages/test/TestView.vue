@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Button from 'primevue/button'
+import Card from 'primevue/card'
 import Checkbox from 'primevue/checkbox'
 import InputText from 'primevue/inputtext'
 import Menu from 'primevue/menu'
@@ -1828,6 +1829,15 @@ function submitAnswer() {
   saveCurrentRecord()
 }
 
+function handleUnknownAnswer() {
+  if (!currentProblem.value) return
+  if (practiceMode.value === 5 && examSubmitted.value) return
+  if (isSubmitted.value && practiceMode.value !== 5) return
+  nowAnswer.value = []
+  writeAnswer.value = ''
+  submitAnswer()
+}
+
 function handleModeClick(mode: number) {
   if (mode === 4 && !wrongReviewAvailable.value) {
     return
@@ -2178,164 +2188,178 @@ watch(nowProblemId, () => {
         </section>
 
         <div class="main-grid" v-show="!showRecords">
-      <section class="custom-panel" v-if="showCustomConfig" v-show="!isMobile || viewMode === 'question'">
-        <div class="custom-head">
-          <span class="custom-title">自定义练习</span>
-          <p>选择题型与是否打乱题目顺序</p>
-        </div>
-        <div class="custom-section">
-          <div class="custom-label">题型选择</div>
-          <div class="custom-options">
-            <label v-for="option in customTypeOptions" :key="option.type" class="custom-option">
-              <Checkbox v-model="setType[option.type]" :binary="true" />
-              <span>{{ option.label }}</span>
+      <Card class="custom-panel" v-if="showCustomConfig" v-show="!isMobile || viewMode === 'question'">
+        <template #content>
+          <div class="custom-head">
+            <span class="custom-title">自定义练习</span>
+            <p>选择题型与是否打乱题目顺序</p>
+          </div>
+          <div class="custom-section">
+            <div class="custom-label">题型选择</div>
+            <div class="custom-options">
+              <label v-for="option in customTypeOptions" :key="option.type" class="custom-option">
+                <Checkbox v-model="setType[option.type]" :binary="true" />
+                <span>{{ option.label }}</span>
+              </label>
+            </div>
+          </div>
+          <div class="custom-section">
+            <label class="custom-option">
+              <Checkbox v-model="setShuffle" :binary="true" />
+              <span>打乱题目顺序与选项顺序</span>
             </label>
           </div>
-        </div>
-        <div class="custom-section">
-          <label class="custom-option">
-            <Checkbox v-model="setShuffle" :binary="true" />
-            <span>打乱题目顺序与选项顺序</span>
-          </label>
-        </div>
-        <div class="custom-actions">
-          <Button type="button" label="开始练习" :disabled="!hasCustomTypeSelected" @click="startCustomPractice" />
-        </div>
-      </section>
+          <div class="custom-actions">
+            <Button type="button" label="开始练习" :disabled="!hasCustomTypeSelected" @click="startCustomPractice" />
+          </div>
+        </template>
+      </Card>
 
-      <section class="question-panel" v-else v-show="!isMobile || viewMode === 'question'">
-        <div class="question-header">
-          <div style="display: flex; align-items: center; gap: 12px;">
-            <span class="question-type">{{ currentTypeLabel }}</span>
-            <div class="sync-tag">
-              <Tag
-                :value="syncStatusLabel"
-                :severity="syncStatusSeverity"
-                rounded
-                v-tooltip.bottom="syncStatusTooltipOptions"
-              />
+      <Card class="question-panel" v-else v-show="!isMobile || viewMode === 'question'">
+        <template #content>
+          <div class="question-header">
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <span class="question-type">{{ currentTypeLabel }}</span>
+              <div class="sync-tag">
+                <Tag
+                  :value="syncStatusLabel"
+                  :severity="syncStatusSeverity"
+                  rounded
+                  v-tooltip.bottom="syncStatusTooltipOptions"
+                />
+              </div>
+            </div>
+            <span class="question-index">{{ nowProblemList.length ? nowProblemId + 1 : 0 }}/{{ nowProblemList.length
+            }}</span>
+          </div>
+
+          <div class="question-content">
+            <span class="question-no">{{ nowProblemId + 1 }}.</span>
+            {{ currentProblem?.content }}
+          </div>
+          <div class="question-choices" v-if="currentProblem && currentProblem.type !== 3">
+            <label v-for="(choice, idx) in (currentProblem as ChooseProblemType).choices" :key="choice"
+              :class="['choice-row', 'p-ripple', getChoiceClass(idx)]" :for="`choice-${idx}`" v-ripple>
+              <RadioButton v-if="isSingleChoice" v-model="singleChoice" :inputId="`choice-${idx}`" :value="idx"
+                :disabled="isSubmitted" />
+              <Checkbox v-else-if="isMultiChoice" v-model="multiChoice" :inputId="`choice-${idx}`" :value="idx"
+                :disabled="isSubmitted" />
+              <span v-else class="choice-bullet" />
+              <span class="choice-label">
+                {{ choices[idx] }}. {{ choice }}
+              </span>
+            </label>
+          </div>
+          <div class="question-choices" v-else-if="currentProblem && currentProblem.type === 3">
+            <InputText v-model="writeAnswer" class="fill-input" placeholder="请输入答案，多个答案用逗号隔开" :disabled="isSubmitted"
+              @input="handleFillInput" />
+            <div v-if="showFillAnswer" class="fill-answer">
+              <span>正确答案：</span>
+              <span>{{ fillAnswerText }}</span>
             </div>
           </div>
-          <span class="question-index">{{ nowProblemList.length ? nowProblemId + 1 : 0 }}/{{ nowProblemList.length
-          }}</span>
-        </div>
-
-        <div class="question-content">
-          <span class="question-no">{{ nowProblemId + 1 }}.</span>
-          {{ currentProblem?.content }}
-        </div>
-        <div class="question-choices" v-if="currentProblem && currentProblem.type !== 3">
-          <label v-for="(choice, idx) in (currentProblem as ChooseProblemType).choices" :key="choice"
-            :class="['choice-row', 'p-ripple', getChoiceClass(idx)]" :for="`choice-${idx}`" v-ripple>
-            <RadioButton v-if="isSingleChoice" v-model="singleChoice" :inputId="`choice-${idx}`" :value="idx"
-              :disabled="isSubmitted" />
-            <Checkbox v-else-if="isMultiChoice" v-model="multiChoice" :inputId="`choice-${idx}`" :value="idx"
-              :disabled="isSubmitted" />
-            <span v-else class="choice-bullet" />
-            <span class="choice-label">
-              {{ choices[idx] }}. {{ choice }}
-            </span>
-          </label>
-        </div>
-        <div class="question-choices" v-else-if="currentProblem && currentProblem.type === 3">
-          <InputText v-model="writeAnswer" class="fill-input" placeholder="请输入答案，多个答案用逗号隔开" :disabled="isSubmitted"
-            @input="handleFillInput" />
-          <div v-if="showFillAnswer" class="fill-answer">
-            <span>正确答案：</span>
-            <span>{{ fillAnswerText }}</span>
+          <div class="question-choices" v-else>
+            <span class="placeholder">暂无题目</span>
           </div>
-        </div>
-        <div class="question-choices" v-else>
-          <span class="placeholder">暂无题目</span>
-        </div>
-        <div class="submit-row">
-          <Button v-if="!isSingleChoice" type="button" label="提交" @click="submitAnswer" />
-          <Button type="button" label="上一题" severity="secondary" :disabled="nowProblemId === 0"
-            @click="nowProblemId -= 1" />
-          <Button type="button" label="下一题" severity="secondary" :disabled="nowProblemId + 1 >= nowProblemList.length"
-            @click="nowProblemId += 1" />
-          <Button v-if="isExamMode" type="button" label="交卷" severity="success" :disabled="examSubmitted"
-            @click="submitExam" />
-          <Button
-            type="button"
-            label="开始新的"
-            severity="secondary"
-            class="restart-btn"
-            :disabled="!nowProblemList.length"
-            @click="restartCurrentMode"
-          />
-        </div>
-      </section>
+          <div class="submit-row">
+            <Button v-if="!isSingleChoice" type="button" label="提交" @click="submitAnswer" />
+            <Button
+              v-if="!isExamMode"
+              type="button"
+              label="不会"
+              class="unknown-btn"
+              :disabled="!currentProblem || isSubmitted"
+              @click="handleUnknownAnswer"
+            />
+            <Button type="button" label="上一题" severity="secondary" :disabled="nowProblemId === 0"
+              @click="nowProblemId -= 1" />
+            <Button type="button" label="下一题" severity="secondary" :disabled="nowProblemId + 1 >= nowProblemList.length"
+              @click="nowProblemId += 1" />
+            <Button v-if="isExamMode" type="button" label="交卷" severity="success" :disabled="examSubmitted"
+              @click="submitExam" />
+            <Button
+              type="button"
+              label="开始新的"
+              severity="secondary"
+              class="restart-btn"
+              :disabled="!nowProblemList.length"
+              @click="restartCurrentMode"
+            />
+          </div>
+        </template>
+      </Card>
 
-      <aside class="list-panel" v-show="(!isMobile || viewMode === 'list') && !showCustomConfig">
-        <div class="list-title">题目编号</div>
-        <div class="list-summary" v-if="!isMobile">
-          <span v-if="!isExamMode" class="summary-tag is-correct">正确 {{ correctCount }}</span>
-          <span v-else class="summary-tag is-answered">作答 {{ answeredCount }}</span>
-          <span class="summary-tag is-total">总计 {{ totalCount }}</span>
-          <span v-if="!isExamMode" class="summary-tag is-rate">{{ accuracyText }}</span>
-          <span v-else class="summary-tag is-time">{{ examDurationText }}</span>
-        </div>
-        <div v-if="isExamMode && examSubmitted" class="exam-result">
-          <div class="exam-score">得分 {{ examScore }} / {{ examMaxScore }}</div>
-          <div class="exam-score-sub">正确 {{ correctCount }} · 错误 {{ wrongCount }}</div>
-        </div>
-        <div v-if="isExamMode" class="exam-number-groups">
-          <div v-for="(group, groupIndex) in examNumberGroups" :key="group.key" class="exam-number-group">
-            <div class="exam-number-title">
-              <span class="exam-index">{{ cnNumbers[groupIndex] ?? groupIndex + 1 }}、</span>
-              <span>{{ group.label }}</span>
-              <span class="exam-meta">（{{ group.indices.length }}题，每题{{ group.score }}分）</span>
-            </div>
-            <div class="number-grid">
-              <div v-for="index in group.indices" :key="index" :class="[
-                'number-btn',
-                {
-                  active: index === nowProblemId,
-                  answered: problemState[index] === 1,
-                  correct: problemState[index] === 2,
-                  wrong: problemState[index] === 3
-                }
-              ]" role="button" tabindex="0" @click="
-                () => {
-                  nowProblemId = index
-                  viewMode = 'question'
-                }
-              " @keydown.enter="
-                () => {
-                  nowProblemId = index
-                  viewMode = 'question'
-                }
-              ">
-                {{ index + 1 }}
+      <Card class="list-panel" v-show="(!isMobile || viewMode === 'list') && !showCustomConfig">
+        <template #content>
+          <div class="list-title">题目编号</div>
+          <div class="list-summary" v-if="!isMobile">
+            <span v-if="!isExamMode" class="summary-tag is-correct">正确 {{ correctCount }}</span>
+            <span v-else class="summary-tag is-answered">作答 {{ answeredCount }}</span>
+            <span class="summary-tag is-total">总计 {{ totalCount }}</span>
+            <span v-if="!isExamMode" class="summary-tag is-rate">{{ accuracyText }}</span>
+            <span v-else class="summary-tag is-time">{{ examDurationText }}</span>
+          </div>
+          <div v-if="isExamMode && examSubmitted" class="exam-result">
+            <div class="exam-score">得分 {{ examScore }} / {{ examMaxScore }}</div>
+            <div class="exam-score-sub">正确 {{ correctCount }} · 错误 {{ wrongCount }}</div>
+          </div>
+          <div v-if="isExamMode" class="exam-number-groups">
+            <div v-for="(group, groupIndex) in examNumberGroups" :key="group.key" class="exam-number-group">
+              <div class="exam-number-title">
+                <span class="exam-index">{{ cnNumbers[groupIndex] ?? groupIndex + 1 }}、</span>
+                <span>{{ group.label }}</span>
+                <span class="exam-meta">（{{ group.indices.length }}题，每题{{ group.score }}分）</span>
+              </div>
+              <div class="number-grid">
+                <div v-for="index in group.indices" :key="index" :class="[
+                  'number-btn',
+                  {
+                    active: index === nowProblemId,
+                    answered: problemState[index] === 1,
+                    correct: problemState[index] === 2,
+                    wrong: problemState[index] === 3
+                  }
+                ]" role="button" tabindex="0" @click="
+                  () => {
+                    nowProblemId = index
+                    viewMode = 'question'
+                  }
+                " @keydown.enter="
+                  () => {
+                    nowProblemId = index
+                    viewMode = 'question'
+                  }
+                ">
+                  {{ index + 1 }}
+                </div>
               </div>
             </div>
           </div>
-        </div>
-        <div v-else class="number-grid">
-          <div v-for="(problem, index) in nowProblemList" :key="`${problem.type}-${index}`" :class="[
-            'number-btn',
-            {
-              active: index === nowProblemId,
-              answered: problemState[index] === 1,
-              correct: problemState[index] === 2,
-              wrong: problemState[index] === 3
-            }
-          ]" role="button" tabindex="0" @click="
-            () => {
-              nowProblemId = index
-              viewMode = 'question'
-            }
-          " @keydown.enter="
-            () => {
-              nowProblemId = index
-              viewMode = 'question'
-            }
-          ">
-            {{ index + 1 }}
+          <div v-else class="number-grid">
+            <div v-for="(problem, index) in nowProblemList" :key="`${problem.type}-${index}`" :class="[
+              'number-btn',
+              {
+                active: index === nowProblemId,
+                answered: problemState[index] === 1,
+                correct: problemState[index] === 2,
+                wrong: problemState[index] === 3
+              }
+            ]" role="button" tabindex="0" @click="
+              () => {
+                nowProblemId = index
+                viewMode = 'question'
+              }
+            " @keydown.enter="
+              () => {
+                nowProblemId = index
+                viewMode = 'question'
+              }
+            ">
+              {{ index + 1 }}
+            </div>
           </div>
-        </div>
-      </aside>
+        </template>
+      </Card>
         </div>
 
         <nav class="mobile-menu">
@@ -2431,7 +2455,7 @@ watch(nowProblemId, () => {
 }
 
 .page-head h1 {
-  margin: 8px 0 6px;
+  margin: 4px 0 6px;
   font-size: 32px;
   color: var(--vtix-text-strong);
   max-width: 100%;
@@ -2450,6 +2474,7 @@ watch(nowProblemId, () => {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--vtix-text-subtle);
+  margin-top: 4px;
 }
 
 .page-title {
@@ -2473,6 +2498,7 @@ watch(nowProblemId, () => {
   font-size: 14px;
   color: var(--vtix-text-muted);
   line-height: 1;
+  margin-top: 4px;
 }
 
 .back-link {
@@ -2663,11 +2689,19 @@ watch(nowProblemId, () => {
 .question-panel,
 .list-panel,
 .custom-panel {
-  background: var(--vtix-surface);
-  border: 1px solid var(--vtix-border);
-  border-radius: 16px;
+  overflow: hidden;
+}
+
+.question-panel :deep(.p-card-body),
+.list-panel :deep(.p-card-body),
+.custom-panel :deep(.p-card-body) {
   padding: 18px;
-  box-shadow: 0 16px 30px var(--vtix-shadow);
+}
+
+.question-panel :deep(.p-card-content),
+.list-panel :deep(.p-card-content),
+.custom-panel :deep(.p-card-content) {
+  padding: 0;
 }
 
 .question-header {
@@ -2714,6 +2748,10 @@ watch(nowProblemId, () => {
 }
 
 .custom-panel {
+  min-width: 0;
+}
+
+.custom-panel :deep(.p-card-content) {
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -2868,6 +2906,18 @@ watch(nowProblemId, () => {
 
 .submit-row :deep(.p-button) {
   flex: 0 0 auto;
+}
+
+.unknown-btn.p-button {
+  background: var(--vtix-warning-bg);
+  border-color: transparent;
+  color: var(--vtix-warning-text);
+}
+
+.unknown-btn.p-button:not(:disabled):hover {
+  background: var(--vtix-warning-bg);
+  border-color: transparent;
+  color: var(--vtix-warning-text);
 }
 
 .list-panel {

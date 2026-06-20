@@ -1,3 +1,12 @@
 .drawer-actions .action-btn.p-button {
   width: 100%;
 }
+
+:root[data-theme-style='paper'] .p-card {
+  border: 1px solid var(--vtix-border);
+  box-shadow: none;
+}
+
+.p-confirmdialog-message {
+  white-space: pre-line;
+}
