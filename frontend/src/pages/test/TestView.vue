@@ -29,6 +29,7 @@ import {
   upsertPracticeRecordsWithResult
 } from '../../base/practiceRecords'
 import { addWrongProblem, getWrongProblemsByTest } from '../../base/wrongProblems'
+import { getShortcutActionForEvent } from '../../base/testShortcuts'
 import {
   getStorageItem,
   getVtixStorage,
@@ -632,29 +633,44 @@ function handleKeydown(event: KeyboardEvent) {
   if (!currentProblem.value) return
   if (event.altKey || event.ctrlKey || event.metaKey) return
 
-  const key = event.key.toLowerCase()
-  if (key === 'enter') {
+  const action = getShortcutActionForEvent(event)
+  if (!action) return
+
+  if (action === 'submit') {
     event.preventDefault()
     event.stopPropagation()
     submitAnswer()
     return
   }
-  if (key === 'arrowleft') {
+  if (action === 'prev') {
+    event.preventDefault()
+    event.stopPropagation()
     if (nowProblemId.value > 0) {
       nowProblemId.value -= 1
     }
     return
   }
-  if (key === 'arrowright') {
+  if (action === 'next') {
+    event.preventDefault()
+    event.stopPropagation()
     if (nowProblemId.value + 1 < nowProblemList.value.length) {
       nowProblemId.value += 1
     }
     return
   }
+  if (action === 'exit') {
+    if (showRecords.value || showCustomConfig.value || viewMode.value !== 'question') {
+      event.preventDefault()
+      event.stopPropagation()
+      showRecords.value = false
+      showCustomConfig.value = false
+      viewMode.value = 'question'
+    }
+    return
+  }
 
-  const keyMap: Record<string, number> = { q: 0, w: 1, e: 2, r: 3, t: 4, y: 5 }
-  const choiceIndex = keyMap[key]
-  if (choiceIndex === undefined) return
+  const choiceIndex = Number(action.replace('choice', ''))
+  if (!Number.isInteger(choiceIndex)) return
 
   const choicesList = (currentProblem.value as ChooseProblemType).choices ?? []
   if (choiceIndex >= choicesList.length) return
@@ -1153,7 +1169,7 @@ function formatFileTimestamp(timestamp: number) {
   return `${date.getFullYear()}${month}${day}-${hours}${minutes}`
 }
 
-function shuffleList(list: ProblemType[]) {
+function shuffleList<T>(list: T[]) {
   const copy = deepCopy(list)
   for (let i = copy.length - 1; i > 0; i -= 1) {
     const j = Math.floor(Math.random() * (i + 1))
@@ -1211,6 +1227,10 @@ function shuffleProblemChoices(problem: ProblemType): ProblemType {
 function buildRandomizedList(list: ProblemType[]) {
   const copy = deepCopy(list).map((problem) => shuffleProblemChoices(problem))
   return shuffleList(copy)
+}
+
+function buildRandomizedExamProblems(list: ProblemType[]) {
+  return buildRandomizedList(list)
 }
 
 function applyExamRuntime(problemList: ProblemType[], scores: number[] = [], groups: ExamNumberGroup[] = []) {
@@ -1570,12 +1590,14 @@ function buildTestList() {
         score,
         indices: []
       }
-      for (let index = 0; index < base.length && group.indices.length < count; index += 1) {
-        if (used.has(index)) continue
-        const problem = base[index]
-        if (!problem || !allowedSet.has(problem.type)) continue
-        used.add(index)
-        list.push(problem)
+      const candidates = shuffleList(
+        base
+          .map((problem, index) => ({ problem, index }))
+          .filter((item) => !used.has(item.index) && allowedSet.has(item.problem.type))
+      )
+      for (const candidate of candidates.slice(0, count)) {
+        used.add(candidate.index)
+        list.push(shuffleProblemChoices(deepCopy(candidate.problem)))
         scores.push(score)
         group.indices.push(list.length - 1)
       }
@@ -1589,12 +1611,13 @@ function buildTestList() {
     }
   }
   if (typeof meta === 'number' && Number.isFinite(meta)) {
-    const list = base.slice(0, Math.min(meta, base.length))
+    const list = buildRandomizedExamProblems(base).slice(0, Math.min(meta, base.length))
     applyExamRuntime(list)
     return list
   }
-  applyExamRuntime(base)
-  return base
+  const list = buildRandomizedExamProblems(base)
+  applyExamRuntime(list)
+  return list
 }
 
 function choose(index: number) {

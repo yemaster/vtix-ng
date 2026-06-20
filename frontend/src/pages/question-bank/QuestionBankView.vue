@@ -46,38 +46,8 @@ const search = ref('')
 const debouncedSearch = ref('')
 let searchTimer: number | null = null
 const selectedCategory = ref('全部')
-const MOBILE_BREAKPOINT = 648
-const TABLET_BREAKPOINT = 968
-
-function getColumnCountByWidth(width: number) {
-  if (width <= MOBILE_BREAKPOINT) return 1
-  if (width <= TABLET_BREAKPOINT) return 2
-  return 3
-}
-
-function getPageSizeByWidth(width: number) {
-  const columns = getColumnCountByWidth(width)
-  if (columns === 1) return 4
-  if (columns === 2) return 6
-  return 9
-}
-
-const pageSize = ref(getPageSizeByWidth(typeof window === 'undefined' ? 1200 : window.innerWidth))
+const pageSize = ref(6)
 const currentPage = ref(1)
-
-function syncPageSizeByViewport() {
-  if (typeof window === 'undefined') return false
-  const nextPageSize = getPageSizeByWidth(window.innerWidth)
-  if (nextPageSize === pageSize.value) return false
-  const firstVisibleIndex = (currentPage.value - 1) * pageSize.value
-  pageSize.value = nextPageSize
-  currentPage.value = Math.floor(firstVisibleIndex / nextPageSize) + 1
-  return true
-}
-
-function handleResize() {
-  syncPageSizeByViewport()
-}
 
 function formatFullTime(timestamp: number) {
   if (!Number.isFinite(timestamp) || timestamp <= 0) {
@@ -222,12 +192,8 @@ async function handleRefresh() {
 }
 
 onMounted(() => {
-  window.addEventListener('resize', handleResize)
-  const changed = syncPageSizeByViewport()
   void loadCategories()
-  if (!changed) {
-    void loadItems()
-  }
+  void loadItems()
 })
 
 watch([currentPage, pageSize], () => {
@@ -241,7 +207,6 @@ onBeforeUnmount(() => {
   }
   itemsAbortController?.abort()
   categoryAbortController?.abort()
-  window.removeEventListener('resize', handleResize)
 })
 
 watch(search, (value) => {
@@ -346,16 +311,14 @@ watch(selectedCategory, () => {
           <div class="card-main">
             <div class="card-title">{{ item.title }}</div>
             <div class="card-info">
-              <div class="card-info-meta">
-                <div class="pill-group">
-                  <Tag v-for="category in item.categories" :key="category" :value="category" rounded />
-                </div>
-                <div class="card-meta">
-                  <span class="meta-owner">by {{ item.creatorName || '匿名' }}</span>
-                  <span class="meta-time" v-tooltip.bottom="formatFullTime(item.updatedAt ?? 0)">
-                    @{{ formatRelativeTime(item.updatedAt ?? 0) }}
-                  </span>
-                </div>
+              <div class="pill-group">
+                <Tag v-for="category in item.categories" :key="category" :value="category" rounded />
+              </div>
+              <div class="card-meta">
+                <span class="meta-owner">by {{ item.creatorName || '匿名' }}</span>
+                <span class="meta-time" v-tooltip.bottom="formatFullTime(item.updatedAt ?? 0)">
+                  @{{ formatRelativeTime(item.updatedAt ?? 0) }}
+                </span>
               </div>
             </div>
           </div>
@@ -403,7 +366,7 @@ watch(selectedCategory, () => {
 
 .page-head h1 {
   margin: 8px 0 6px;
-  font-size: 28px;
+  font-size: 32px;
   color: var(--vtix-text-strong);
 }
 
@@ -474,8 +437,9 @@ watch(selectedCategory, () => {
 }
 
 .cards {
-  column-count: 3;
-  column-gap: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .card {
@@ -488,8 +452,6 @@ watch(selectedCategory, () => {
   gap: 14px;
   box-shadow: 0 16px 30px var(--vtix-shadow);
   position: relative;
-  break-inside: avoid;
-  margin-bottom: 16px;
 }
 
 .card.recommended {
@@ -588,7 +550,7 @@ watch(selectedCategory, () => {
 .card-title {
   font-weight: 700;
   color: var(--vtix-text);
-  font-size: 20px;
+  font-size: 22px;
   line-height: 1.3;
   margin: 0;
 }
@@ -597,21 +559,15 @@ watch(selectedCategory, () => {
   margin-top: auto;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding-top: 12px;
-}
-
-.card-info-meta {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px 12px;
+  gap: 8px;
+  padding-top: 8px;
 }
 
 .card-meta {
   color: var(--vtix-text-subtle);
   font-size: 12px;
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
   line-height: 1.5;
@@ -701,15 +657,19 @@ watch(selectedCategory, () => {
   .page-head {
     flex-direction: column;
   }
-
-  .cards {
-    column-count: 2;
-  }
 }
 
 @media (max-width: 648px) {
+  .page-head h1 {
+    font-size: 28px;
+  }
+
   .cards {
-    column-count: 1;
+    gap: 12px;
+  }
+
+  .card-title {
+    font-size: 20px;
   }
 }
 </style>

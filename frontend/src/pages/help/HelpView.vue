@@ -1,3 +1,90 @@
+<script setup lang="ts">
+import { onBeforeUnmount, onMounted, ref } from 'vue'
+import {
+  DEFAULT_TEST_SHORTCUTS,
+  getShortcutDisplayLabel,
+  getTestShortcuts,
+  normalizeShortcutEventKey,
+  saveTestShortcuts,
+  type TestShortcutAction,
+  type TestShortcutMap
+} from '../../base/testShortcuts'
+
+const shortcutRows: Array<{ action: TestShortcutAction; label: string }> = [
+  { action: 'choice0', label: '选项 A' },
+  { action: 'choice1', label: '选项 B' },
+  { action: 'choice2', label: '选项 C' },
+  { action: 'choice3', label: '选项 D' },
+  { action: 'choice4', label: '选项 E' },
+  { action: 'choice5', label: '选项 F' },
+  { action: 'submit', label: '提交答案' },
+  { action: 'prev', label: '上一题' },
+  { action: 'next', label: '下一题' },
+  { action: 'exit', label: '退出浮层' }
+]
+
+const shortcuts = ref<TestShortcutMap>(getTestShortcuts())
+const editingShortcut = ref<TestShortcutAction | null>(null)
+const shortcutMessage = ref('')
+
+function beginShortcutEdit(action: TestShortcutAction) {
+  editingShortcut.value = action
+  shortcutMessage.value = '请按下新的快捷键'
+}
+
+function persistShortcuts(next: TestShortcutMap) {
+  const saved = saveTestShortcuts(next)
+  if (!saved) {
+    shortcutMessage.value = '保存失败，设置未修改'
+    return
+  }
+  shortcuts.value = next
+  shortcutMessage.value = '已保存'
+}
+
+function resetShortcuts() {
+  editingShortcut.value = null
+  persistShortcuts({ ...DEFAULT_TEST_SHORTCUTS })
+}
+
+function handleShortcutCapture(event: KeyboardEvent) {
+  if (!editingShortcut.value) return
+  event.preventDefault()
+  event.stopPropagation()
+
+  const key = normalizeShortcutEventKey(event)
+  if (!key) {
+    shortcutMessage.value = '不支持组合键或修饰键'
+    return
+  }
+
+  const action = editingShortcut.value
+  const conflict = shortcutRows.find(
+    (item) => item.action !== action && shortcuts.value[item.action] === key
+  )
+  if (conflict) {
+    shortcutMessage.value = `该按键已用于${conflict.label}`
+    return
+  }
+
+  const next = {
+    ...shortcuts.value,
+    [action]: key
+  }
+  editingShortcut.value = null
+  persistShortcuts(next)
+}
+
+onMounted(() => {
+  shortcuts.value = getTestShortcuts()
+  window.addEventListener('keydown', handleShortcutCapture, true)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleShortcutCapture, true)
+})
+</script>
+
 <template>
   <section class="help-page">
     <section class="intro-block">
@@ -10,21 +97,18 @@
         <div class="quick-index">01</div>
         <div>
           <div class="quick-title">选择题库</div>
-          <p>题库页支持标签与关键词筛选，快速找到目标内容。</p>
         </div>
       </article>
       <article class="quick-card">
         <div class="quick-index">02</div>
         <div>
           <div class="quick-title">开始练习</div>
-          <p>顺序、乱序、错题回顾与模拟考试自由切换。</p>
         </div>
       </article>
       <article class="quick-card">
         <div class="quick-index">03</div>
         <div>
           <div class="quick-title">复盘管理</div>
-          <p>错题自动沉淀，记录导出/导入与云端同步。</p>
         </div>
       </article>
     </section>
@@ -34,7 +118,6 @@
         <section class="qa-section feedback-section">
           <div class="section-head">
             <h2>问题反馈 & 提交建议</h2>
-            <p>欢迎提交您的意见让我们做得更好</p>
           </div>
           <article class="qa-item feedback-card">
             <div class="feedback-grid">
@@ -46,12 +129,12 @@
               >
                 <div class="feedback-label">交流 QQ 群</div>
                 <div class="feedback-value">1082797665</div>
-                <div class="feedback-hint">点击加入，适合问题讨论与建议收集</div>
+                <div class="feedback-hint">适合问题讨论与建议收集</div>
               </a>
               <div class="feedback-channel">
                 <div class="feedback-label">作者 QQ</div>
                 <div class="feedback-value">1440169768</div>
-                <div class="feedback-hint">可直接反馈 bug、需求和使用问题</div>
+                <div class="feedback-hint">反馈 bug、需求和使用问题</div>
               </div>
               <a
                 class="feedback-channel is-link"
@@ -61,18 +144,14 @@
               >
                 <div class="feedback-label">项目 Github</div>
                 <div class="feedback-value">yemaster/vtix-ng</div>
-                <div class="feedback-hint">欢迎提交 Issue 和 PR</div>
+                <div class="feedback-hint">提交 Issue 和 PR</div>
               </a>
-            </div>
-            <div class="feedback-tip">
-              建议反馈时附上题库编号、页面路径、复现步骤和报错截图，处理会更快。
             </div>
           </article>
         </section>
         <section class="qa-section">
           <div class="section-head">
             <h2>常见问题 Q&A</h2>
-            <p>快速解决练习与记录相关的疑问。</p>
           </div>
           <div class="qa-list">
             <article class="qa-item">
@@ -111,25 +190,27 @@
 
       <aside class="side-panel">
         <div class="panel">
-          <div class="panel-title">快捷键速查</div>
+          <div class="panel-title-row">
+            <div class="panel-title">快捷键</div>
+            <button type="button" class="shortcut-reset" @click="resetShortcuts">恢复默认</button>
+          </div>
           <div class="shortcut-grid">
-            <div class="shortcut-item">
-              <span class="shortcut-key">Q/W/E/R</span>
-              <span class="shortcut-text">选择选项</span>
-            </div>
-            <div class="shortcut-item">
-              <span class="shortcut-key">Enter</span>
-              <span class="shortcut-text">提交答案</span>
-            </div>
-            <div class="shortcut-item">
-              <span class="shortcut-key">← / →</span>
-              <span class="shortcut-text">切换题目</span>
-            </div>
-            <div class="shortcut-item">
-              <span class="shortcut-key">Esc</span>
-              <span class="shortcut-text">退出浮层</span>
+            <div v-for="item in shortcutRows" :key="item.action" class="shortcut-item">
+              <button
+                type="button"
+                :class="['shortcut-key', { editing: editingShortcut === item.action }]"
+                @click="beginShortcutEdit(item.action)"
+              >
+                {{
+                  editingShortcut === item.action
+                    ? '按键中'
+                    : getShortcutDisplayLabel(shortcuts[item.action])
+                }}
+              </button>
+              <span class="shortcut-text">{{ item.label }}</span>
             </div>
           </div>
+          <div v-if="shortcutMessage" class="shortcut-message">{{ shortcutMessage }}</div>
         </div>
 
         <div class="panel">
@@ -139,11 +220,6 @@
             <li>错题管理支持批量删除与分题库筛选。</li>
             <li>云端同步开启后，跨设备可继续练习。</li>
           </ul>
-        </div>
-
-        <div class="panel highlight">
-          <div class="panel-title">小贴士</div>
-          <p>建议每次练习后查看“错题管理”，标注重点题并快速回顾。</p>
         </div>
       </aside>
     </section>
@@ -230,7 +306,6 @@
 .quick-title {
   font-weight: 700;
   color: var(--vtix-text-strong);
-  margin-bottom: 4px;
 }
 
 .quick-card p {
@@ -248,9 +323,6 @@
 }
 
 .section-head {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
   margin-bottom: 12px;
 }
 
@@ -258,12 +330,6 @@
   margin: 0;
   font-size: 18px;
   color: var(--vtix-text-strong);
-}
-
-.section-head p {
-  margin: 0;
-  font-size: 13px;
-  color: var(--vtix-text-muted);
 }
 
 .guide-grid {
@@ -311,6 +377,14 @@
   gap: 12px;
 }
 
+.feedback-section {
+  margin-top: 0;
+}
+
+.feedback-card {
+  gap: 12px;
+}
+
 .qa-list {
   display: grid;
   gap: 12px;
@@ -326,25 +400,30 @@
   gap: 8px;
 }
 
-.feedback-card {
-  gap: 12px;
-}
-
 .feedback-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 10px;
+  gap: 14px;
 }
 
 .feedback-channel {
-  border: 1px solid var(--vtix-border-strong);
-  background: var(--vtix-surface-2);
-  border-radius: 12px;
-  padding: 12px;
+  background: transparent;
+  padding: 0 12px 0 0;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  min-height: 96px;
+  min-height: 72px;
+  position: relative;
+}
+
+.feedback-channel:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  right: 0;
+  bottom: 2px;
+  width: 1px;
+  background: var(--vtix-border-strong);
 }
 
 .feedback-channel.is-link {
@@ -354,8 +433,7 @@
 }
 
 .feedback-channel.is-link:hover {
-  background: var(--vtix-surface-5);
-  border-color: var(--vtix-border);
+  color: var(--vtix-primary-700);
 }
 
 .feedback-label {
@@ -376,16 +454,6 @@
   font-size: 12px;
   color: var(--vtix-text-muted);
   line-height: 1.5;
-}
-
-.feedback-tip {
-  border: 1px dashed var(--vtix-border-strong);
-  background: var(--vtix-surface-2);
-  border-radius: 12px;
-  padding: 10px 12px;
-  font-size: 12px;
-  color: var(--vtix-text-muted);
-  line-height: 1.6;
 }
 
 .qa-q {
@@ -425,6 +493,29 @@
   font-size: 14px;
 }
 
+.panel-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.shortcut-reset {
+  border: 1px solid var(--vtix-border-strong);
+  background: var(--vtix-surface-2);
+  color: var(--vtix-text-muted);
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.shortcut-reset:hover {
+  color: var(--vtix-text-strong);
+  border-color: var(--vtix-border);
+  background: var(--vtix-surface-5);
+}
+
 .shortcut-grid {
   display: grid;
   gap: 10px;
@@ -448,6 +539,22 @@
   border: 1px solid var(--vtix-border-strong);
   min-width: 72px;
   text-align: center;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.shortcut-key:hover,
+.shortcut-key.editing {
+  color: var(--vtix-primary-700);
+  border-color: var(--vtix-primary-300);
+  background: var(--vtix-primary-50);
+}
+
+.shortcut-message {
+  color: var(--vtix-text-subtle);
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .panel-list {
@@ -459,18 +566,6 @@
   gap: 6px;
 }
 
-.panel.highlight {
-  background: linear-gradient(135deg, var(--vtix-primary-50) 0%, var(--vtix-primary-100) 100%);
-  border-color: var(--vtix-primary-200);
-}
-
-.panel.highlight p {
-  margin: 0;
-  color: var(--vtix-text-strong);
-  font-size: 13px;
-  line-height: 1.6;
-}
-
 @media (max-width: 900px) {
   .content-grid {
     grid-template-columns: 1fr;
@@ -478,6 +573,19 @@
 
   .side-panel {
     position: static;
+  }
+
+  .feedback-grid {
+    gap: 12px;
+  }
+
+  .feedback-channel {
+    min-height: 0;
+    padding: 0;
+  }
+
+  .feedback-channel:not(:last-child)::after {
+    display: none;
   }
 }
 </style>
