@@ -36,7 +36,7 @@ a {
 
 ::selection {
   background: var(--vtix-text-strong);
-  color: var(--vtix-inverse-text);
+  color: var(--vtix-select-text);
 }
 
 .sr-only {
