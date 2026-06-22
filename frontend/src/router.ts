@@ -80,7 +80,7 @@ const router = createRouter({
                     path: 'user/:name/edit',
                     name: 'user-edit',
                     component: () => import('./pages/profile/EditProfileView.vue'),
-                    meta: { title: '编辑资料' }
+                    meta: { title: '设置' }
                 },
                 {
                     path: 'wrong-problems',

@@ -164,7 +164,7 @@ const userMenuItems = computed<DrawerMenuItem[]>(() => {
         })
     },
     {
-      label: '编辑资料',
+      label: '设置',
       icon: 'pi pi-user-edit',
       command: () =>
         router.push({

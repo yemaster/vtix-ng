@@ -8,6 +8,8 @@ import { registerStatsRoutes } from "./stats";
 import { registerVersionRoutes } from "./version";
 import { registerMessageRoutes } from "./messages";
 import { registerBrawlRoutes } from "./brawl";
+import { registerAiRoutes } from "./ai";
+import { registerAiSettingsRoutes } from "./ai-settings";
 
 export const registerRoutes = (app: Elysia) =>
   app
@@ -17,6 +19,8 @@ export const registerRoutes = (app: Elysia) =>
     .use(registerNoticeRoutes)
     .use(registerBrawlRoutes)
     .use(registerMessageRoutes)
+    .use(registerAiRoutes)
+    .use(registerAiSettingsRoutes)
     .use(registerAdminRoutes)
     .use(registerProblemSetRoutes)
     .use(registerRecordRoutes);

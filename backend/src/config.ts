@@ -9,6 +9,10 @@ type FileConfig = {
   adminName?: string;
   adminEmail?: string;
   adminPassword?: string;
+  aiApiBase?: string;
+  aiApiKey?: string;
+  aiModel?: string;
+  aiRequestTimeoutMs?: number;
 };
 
 function loadFileConfig(): FileConfig {
@@ -45,5 +49,17 @@ export const appConfig = {
   ).trim(),
   adminPassword: String(
     process.env.ADMIN_PASSWORD ?? fileConfig.adminPassword ?? "admin1234"
+  ),
+  aiApiBase: String(
+    process.env.AI_API_BASE ??
+      fileConfig.aiApiBase ??
+      "https://api.llm.ustc.edu.cn/v1"
+  ).trim(),
+  aiApiKey: String(process.env.AI_API_KEY ?? fileConfig.aiApiKey ?? "").trim(),
+  aiModel: String(
+    process.env.AI_MODEL ?? fileConfig.aiModel ?? "deepseek-v4-flash-ascend"
+  ).trim(),
+  aiRequestTimeoutMs: Number(
+    process.env.AI_REQUEST_TIMEOUT_MS ?? fileConfig.aiRequestTimeoutMs ?? 30000
   ),
 };

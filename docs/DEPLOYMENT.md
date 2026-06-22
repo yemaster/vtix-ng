@@ -29,6 +29,10 @@ ADMIN_PASSWORD=admin1234
 COOKIE_SECURE=true|false
 NODE_ENV=production
 DEFAULT_USER_PASSWORD=vtix1234
+AI_API_BASE=https://api.llm.ustc.edu.cn/v1
+AI_API_KEY=<your-api-key>
+AI_MODEL=deepseek-v4-flash-ascend
+AI_REQUEST_TIMEOUT_MS=30000
 ```
 
 **config.json 示例**
@@ -38,7 +42,11 @@ DEFAULT_USER_PASSWORD=vtix1234
   "sqlitePath": "data/vtix.db",
   "adminName": "Admin",
   "adminEmail": "admin@vtix.dev",
-  "adminPassword": "admin1234"
+  "adminPassword": "admin1234",
+  "aiApiBase": "https://api.llm.ustc.edu.cn/v1",
+  "aiApiKey": "",
+  "aiModel": "deepseek-v4-flash-ascend",
+  "aiRequestTimeoutMs": 30000
 }
 ```
 

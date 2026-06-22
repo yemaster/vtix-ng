@@ -199,6 +199,146 @@
 { "ok": true }
 ```
 
+## AI 题目解析
+
+### 生成做题解析
+`POST /api/ai/problem-explanation`
+
+**需要登录**
+
+**Body**
+```json
+{
+  "testId": "string",
+  "testTitle": "string",
+  "questionIndex": 1,
+  "problem": {
+    "type": 1,
+    "content": "string",
+    "choices": ["A", "B", "C", "D"],
+    "answer": 0,
+    "hint": "string"
+  },
+  "userAnswer": [0]
+}
+```
+
+**Response**
+
+成功时返回 `text/event-stream`，前端可边生成边展示。事件格式：
+
+```text
+event: token
+data: {"delta":"本次新增文本"}
+
+event: model
+data: {"model":"deepseek-v4-flash-ascend"}
+
+event: done
+data: {"explanation":"完整解析","model":"deepseek-v4-flash-ascend","usage":null}
+```
+
+上游调用失败时，接口会在事件流中返回：
+
+```text
+event: error
+data: {"error":"错误信息","status":502}
+```
+
+未登录仍返回普通 JSON：
+
+```json
+{ "error": "Unauthorized" }
+```
+
+**错误**
+- `400`：题目参数不合法
+- `401`：未登录
+- `503`：后端未配置 `AI_API_KEY`
+- `502`：上游 AI 接口请求失败或返回格式异常
+
+### 获取个人 AI 配置
+`GET /api/me/ai-settings`
+
+**需要登录**
+
+**说明**
+- 默认服务商为服务器配置的学校大模型平台。
+- 用户可保存自己的 API Key。
+- 用户切换到其他服务商时，可填写 OpenAI 兼容地址，例如 `https://api.example.com/v1`，或 Anthropic 官方地址，例如 `https://api.anthropic.com`。
+- 用户可显式选择 `openai` 或 `anthropic` 协议；旧配置未保存协议时，后端才会按地址和模型名推断。
+
+**Response**
+```json
+{
+  "aiApiBase": "string",
+  "aiProtocol": "openai",
+  "aiModel": "string",
+  "aiRequestTimeoutMs": 30000,
+  "hasApiKey": true,
+  "modelOptions": [
+    { "label": "deepseek-v4-flash-ascend", "value": "deepseek-v4-flash-ascend" }
+  ],
+  "defaults": {
+    "aiApiBase": "https://api.llm.ustc.edu.cn/v1",
+    "aiProtocol": "openai",
+    "aiModel": "deepseek-v4-flash-ascend",
+    "aiRequestTimeoutMs": 30000
+  }
+}
+```
+
+### 更新个人 AI 配置
+`PUT /api/me/ai-settings`
+
+**需要登录**
+
+**Body**
+```json
+{
+  "aiApiBase": "https://api.example.com/v1",
+  "aiProtocol": "openai",
+  "aiModel": "deepseek-chat",
+  "aiRequestTimeoutMs": 30000,
+  "aiApiKey": "string"
+}
+```
+
+> `aiApiKey` 省略表示保留原密钥，传空字符串表示清除密钥。学校平台模式下前端会提交空 `aiApiBase`，后端回退到服务器默认学校平台地址。
+
+### 获取可用 AI 模型
+`POST /api/me/ai-models`
+
+**需要登录**
+
+通过后端使用当前用户保存的 API Key 或服务器默认 API Key 请求上游模型列表，前端不直接接触第三方服务商。
+
+**Body**
+```json
+{
+  "aiApiBase": "https://api.example.com/v1",
+  "aiProtocol": "openai",
+  "aiRequestTimeoutMs": 30000,
+  "aiApiKey": "string"
+}
+```
+
+**说明**
+- `aiProtocol` 可选值为 `openai` 或 `anthropic`。
+- `aiApiKey` 省略表示使用已保存密钥；传入非空值可用于保存前预览模型列表。
+- OpenAI 兼容协议会请求 `{aiApiBase}/models`。
+- Anthropic 协议会请求 `{aiApiBase}/v1/models`；如果地址已以 `/v1` 结尾，则请求 `{aiApiBase}/models`。
+
+**Response**
+```json
+{
+  "protocol": "openai",
+  "modelOptions": [
+    { "label": "deepseek-v4-flash-ascend", "value": "deepseek-v4-flash-ascend" }
+  ]
+}
+```
+
 ## 题库（公开/个人/管理）
 
 ### 获取公开题库列表
