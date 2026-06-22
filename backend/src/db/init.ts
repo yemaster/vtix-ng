@@ -176,6 +176,18 @@ function ensureSqliteBrawlRecordIndexes(
   );
 }
 
+function ensureSqliteUserAiProtocolColumn(
+  client: ReturnType<typeof assertSqliteClient>
+) {
+  const columns = client
+    .prepare("PRAGMA table_info(user_ai_configs)")
+    .all() as Array<{ name?: string }>;
+  const hasColumn = columns.some((column) => column.name === "ai_protocol");
+  if (!hasColumn) {
+    client.exec("ALTER TABLE user_ai_configs ADD COLUMN ai_protocol TEXT;");
+  }
+}
+
 async function ensureMysqlNoticePinnedColumn() {
   try {
     await execMysql(
@@ -366,6 +378,19 @@ async function ensureMysqlBrawlRecordIndexes() {
   }
 }
 
+async function ensureMysqlUserAiProtocolColumn() {
+  try {
+    await execMysql(
+      "ALTER TABLE user_ai_configs ADD COLUMN ai_protocol VARCHAR(32);"
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.toLowerCase().includes("duplicate column")) {
+      throw error;
+    }
+  }
+}
+
 async function ensureSqliteTables() {
   const client = assertSqliteClient();
   client.exec("PRAGMA foreign_keys = ON;");
@@ -454,6 +479,19 @@ async function ensureSqliteTables() {
   ensureSqliteMessagesReadColumn(client);
   ensureSqliteUserRecordsDataColumn(client);
   ensureSqliteUserRecordsSyncColumns(client);
+  client.exec(`
+    CREATE TABLE IF NOT EXISTS user_ai_configs (
+      user_id INTEGER PRIMARY KEY,
+      ai_api_base TEXT,
+      ai_api_key TEXT,
+      ai_protocol TEXT,
+      ai_model TEXT,
+      ai_request_timeout_ms INTEGER,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+  `);
+  ensureSqliteUserAiProtocolColumn(client);
   client.exec(`
     CREATE TABLE IF NOT EXISTS problem_sets (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -617,6 +655,20 @@ async function ensureMysqlTables() {
   await ensureMysqlMessagesReadColumn();
   await ensureMysqlUserRecordsDataColumn();
   await ensureMysqlUserRecordsSyncColumns();
+  await execMysql(`
+    CREATE TABLE IF NOT EXISTS user_ai_configs (
+      user_id INT PRIMARY KEY,
+      ai_api_base VARCHAR(1024),
+      ai_api_key VARCHAR(512),
+      ai_protocol VARCHAR(32),
+      ai_model VARCHAR(128),
+      ai_request_timeout_ms INT,
+      updated_at BIGINT NOT NULL,
+      CONSTRAINT fk_user_ai_configs_user_id FOREIGN KEY (user_id)
+        REFERENCES users(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+  await ensureMysqlUserAiProtocolColumn();
   await execMysql(`
     CREATE TABLE IF NOT EXISTS problem_sets (
       id INT AUTO_INCREMENT PRIMARY KEY,

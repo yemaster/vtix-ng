@@ -5,12 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/gen-build-info.mjs && vue-tsc -b && vite build",
+    "build": "node scripts/gen-build-info.mjs && node ./node_modules/vue-tsc/bin/vue-tsc.js -b && node ./node_modules/vite/bin/vite.js build",
     "preview": "vite preview"
   },
   "dependencies": {
     "@fontsource/manrope": "^5.2.8",
     "@primeuix/themes": "^2.0.3",
+    "marked": "^18.0.5",
     "nprogress": "^0.2.0",
     "pinia": "^3.0.4",
     "primeicons": "^7.0.0",

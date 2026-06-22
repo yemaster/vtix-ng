@@ -181,3 +181,15 @@ export const brawlRecords = sqliteTable("brawl_records", {
   winnerName: text("winner_name"),
   createdAt: integer("created_at").notNull(),
 });
+
+export const userAiConfigs = sqliteTable("user_ai_configs", {
+  userId: integer("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  aiApiBase: text("ai_api_base"),
+  aiApiKey: text("ai_api_key"),
+  aiProtocol: text("ai_protocol"),
+  aiModel: text("ai_model"),
+  aiRequestTimeoutMs: integer("ai_request_timeout_ms"),
+  updatedAt: integer("updated_at").notNull(),
+});

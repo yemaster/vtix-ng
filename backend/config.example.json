@@ -5,5 +5,9 @@
   "sqlitePath": "data/vtix.db",
   "adminName": "Admin",
   "adminEmail": "admin@vtix.dev",
-  "adminPassword": "admin1234"
+  "adminPassword": "admin1234",
+  "aiApiBase": "https://api.llm.ustc.edu.cn/v1",
+  "aiApiKey": "",
+  "aiModel": "deepseek-v4-flash-ascend",
+  "aiRequestTimeoutMs": 30000
 }

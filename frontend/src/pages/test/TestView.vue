@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { marked } from 'marked'
 import Button from 'primevue/button'
 import Card from 'primevue/card'
 import Checkbox from 'primevue/checkbox'
@@ -29,6 +30,12 @@ import {
   readPracticeRecords,
   upsertPracticeRecordsWithResult
 } from '../../base/practiceRecords'
+import {
+  buildProblemExplanationKey,
+  getCachedProblemExplanation,
+  setCachedProblemExplanation,
+  type CachedProblemExplanation
+} from '../../base/problemExplanations'
 import { addWrongProblem, getWrongProblemsByTest } from '../../base/wrongProblems'
 import { getShortcutActionForEvent } from '../../base/testShortcuts'
 import {
@@ -39,6 +46,7 @@ import {
   setStorageItem
 } from '../../base/vtixGlobal'
 import { useUserStore } from '../../stores/user'
+import { pushLoginRequired } from '../../utils/auth'
 import { formatRelativeTimeFromNow } from '../../utils/datetime'
 
 type ProblemListType = {
@@ -207,6 +215,21 @@ const currentTypeLabel = computed(() => {
   const type = currentProblem.value?.type ?? 0
   return problemTypes[type] ?? '题目'
 })
+const aiExplanationByKey = ref<Record<string, CachedProblemExplanation>>({})
+const aiExplanationErrorByKey = ref<Record<string, string>>({})
+const aiExplanationLoadingKey = ref('')
+const currentExplanationKey = computed(() =>
+  currentProblem.value ? buildProblemExplanationKey(testId, currentProblem.value) : ''
+)
+const currentAiExplanation = computed(() =>
+  currentExplanationKey.value ? aiExplanationByKey.value[currentExplanationKey.value] ?? null : null
+)
+const currentAiExplanationError = computed(() =>
+  currentExplanationKey.value ? aiExplanationErrorByKey.value[currentExplanationKey.value] ?? '' : ''
+)
+const isAiExplanationLoading = computed(
+  () => Boolean(currentExplanationKey.value) && aiExplanationLoadingKey.value === currentExplanationKey.value
+)
 
 const isSubmitted = computed(() => (problemState.value[nowProblemId.value] ?? 0) >= 2)
 const isSingleChoice = computed(
@@ -220,6 +243,20 @@ const fillAnswerText = computed(() => {
   if (!currentProblem.value || currentProblem.value.type !== 3) return ''
   return formatFillAnswer(currentProblem.value)
 })
+
+watch(
+  currentExplanationKey,
+  (key) => {
+    if (!key) return
+    const cached = getCachedProblemExplanation(key)
+    if (!cached) return
+    aiExplanationByKey.value = {
+      ...aiExplanationByKey.value,
+      [key]: cached
+    }
+  },
+  { immediate: true }
+)
 const examTypeOptions = [
   { label: '单选题', problemType: 1, mask: 1 },
   { label: '多选题', problemType: 2, mask: 2 },
@@ -482,6 +519,9 @@ const examDurationText = computed(() => {
 
 const isExamMode = computed(() => practiceMode.value === 5)
 const examSubmitted = ref(false)
+const canRequestAiExplanation = computed(() =>
+  Boolean(currentProblem.value) && (!isExamMode.value || examSubmitted.value)
+)
 
 const progressText = computed(() => {
   const total = nowProblemList.value.length
@@ -1838,6 +1878,202 @@ function handleUnknownAnswer() {
   submitAnswer()
 }
 
+function setAiExplanationError(key: string, message: string) {
+  aiExplanationErrorByKey.value = {
+    ...aiExplanationErrorByKey.value,
+    [key]: message
+  }
+}
+
+function clearAiExplanationError(key: string) {
+  const next = { ...aiExplanationErrorByKey.value }
+  delete next[key]
+  aiExplanationErrorByKey.value = next
+}
+
+function normalizeAiError(message: string) {
+  if (message.includes('AI_API_KEY')) {
+    return 'AI 解析未配置，请先在后端配置 AI_API_KEY'
+  }
+  return message || 'AI 解析失败'
+}
+
+async function requestAiExplanation() {
+  const problem = currentProblem.value
+  const key = currentExplanationKey.value
+  if (!problem || !key || isAiExplanationLoading.value) return
+  if (!canRequestAiExplanation.value) {
+    setAiExplanationError(key, '模拟考试交卷后才能查看 AI 解析')
+    return
+  }
+  if (!userStore.user) {
+    void pushLoginRequired(router)
+    return
+  }
+  if (nextProblemTimer !== null) {
+    window.clearTimeout(nextProblemTimer)
+    nextProblemTimer = null
+  }
+  const cached = getCachedProblemExplanation(key)
+  if (cached) {
+    aiExplanationByKey.value = {
+      ...aiExplanationByKey.value,
+      [key]: cached
+    }
+    clearAiExplanationError(key)
+    return
+  }
+
+  aiExplanationLoadingKey.value = key
+  clearAiExplanationError(key)
+  let streamedExplanation = ''
+  let streamedModel: string | undefined
+  const updateStreamedExplanation = () => {
+    aiExplanationByKey.value = {
+      ...aiExplanationByKey.value,
+      [key]: {
+        explanation: streamedExplanation,
+        model: streamedModel,
+        updatedAt: Date.now()
+      }
+    }
+  }
+  try {
+    const userAnswer =
+      problem.type === 3 && writeAnswer.value.trim()
+        ? [normalizeFill(writeAnswer.value)]
+        : [...nowAnswer.value]
+    const response = await fetch(`${apiBase}/api/ai/problem-explanation`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        testId,
+        testTitle: testTitle.value,
+        questionIndex: nowProblemId.value + 1,
+        problem,
+        userAnswer
+      })
+    })
+    if (response.status === 401) {
+      void pushLoginRequired(router)
+      return
+    }
+    if (!response.ok) {
+      const message = await readResponseErrorMessage(response, `AI 解析失败: ${response.status}`)
+      throw new Error(message)
+    }
+    if (!response.body) {
+      throw new Error('AI 返回内容为空')
+    }
+
+    const decoder = new TextDecoder()
+    const reader = response.body.getReader()
+    let buffer = ''
+    const streamState: {
+      donePayload: { explanation?: unknown; model?: unknown } | null
+    } = {
+      donePayload: null
+    }
+
+    const handleEvent = (rawEvent: string) => {
+      if (!rawEvent.trim()) return
+      let eventName = 'message'
+      const dataLines: string[] = []
+      for (const line of rawEvent.split(/\r?\n/)) {
+        if (line.startsWith('event:')) {
+          eventName = line.slice('event:'.length).trim()
+        } else if (line.startsWith('data:')) {
+          dataLines.push(line.slice('data:'.length).trim())
+        }
+      }
+      if (!dataLines.length) return
+      const rawData = dataLines.join('\n')
+      const data = JSON.parse(rawData) as {
+        delta?: unknown
+        explanation?: unknown
+        model?: unknown
+        error?: unknown
+      }
+      if (eventName === 'token') {
+        const delta = typeof data.delta === 'string' ? data.delta : ''
+        if (!delta) return
+        streamedExplanation += delta
+        updateStreamedExplanation()
+        return
+      }
+      if (eventName === 'model') {
+        streamedModel = typeof data.model === 'string' ? data.model : streamedModel
+        if (streamedExplanation) updateStreamedExplanation()
+        return
+      }
+      if (eventName === 'done') {
+        streamState.donePayload = data
+        return
+      }
+      if (eventName === 'error') {
+        throw new Error(typeof data.error === 'string' ? data.error : 'AI 解析失败')
+      }
+    }
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (value) {
+        buffer += decoder.decode(value, { stream: !done })
+        const events = buffer.split(/\r?\n\r?\n/)
+        buffer = events.pop() ?? ''
+        for (const event of events) {
+          handleEvent(event)
+        }
+      }
+      if (done) break
+    }
+    if (buffer.trim()) {
+      handleEvent(buffer)
+    }
+
+    const donePayload = streamState.donePayload
+    const finalExplanation =
+      typeof donePayload?.explanation === 'string' && donePayload.explanation.trim()
+        ? donePayload.explanation
+        : streamedExplanation
+    const finalModel =
+      typeof donePayload?.model === 'string' && donePayload.model.trim()
+        ? donePayload.model
+        : streamedModel
+    if (!finalExplanation.trim()) {
+      throw new Error('AI 返回内容为空')
+    }
+    const cachedValue = setCachedProblemExplanation(key, {
+      explanation: finalExplanation,
+      model: finalModel
+    })
+    if (cachedValue) {
+      aiExplanationByKey.value = {
+        ...aiExplanationByKey.value,
+        [key]: cachedValue
+      }
+    }
+  } catch (error) {
+    setAiExplanationError(
+      key,
+      normalizeAiError(error instanceof Error ? error.message : 'AI 解析失败')
+    )
+  } finally {
+    if (aiExplanationLoadingKey.value === key) {
+      aiExplanationLoadingKey.value = ''
+    }
+  }
+}
+
+function renderMarkdown(text: string): string {
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+  return marked.parse(escaped, { async: false }) as string
+}
+
 function handleModeClick(mode: number) {
   if (mode === 4 && !wrongReviewAvailable.value) {
     return
@@ -2275,6 +2511,15 @@ watch(nowProblemId, () => {
               @click="nowProblemId -= 1" />
             <Button type="button" label="下一题" severity="secondary" :disabled="nowProblemId + 1 >= nowProblemList.length"
               @click="nowProblemId += 1" />
+            <Button
+              type="button"
+              label="AI 解析"
+              icon="pi pi-sparkles"
+              severity="help"
+              :loading="isAiExplanationLoading"
+              :disabled="!currentProblem || !canRequestAiExplanation"
+              @click="requestAiExplanation"
+            />
             <Button v-if="isExamMode" type="button" label="交卷" severity="success" :disabled="examSubmitted"
               @click="submitExam" />
             <Button
@@ -2285,6 +2530,23 @@ watch(nowProblemId, () => {
               :disabled="!nowProblemList.length"
               @click="restartCurrentMode"
             />
+          </div>
+          <div
+            v-if="isAiExplanationLoading || currentAiExplanation || currentAiExplanationError"
+            class="ai-explanation"
+          >
+            <div class="ai-explanation-head">
+              <span>AI 解析</span>
+              <span v-if="currentAiExplanation?.model" class="ai-explanation-model">
+                {{ currentAiExplanation.model }}
+              </span>
+            </div>
+            <div v-if="isAiExplanationLoading && !currentAiExplanation" class="ai-explanation-muted">解析生成中...</div>
+            <div v-else-if="currentAiExplanationError" class="ai-explanation-error">
+              {{ currentAiExplanationError }}
+            </div>
+            <div v-else-if="currentAiExplanation" class="ai-explanation-content" v-html="renderMarkdown(currentAiExplanation.explanation)" />
+            <div v-if="isAiExplanationLoading && currentAiExplanation" class="ai-explanation-muted">继续生成中...</div>
           </div>
         </template>
       </Card>
@@ -2918,6 +3180,85 @@ watch(nowProblemId, () => {
   background: var(--vtix-warning-bg);
   border-color: transparent;
   color: var(--vtix-warning-text);
+}
+
+.ai-explanation {
+  margin-top: 14px;
+  border: 1px solid var(--vtix-border-strong);
+  background: var(--vtix-surface-2);
+  border-radius: 12px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ai-explanation-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--vtix-text-strong);
+  font-weight: 700;
+}
+
+.ai-explanation-model {
+  color: var(--vtix-text-subtle);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.ai-explanation-content {
+  line-height: 1.65;
+  color: var(--vtix-text-strong);
+  font-size: 14px;
+}
+.ai-explanation-content p {
+  margin: 0 0 8px 0;
+}
+.ai-explanation-content p:last-child {
+  margin-bottom: 0;
+}
+.ai-explanation-content ul, .ai-explanation-content ol {
+  margin: 4px 0 8px 0;
+  padding-left: 1.5em;
+}
+.ai-explanation-content li {
+  margin: 2px 0;
+}
+.ai-explanation-content strong {
+  font-weight: 700;
+}
+.ai-explanation-content code {
+  background: var(--vtix-surface-3, #f0f0f0);
+  padding: 1px 4px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+.ai-explanation-content pre {
+  background: var(--vtix-surface-3, #f0f0f0);
+  border-radius: 8px;
+  padding: 12px;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+.ai-explanation-content pre code {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+}
+
+.ai-explanation-muted {
+  color: var(--vtix-text-muted);
+  font-size: 14px;
+}
+
+.ai-explanation-error {
+  color: var(--vtix-danger-text);
+  background: var(--vtix-danger-bg);
+  border: 1px solid var(--vtix-danger-border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
 }
 
 .list-panel {

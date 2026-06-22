@@ -181,3 +181,15 @@ export const brawlRecords = mysqlTable("brawl_records", {
   winnerName: varchar("winner_name", { length: 255 }),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
 });
+
+export const userAiConfigs = mysqlTable("user_ai_configs", {
+  userId: int("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  aiApiBase: varchar("ai_api_base", { length: 1024 }),
+  aiApiKey: varchar("ai_api_key", { length: 512 }),
+  aiProtocol: varchar("ai_protocol", { length: 32 }),
+  aiModel: varchar("ai_model", { length: 128 }),
+  aiRequestTimeoutMs: int("ai_request_timeout_ms"),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+});
