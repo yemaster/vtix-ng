@@ -135,16 +135,32 @@ npm run preview
 生产部署建议使用 Nginx：
 
 - `/api` 反向代理到后端 `3000`
+- `/socket.io` 反向代理到后端 `3000`（**题库大乱斗必需**，需升级为 WebSocket）
 - 前端静态资源指向 `dist`
+
+> 仓库 `deploy/api` 与 `deploy/socket` 为参考用的 Nginx 配置片段，可直接拼接进站点配置。
 
 示例（仅供参考）：
 
 ```
-location /api/ {
+location ~ ^/(admin/)?api {
   proxy_pass http://127.0.0.1:3000;
+  proxy_http_version 1.1;
   proxy_set_header Host $host;
   proxy_set_header X-Real-IP $remote_addr;
   proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  proxy_set_header Upgrade $http_upgrade;
+  proxy_set_header Connection $connection_upgrade;
+}
+
+location /socket.io/ {
+  proxy_pass http://127.0.0.1:3000;
+  proxy_http_version 1.1;
+  proxy_set_header Upgrade $http_upgrade;
+  proxy_set_header Connection "upgrade";
+  proxy_set_header Host $host;
+  proxy_read_timeout 600s;
+  proxy_send_timeout 600s;
 }
 
 location / {
@@ -152,6 +168,8 @@ location / {
   try_files $uri /index.html;
 }
 ```
+
+> `/socket.io/` 的 `proxy_pass` 不要带末尾 `/`；`Upgrade`/`Connection` 头和 600s 长超时是乱斗实时对战正常工作的前提。
 
 ---
 
