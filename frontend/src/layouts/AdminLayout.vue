@@ -20,6 +20,7 @@ const MANAGE_QUESTION_BANK_OWN = 1 << 9
 const MANAGE_QUESTION_BANK_ALL = 1 << 10
 const MANAGE_USERS = 1 << 11
 const MANAGE_NOTICES = 1 << 12
+const MANAGE_COMMENTS = 1 << 13
 
 const canManageQuestionBanks = computed(() => {
   const permissions = userStore.user?.permissions ?? 0
@@ -42,6 +43,11 @@ const canManageUsers = computed(() => {
 const canManageNotices = computed(() => {
   const permissions = userStore.user?.permissions ?? 0
   return (permissions & MANAGE_NOTICES) === MANAGE_NOTICES
+})
+
+const canManageComments = computed(() => {
+  const permissions = userStore.user?.permissions ?? 0
+  return (permissions & MANAGE_COMMENTS) === MANAGE_COMMENTS
 })
 
 const canViewDashboard = computed(() => {
@@ -111,6 +117,16 @@ watch(
             <RouterLink :to="{ name: 'admin-notices' }" :class="['nav-link', { active: activeName === 'admin-notices' }]">
               <span class="nav-icon pi pi-megaphone" aria-hidden="true" />
               <span>通知公告</span>
+            </RouterLink>
+          </div>
+        </div>
+
+        <div v-if="canManageComments" class="nav-group">
+          <div class="nav-title">评论管理</div>
+          <div class="nav-links">
+            <RouterLink :to="{ name: 'admin-comments' }" :class="['nav-link', { active: activeName === 'admin-comments' }]">
+              <span class="nav-icon pi pi-comments" aria-hidden="true" />
+              <span>举报处理</span>
             </RouterLink>
           </div>
         </div>

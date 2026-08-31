@@ -19,6 +19,7 @@
 - `MANAGE_QUESTION_BANK_ALL`（可管理所有题库）
 - `MANAGE_USERS`（可管理用户/用户组/查看后台统计）
 - `MANAGE_NOTICES`（可管理通知公告）
+- `MANAGE_COMMENTS`（可删除任意评论、处理举报）
 
 ## 数据结构
 
@@ -92,6 +93,48 @@
   "updatedAt": 1710000000000
 }
 ```
+
+### Message（站内消息）
+```json
+{
+  "id": 1,
+  "senderId": 1,
+  "senderName": "string",
+  "receiverId": 1,
+  "receiverName": "string",
+  "content": "string",
+  "type": 2,
+  "link": "string|null",
+  "isRead": false,
+  "createdAt": 1710000000000
+}
+```
+`type` 取值：`1` 系统消息（题库审核等）、`2` 评论点赞、`3` 举报通知、`4` 评论引用。`link` 非空时前端可点击跳转。
+
+### Comment（题目评论）
+```json
+{
+  "id": 1,
+  "problemId": 1,
+  "userId": "1",
+  "userName": "string",
+  "content": "string",
+  "floor": 1,
+  "likeCount": 0,
+  "liked": false,
+  "replyTo": {
+    "commentId": 1,
+    "floor": 1,
+    "userName": "string",
+    "snippet": "string"
+  },
+  "createdAt": 1710000000000,
+  "updatedAt": 1710000000000
+}
+```
+- `floor` 为题内楼号（按发表时间递增，删除评论不重排，允许跳号）。
+- `liked` 为当前查看者是否已点赞（未登录恒为 `false`）。
+- `replyTo` 为该评论引用的父评论摘要；无引用或父评论已删时为 `null`。`snippet` 为父评论内容前 40 字。
 
 ## 认证与用户
 
@@ -316,6 +359,9 @@
   "activeUsers": 0,
   "visitCount": 0,
   "practiceCount": 0,
+  "commentCount": 0,
+  "likeCount": 0,
+  "reportCount": 0,
   "deltas": {
     "totalSets7d": 0,
     "publicSets7d": 0,
@@ -325,6 +371,7 @@
   }
 }
 ```
+`commentCount`/`likeCount`/`reportCount` 为评论、点赞、举报的累计总数（点赞按点赞记录表计、举报含已忽略）。
 
 ### 管理端题库列表
 `GET /api/admin/problem-sets`
@@ -453,6 +500,166 @@
 **Response**
 ```json
 { /* Notice */ }
+```
+
+## 消息（站内消息）
+
+### 未读消息数
+`GET /api/messages/unread-count`
+
+**需要登录**
+
+**Response**
+```json
+{ "count": 0 }
+```
+
+### 消息列表
+`GET /api/messages`
+
+**需要登录**
+
+**Query**
+- `page`（默认 1）、`pageSize`（默认 8）
+
+**Response**
+```json
+[ /* Message[] */ ]
+```
+响应头：`x-total-count`（总数）、`x-unread-count`（未读数，返回时尚未标记已读的值）。读取列表时服务端会自动把这些消息标记为已读。
+
+## 题目评论
+
+评论按"单个题目"维度展开；前端在某题作答后才展示（防剧透）。**查看（GET）对游客开放**，发评论 / 点赞 / 举报 / 删除均需登录。
+
+### 评论列表
+`GET /api/problems/:id/comments`
+
+**Query**
+- `page`（默认 1）、`pageSize`（默认 10）、`sort`：`latest`（默认，按 id 倒序）/ `hot`（按点赞数倒序）
+
+**Response**
+```json
+[ /* Comment[] */ ]
+```
+响应头 `x-total-count` 为该题评论总数。已登录查看者会回填各条 `liked` 与 `replyTo`。
+
+### 发表评论
+`POST /api/problems/:id/comments`
+
+**需要登录 + 频率限制**（每用户 60 秒内 ≤ 5 条）
+
+**Body**
+```json
+{ "content": "string", "replyToCommentId": 1 }
+```
+- `content`：trim 后非空，长度 ≤ 500。
+- `replyToCommentId`（可选）：引用的目标评论 id；必须存在且属于**同一题目**，否则忽略（降级为普通评论）。
+
+**Response** `201`
+```json
+{ /* Comment */ }
+```
+引用了他人评论时，被引用者收到一条 `type=4`（评论引用）消息；自引用不发通知。
+
+**错误**
+- `400`：内容为空 / 超长
+- `401`：未登录
+- `404`：题目不存在
+- `429`：频率过高
+
+### 点赞 / 取消点赞
+`POST /api/comments/:id/like`
+
+**需要登录**
+
+**Response**
+```json
+{ "liked": true, "likeCount": 1 }
+```
+再次调用即取消。新点赞（非自赞）会向评论作者发一条 `type=2`（评论点赞）消息。
+
+**错误**
+- `401`：未登录
+- `404`：评论不存在
+
+### 举报评论
+`POST /api/comments/:id/report`
+
+**需要登录**
+
+**Body**
+```json
+{ "reason": "string" }
+```
+`reason` 可选（最长 200）。同一用户对同一评论只能举报一次。
+
+**Response**
+```json
+{ "ok": true, "alreadyReported": false }
+```
+当某评论**当前没有待处理（open）举报**时收到一条新举报，所有持 `MANAGE_COMMENTS` 的用户会收到一条 `type=3`（举报通知）消息，`link` 指向 `/admin/comments`。即每一「波」举报只通知一次；管理员把这波举报忽略（置为 `dismissed`）后，若再收到新举报会再次通知。举报记录带 `status`：`open`（待处理）/ `dismissed`（已忽略，评论保留）。
+
+### 删除评论
+`DELETE /api/comments/:id`
+
+**需要登录**
+
+**权限**：评论作者，或持 `MANAGE_COMMENTS`。
+
+**Response**
+```json
+{ "ok": true }
+```
+删除会级联移除该评论的点赞与举报记录；若它被其他评论引用，引用方的 `replyTo` 会变为 `null`（评论本身保留）。
+
+**错误**
+- `401`：未登录
+- `403`：无权删除
+- `404`：评论不存在
+
+### 被举报评论列表（管理端，按评论聚合）
+`GET /api/admin/comments/reported`
+
+**需要登录 + 权限 `MANAGE_COMMENTS`**
+
+**Query**
+- `page`（默认 1）、`pageSize`（默认 20，按**评论**分页）
+
+**Response**
+```json
+[
+  {
+    "commentId": 1,
+    "problemId": 1,
+    "setTitle": "string|null",
+    "questionNumber": 1,
+    "commentUserName": "string",
+    "commentContent": "string",
+    "floor": 1,
+    "likeCount": 0,
+    "openCount": 3,
+    "totalCount": 5,
+    "latestReportAt": 1710000000000,
+    "reports": [
+      { "reportId": 1, "reason": "string|null", "createdAt": 1710000000000 }
+    ]
+  }
+]
+```
+只返回**仍有 `open` 举报**的评论，按最新 open 举报时间倒序。`openCount` 为当前待处理数，`totalCount` 为累计（含已忽略）。响应头 `x-total-count` 为待处理评论数。`setTitle`/`questionNumber` 取该题所属题库（多题集时取最近更新的一个）。
+
+### 忽略举报（管理端，按评论批量）
+`POST /api/admin/comments/:id/dismiss-reports`
+
+**需要登录 + 权限 `MANAGE_COMMENTS`**
+
+把该评论的全部 `open` 举报置为 `dismissed`（**保留评论**，举报记录留作审计）。幂等。
+
+**Response**
+```json
+{ "ok": true }
+```
 ```
 
 ## 练习记录同步

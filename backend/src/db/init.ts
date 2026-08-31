@@ -134,6 +134,25 @@ function ensureSqliteProblemSetPendingColumn(
   }
 }
 
+// comment_floor_seq is declared in CREATE TABLE problems (fresh installs), but
+// a DB created before this feature (e.g. by master) already has `problems` and
+// won't get the column via CREATE TABLE IF NOT EXISTS. Add it here so the
+// comment feature runs on those DBs. Backfill not needed: comments are new, so
+// every existing problem correctly starts at seq 0 -> first comment is floor 1.
+function ensureSqliteProblemCommentFloorSeqColumn(
+  client: ReturnType<typeof assertSqliteClient>
+) {
+  const columns = client
+    .prepare("PRAGMA table_info(problems)")
+    .all() as Array<{ name?: string }>;
+  const hasColumn = columns.some((column) => column.name === "comment_floor_seq");
+  if (!hasColumn) {
+    client.exec(
+      "ALTER TABLE problems ADD COLUMN comment_floor_seq INTEGER NOT NULL DEFAULT 0;"
+    );
+  }
+}
+
 function ensureSqliteProblemSetStatsColumns(
   client: ReturnType<typeof assertSqliteClient>
 ) {
@@ -291,6 +310,21 @@ async function ensureMysqlProblemSetPendingColumn() {
   try {
     await execMysql(
       "ALTER TABLE problem_sets ADD COLUMN is_pending BOOLEAN NOT NULL DEFAULT FALSE;"
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.toLowerCase().includes("duplicate column")) {
+      throw error;
+    }
+  }
+}
+
+// See ensureSqliteProblemCommentFloorSeqColumn: backfill column for DBs that
+// predate the comment feature.
+async function ensureMysqlProblemCommentFloorSeqColumn() {
+  try {
+    await execMysql(
+      "ALTER TABLE problems ADD COLUMN comment_floor_seq INT NOT NULL DEFAULT 0;"
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -498,7 +532,8 @@ async function ensureSqliteTables() {
       type INTEGER NOT NULL,
       choices TEXT,
       answer TEXT NOT NULL,
-      hint TEXT
+      hint TEXT,
+      comment_floor_seq INTEGER NOT NULL DEFAULT 0
     );
   `);
   client.exec(`
@@ -523,8 +558,56 @@ async function ensureSqliteTables() {
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
   `);
+  client.exec(`
+    CREATE TABLE IF NOT EXISTS problem_comments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      problem_id INTEGER NOT NULL,
+      user_id INTEGER NOT NULL,
+      user_name TEXT NOT NULL,
+      content TEXT NOT NULL,
+      floor INTEGER NOT NULL,
+      like_count INTEGER NOT NULL DEFAULT 0,
+      reply_to_comment_id INTEGER,
+      reply_to_floor INTEGER,
+      reply_to_user_name TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (problem_id) REFERENCES problems(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_problem_comments_problem_floor
+      ON problem_comments(problem_id, floor);
+    CREATE INDEX IF NOT EXISTS idx_problem_comments_problem_id
+      ON problem_comments(problem_id, id);
+  `);
+  client.exec(`
+    CREATE TABLE IF NOT EXISTS problem_comment_likes (
+      comment_id INTEGER NOT NULL,
+      user_id INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (comment_id, user_id),
+      FOREIGN KEY (comment_id) REFERENCES problem_comments(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+  `);
+  client.exec(`
+    CREATE TABLE IF NOT EXISTS problem_comment_reports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      comment_id INTEGER NOT NULL,
+      reporter_id INTEGER NOT NULL,
+      reason TEXT,
+      status TEXT NOT NULL DEFAULT 'open',
+      created_at INTEGER NOT NULL,
+      UNIQUE (comment_id, reporter_id),
+      FOREIGN KEY (comment_id) REFERENCES problem_comments(id) ON DELETE CASCADE,
+      FOREIGN KEY (reporter_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_problem_comment_reports_status
+      ON problem_comment_reports(status, created_at);
+  `);
   ensureSqliteProblemSetTimestampColumns(client);
   ensureSqliteProblemSetPendingColumn(client);
+  ensureSqliteProblemCommentFloorSeqColumn(client);
   ensureSqliteProblemSetStatsColumns(client);
 }
 
@@ -641,6 +724,7 @@ async function ensureMysqlTables() {
   `);
   await ensureMysqlProblemSetTimestampColumns();
   await ensureMysqlProblemSetPendingColumn();
+  await ensureMysqlProblemCommentFloorSeqColumn();
   await ensureMysqlProblemSetStatsColumns();
   await execMysql(`
     CREATE TABLE IF NOT EXISTS categories (
@@ -666,7 +750,8 @@ async function ensureMysqlTables() {
       type INT NOT NULL,
       choices JSON,
       answer JSON NOT NULL,
-      hint TEXT
+      hint TEXT,
+      comment_floor_seq INT NOT NULL DEFAULT 0
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   `);
   await execMysql(`
@@ -693,6 +778,56 @@ async function ensureMysqlTables() {
         REFERENCES problem_sets(id) ON DELETE CASCADE,
       CONSTRAINT fk_psr_user_id FOREIGN KEY (user_id)
         REFERENCES users(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+  await execMysql(`
+    CREATE TABLE IF NOT EXISTS problem_comments (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      problem_id INT NOT NULL,
+      user_id INT NOT NULL,
+      user_name VARCHAR(255) NOT NULL,
+      content TEXT NOT NULL,
+      floor INT NOT NULL,
+      like_count INT NOT NULL DEFAULT 0,
+      reply_to_comment_id INT,
+      reply_to_floor INT,
+      reply_to_user_name VARCHAR(255),
+      created_at BIGINT NOT NULL,
+      updated_at BIGINT NOT NULL,
+      CONSTRAINT fk_pc_problem_id FOREIGN KEY (problem_id)
+        REFERENCES problems(id) ON DELETE CASCADE,
+      CONSTRAINT fk_pc_user_id FOREIGN KEY (user_id)
+        REFERENCES users(id) ON DELETE CASCADE,
+      INDEX idx_problem_comments_problem_floor (problem_id, floor),
+      INDEX idx_problem_comments_problem_id (problem_id, id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+  await execMysql(`
+    CREATE TABLE IF NOT EXISTS problem_comment_likes (
+      comment_id INT NOT NULL,
+      user_id INT NOT NULL,
+      created_at BIGINT NOT NULL,
+      PRIMARY KEY (comment_id, user_id),
+      CONSTRAINT fk_pcl_comment_id FOREIGN KEY (comment_id)
+        REFERENCES problem_comments(id) ON DELETE CASCADE,
+      CONSTRAINT fk_pcl_user_id FOREIGN KEY (user_id)
+        REFERENCES users(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+  await execMysql(`
+    CREATE TABLE IF NOT EXISTS problem_comment_reports (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      comment_id INT NOT NULL,
+      reporter_id INT NOT NULL,
+      reason TEXT,
+      status VARCHAR(32) NOT NULL DEFAULT 'open',
+      created_at BIGINT NOT NULL,
+      UNIQUE KEY uq_problem_comment_reports (comment_id, reporter_id),
+      CONSTRAINT fk_pcr_comment_id FOREIGN KEY (comment_id)
+        REFERENCES problem_comments(id) ON DELETE CASCADE,
+      CONSTRAINT fk_pcr_reporter_id FOREIGN KEY (reporter_id)
+        REFERENCES users(id) ON DELETE CASCADE,
+      INDEX idx_problem_comment_reports_status (status, created_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   `);
 }

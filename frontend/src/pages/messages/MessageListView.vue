@@ -36,6 +36,9 @@ const emptyText = computed(() => (isLoading.value ? '加载中…' : '暂无消�
 
 function formatType(type: number) {
   if (type === 1) return '系统消息'
+  if (type === 2) return '评论点赞'
+  if (type === 3) return '举报通知'
+  if (type === 4) return '评论引用'
   return `类型 ${type}`
 }
 

@@ -1,6 +1,12 @@
 import { Elysia } from "elysia";
 import { gte, sql } from "drizzle-orm";
-import { db, userRecords } from "../../db";
+import {
+  db,
+  problemCommentLikes,
+  problemCommentReports,
+  problemComments,
+  userRecords,
+} from "../../db";
 import { loadProblemSetList } from "../../services/problemSets";
 import { PERMISSIONS, hasPermission } from "../../utils/permissions";
 import { getSessionUser } from "../../utils/session";
@@ -42,12 +48,27 @@ export const registerAdminStatsRoutes = (app: Elysia) =>
         .where(gte(userRecords.updatedAt, todayStart.getTime()));
       const visitToday = Number(visitTodayRow?.count ?? 0);
 
+      // Comment engagement totals. The three comment tables are created fresh
+      // by init.ts (CREATE TABLE IF NOT EXISTS), so count(*) is safe on any DB
+      // (returns 0 on a master DB that predates the comment feature).
+      const [commentCountRow, likeCountRow, reportCountRow] = await Promise.all([
+        db.select({ count: sql<number>`count(*)` }).from(problemComments),
+        db.select({ count: sql<number>`count(*)` }).from(problemCommentLikes),
+        db.select({ count: sql<number>`count(*)` }).from(problemCommentReports),
+      ]);
+      const commentCount = Number(commentCountRow[0]?.count ?? 0);
+      const likeCount = Number(likeCountRow[0]?.count ?? 0);
+      const reportCount = Number(reportCountRow[0]?.count ?? 0);
+
       return {
         totalSets,
         publicSets,
         activeUsers: creatorCount,
         visitCount,
         practiceCount: questionCount,
+        commentCount,
+        likeCount,
+        reportCount,
         deltas: {
           totalSets7d: 0,
           publicSets7d: 0,

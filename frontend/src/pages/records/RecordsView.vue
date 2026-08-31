@@ -534,10 +534,10 @@ function confirmDeleteRecord(record: PracticeRecord) {
       `你真的要删除 ${title} · ${getModeLabel(record.practiceMode)} 记录吗？`,
       `${formatTimestamp(record.updatedAt)} · 用时 ${formatDuration(record.progress?.timeSpentSeconds ?? 0)} · 进度 ${answered}/${total}（${getRecordProgressPercent(record)}%）`
     ].join('\n'),
-    icon: 'pi pi-exclamation-triangle',
     rejectLabel: '取消',
     acceptLabel: '删除',
-    acceptClass: 'p-button-danger',
+    acceptProps: { severity: 'danger' },
+    rejectProps: { severity: 'secondary' },
     defaultFocus: 'reject',
     accept: () => deleteRecord(record.id)
   })

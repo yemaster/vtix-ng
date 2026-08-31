@@ -502,6 +502,7 @@ async function loadCategoriesMap(setIds: number[]) {
 }
 
 function toProblemPayload(row: {
+  id: number;
   type: number;
   content: string;
   choices: string[] | null;
@@ -510,6 +511,7 @@ function toProblemPayload(row: {
 }) {
   if (row.hint) {
     return {
+      id: row.id,
       type: row.type,
       content: row.content,
       choices: row.choices ?? undefined,
@@ -518,6 +520,7 @@ function toProblemPayload(row: {
     };
   }
   return {
+    id: row.id,
     type: row.type,
     content: row.content,
     choices: row.choices ?? undefined,
@@ -1166,6 +1169,7 @@ export async function loadProblemSetDetail(
   const categoryMap = await loadCategoriesMap([row.id]);
   const problemRows = (await db
     .select({
+      id: problems.id,
       type: problems.type,
       content: problems.content,
       choices: problems.choices,
@@ -1177,6 +1181,7 @@ export async function loadProblemSetDetail(
     .innerJoin(problems, eq(problemSetProblems.problemId, problems.id))
     .where(eq(problemSetProblems.problemSetId, row.id))
     .orderBy(asc(problemSetProblems.orderIndex))) as Array<{
+    id: number;
     type: number;
     content: string;
     choices: string[] | null;

@@ -10,6 +10,9 @@ type AdminStats = {
   activeUsers: number
   visitCount: number
   practiceCount: number
+  commentCount: number
+  likeCount: number
+  reportCount: number
   deltas?: {
     totalSets7d?: number
     publicSets7d?: number
@@ -151,7 +154,7 @@ onMounted(() => {
 
     <section class="stats-grid">
       <template v-if="loading">
-        <div v-for="n in 5" :key="`stat-skeleton-${n}`" class="vtix-panel stat-card skeleton">
+        <div v-for="n in 8" :key="`stat-skeleton-${n}`" class="vtix-panel stat-card skeleton">
           <div class="skeleton-line sm"></div>
           <div class="skeleton-line lg"></div>
           <div class="skeleton-line md"></div>
@@ -182,6 +185,21 @@ onMounted(() => {
           <div class="stat-title">练习次数</div>
           <div class="stat-value">{{ formatNumber(stats?.practiceCount) }}</div>
           <div class="stat-meta">{{ metaText.practiceCount }}</div>
+        </div>
+        <div class="vtix-panel stat-card">
+          <div class="stat-title">评论数</div>
+          <div class="stat-value">{{ formatNumber(stats?.commentCount) }}</div>
+          <div class="stat-meta">累计</div>
+        </div>
+        <div class="vtix-panel stat-card">
+          <div class="stat-title">点赞数</div>
+          <div class="stat-value">{{ formatNumber(stats?.likeCount) }}</div>
+          <div class="stat-meta">累计</div>
+        </div>
+        <div class="vtix-panel stat-card">
+          <div class="stat-title">举报数</div>
+          <div class="stat-value">{{ formatNumber(stats?.reportCount) }}</div>
+          <div class="stat-meta">累计</div>
         </div>
       </template>
     </section>

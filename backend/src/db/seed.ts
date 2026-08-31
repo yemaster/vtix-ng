@@ -46,6 +46,29 @@ export async function ensureDefaultUserGroups() {
         .join(", ")}`
     );
   }
+
+  // Keep built-in groups in sync with the canonical definitions: backfill any
+  // newly-introduced permission bits. Monotonic — only ever adds bits, never
+  // strips custom grants an admin may have layered on top.
+  for (const canonical of DEFAULT_GROUPS) {
+    if (!existingIds.has(canonical.id)) continue;
+    const [row] = await db
+      .select({ permissions: userGroups.permissions })
+      .from(userGroups)
+      .where(eq(userGroups.id, canonical.id))
+      .limit(1);
+    const current = Number(row?.permissions ?? 0);
+    const missingBits = canonical.permissions & ~current;
+    if (missingBits !== 0) {
+      await db
+        .update(userGroups)
+        .set({ permissions: current | canonical.permissions })
+        .where(eq(userGroups.id, canonical.id));
+      console.log(
+        `Backfilled permission bits for built-in group: ${canonical.id}`
+      );
+    }
+  }
 }
 
 export async function ensureAdminUser() {

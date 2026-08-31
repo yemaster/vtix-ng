@@ -55,4 +55,7 @@ export const userRecords = schema.userRecords;
 export const notices = schema.notices;
 export const messages = schema.messages;
 export const brawlRecords = schema.brawlRecords;
+export const problemComments = schema.problemComments;
+export const problemCommentLikes = schema.problemCommentLikes;
+export const problemCommentReports = schema.problemCommentReports;
 export { db, schema, sqliteClient, mysqlPool };

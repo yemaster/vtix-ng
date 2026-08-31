@@ -1,4 +1,5 @@
 export type SingleChooseProblemType = {
+    id?: number;
     type: 1;
     content: string;
     choices: string[];
@@ -6,6 +7,7 @@ export type SingleChooseProblemType = {
     hint?: string;
 };
 export type MultiChooseProblemType = {
+    id?: number;
     type: 2;
     content: string;
     choices: string[];
@@ -13,12 +15,14 @@ export type MultiChooseProblemType = {
     hint?: string;
 };
 export type FillingProblemType = {
+    id?: number;
     type: 3;
     content: string;
     answer: string;
     hint?: string;
 };
 export type JudgementProblemType = {
+    id?: number;
     type: 4;
     content: string;
     choices: [string, string];

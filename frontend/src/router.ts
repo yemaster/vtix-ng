@@ -132,6 +132,12 @@ const router = createRouter({
                     meta: { title: '通知公告管理' }
                 },
                 {
+                    path: 'comments',
+                    name: 'admin-comments',
+                    component: () => import('./pages/admin/AdminCommentsView.vue'),
+                    meta: { title: '评论管理' }
+                },
+                {
                     path: 'question-banks',
                     name: 'admin-question-banks',
                     component: () => import('./pages/admin/QuestionBankManageView.vue'),

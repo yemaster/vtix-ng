@@ -40,6 +40,7 @@ import {
 } from '../../base/vtixGlobal'
 import { useUserStore } from '../../stores/user'
 import { formatRelativeTimeFromNow } from '../../utils/datetime'
+import ProblemComments from '../../components/ProblemComments.vue'
 
 type ProblemListType = {
   title: string
@@ -209,6 +210,13 @@ const currentTypeLabel = computed(() => {
 })
 
 const isSubmitted = computed(() => (problemState.value[nowProblemId.value] ?? 0) >= 2)
+// Comments are only revealed once the user has engaged with the question, to
+// avoid spoiling the answer. Practice: after grading (correct / wrong / 不会).
+// Exam: only after handing in (交卷). Silent navigation past a question does not.
+const canShowComments = computed(() => {
+  if (isExamMode.value) return examSubmitted.value
+  return (problemState.value[nowProblemId.value] ?? 0) >= 2
+})
 const isSingleChoice = computed(
   () => currentProblem.value?.type === 1 || currentProblem.value?.type === 4
 )
@@ -2286,6 +2294,12 @@ watch(nowProblemId, () => {
               @click="restartCurrentMode"
             />
           </div>
+          <ProblemComments
+            v-if="canShowComments"
+            :key="currentProblem?.id ?? 'none'"
+            :problem-id="currentProblem?.id"
+          />
+          <div v-else-if="currentProblem" class="comments-hint">作答后查看讨论</div>
         </template>
       </Card>
 
@@ -2894,6 +2908,15 @@ watch(nowProblemId, () => {
   justify-content: flex-start;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.comments-hint {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--vtix-border);
+  color: var(--vtix-text-subtle);
+  font-size: 13px;
+  text-align: center;
 }
 
 .submit-row .restart-btn {

@@ -9,6 +9,7 @@ export const PERMISSIONS = {
   MANAGE_QUESTION_BANK: 1 << 10,
   MANAGE_USERS: 1 << 11,
   MANAGE_NOTICES: 1 << 12,
+  MANAGE_COMMENTS: 1 << 13,
 } as const;
 
 export type PermissionValue = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -43,7 +44,8 @@ export const USER_GROUPS: Record<string, UserGroup> = {
       PERMISSIONS.ACCESS_PRIVATE |
       PERMISSIONS.ACCESS_RECORDS |
       PERMISSIONS.ACCESS_WRONG_RECORDS |
-      PERMISSIONS.MANAGE_QUESTION_BANK_ALL,
+      PERMISSIONS.MANAGE_QUESTION_BANK_ALL |
+      PERMISSIONS.MANAGE_COMMENTS,
     privateProblemSetLimit: -1,
     recordCloudLimit: -1,
   },
@@ -58,7 +60,8 @@ export const USER_GROUPS: Record<string, UserGroup> = {
       PERMISSIONS.ACCESS_WRONG_RECORDS |
       PERMISSIONS.MANAGE_QUESTION_BANK_ALL |
       PERMISSIONS.MANAGE_USERS |
-      PERMISSIONS.MANAGE_NOTICES,
+      PERMISSIONS.MANAGE_NOTICES |
+      PERMISSIONS.MANAGE_COMMENTS,
     privateProblemSetLimit: -1,
     recordCloudLimit: -1,
   },
